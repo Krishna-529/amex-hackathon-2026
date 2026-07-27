@@ -80,3 +80,30 @@ fan-out 15s, OPA ~50ms, rank 4s), and the ledger's virtual clock advances by the
 latency even under `--fast`, so timestamps are identical between a real-time and a fast run.
 
 No external API is ever called. Every supplier response replays a recorded fixture.
+
+## Hosting the dashboard
+
+The dashboard normally reads `/api/state` and `/api/push` from `scripts/api-server.ts`, which needs
+Temporal, OPA and a populated `decision_ledger`. None of that can run on a static host, so the
+deployed build serves a **snapshot** of those two responses instead.
+
+Because the run is deterministic — frozen clock, seeded randomness, recorded fixtures — the snapshot
+is byte-identical to what a live run produces. It is not mock data; it is the real ledger output of a
+real saga, captured once.
+
+`web/public/api/{state,push}.json` hold the snapshot. Vite copies `public/` into `dist/`, and
+`web/vercel.json` rewrites the two extension-less API paths onto those files, so the app fetches the
+same URLs whether it is running against the live server or the static build. Local development is
+unaffected: Vite's dev proxy still forwards `/api` to `127.0.0.1:8787`.
+
+To regenerate after changing the scenario or the policies:
+
+```bash
+npm run demo                              # repopulate data/ledger.db
+npx tsx scripts/api-server.ts &            # serve the ledger on :8787
+curl -s localhost:8787/api/state > web/public/api/state.json
+curl -s localhost:8787/api/push  > web/public/api/push.json
+```
+
+On Node 22 the ledger needs `NODE_OPTIONS=--experimental-sqlite`, since `node:sqlite` is still
+flagged there; on Node 24 it is available unflagged.
