@@ -1,0 +1,195 @@
+{
+  "params": {
+    "seats_per_aircraft": 180,
+    "load_factor_normal": 0.87,
+    "load_factor_systemic": 0.92,
+    "p_systemic": 0.35,
+    "route_mix": {
+      "trunk": 0.3,
+      "medium": 0.45,
+      "thin": 0.25
+    },
+    "alts": {
+      "trunk": [
+        8,
+        14
+      ],
+      "medium": [
+        4,
+        8
+      ],
+      "thin": [
+        1,
+        3
+      ]
+    },
+    "spacing_h": {
+      "trunk": 1.5,
+      "medium": 3.0,
+      "thin": 7.0
+    },
+    "airline_autorebook_reactive": [
+      0.45,
+      0.7
+    ],
+    "airline_autorebook_predicted": [
+      0.25,
+      0.5
+    ],
+    "other_demand": [
+      0.1,
+      0.3
+    ],
+    "cross_carrier_access": [
+      0.6,
+      0.8
+    ],
+    "our_share": [
+      0.02,
+      0.06
+    ],
+    "p_prediction_lead": 0.55,
+    "p_hard_constraint": 0.3,
+    "slack_hard": [
+      2.0,
+      8.0
+    ],
+    "slack_soft": [
+      6.0,
+      24.0
+    ],
+    "p_intrinsically_complex": 0.04,
+    "same_day_cutoff_h": 12.0
+  },
+  "headline": {
+    "n": 250000,
+    "events": 39301,
+    "counts": {
+      "A_same_day_constraints_met": 131902,
+      "B_same_day_compromised": 31887,
+      "C_next_day_duty_of_care": 69198,
+      "D_escalated": 17013
+    },
+    "pct": {
+      "A_same_day_constraints_met": 52.76,
+      "B_same_day_compromised": 12.75,
+      "C_next_day_duty_of_care": 27.68,
+      "D_escalated": 6.81
+    },
+    "same_day_seat_pct": 65.51,
+    "closed_without_human_pct": 93.19,
+    "median_delay_h": 6.0,
+    "p90_delay_h": 10.5
+  },
+  "by_regime": {
+    "isolated": {
+      "n": 120000,
+      "events": 19234,
+      "counts": {
+        "A_same_day_constraints_met": 80988,
+        "B_same_day_compromised": 16478,
+        "C_next_day_duty_of_care": 17787,
+        "D_escalated": 4747
+      },
+      "pct": {
+        "A_same_day_constraints_met": 67.49,
+        "B_same_day_compromised": 13.73,
+        "C_next_day_duty_of_care": 14.82,
+        "D_escalated": 3.96
+      },
+      "same_day_seat_pct": 81.22,
+      "closed_without_human_pct": 96.04,
+      "median_delay_h": 6.0,
+      "p90_delay_h": 9.0
+    },
+    "systemic": {
+      "n": 120000,
+      "events": 18163,
+      "counts": {
+        "A_same_day_constraints_met": 33102,
+        "B_same_day_compromised": 13148,
+        "C_next_day_duty_of_care": 59649,
+        "D_escalated": 14101
+      },
+      "pct": {
+        "A_same_day_constraints_met": 27.59,
+        "B_same_day_compromised": 10.96,
+        "C_next_day_duty_of_care": 49.71,
+        "D_escalated": 11.75
+      },
+      "same_day_seat_pct": 38.55,
+      "closed_without_human_pct": 88.25,
+      "median_delay_h": 9.0,
+      "p90_delay_h": 12.0
+    }
+  },
+  "sensitivity": [
+    {
+      "lever": "BASELINE",
+      "closed_without_human_pct": 93.28,
+      "same_day_seat_pct": 66.15,
+      "delta_same_day": 0.0
+    },
+    {
+      "lever": "Single-carrier access only (0.30)",
+      "closed_without_human_pct": 92.84,
+      "same_day_seat_pct": 40.61,
+      "delta_same_day": -25.54
+    },
+    {
+      "lever": "Full multi-supplier access (0.90)",
+      "closed_without_human_pct": 93.24,
+      "same_day_seat_pct": 72.25,
+      "delta_same_day": 6.1
+    },
+    {
+      "lever": "No portfolio - all users one flight",
+      "closed_without_human_pct": 93.28,
+      "same_day_seat_pct": 27.52,
+      "delta_same_day": -38.63
+    },
+    {
+      "lever": "No prediction lead at all",
+      "closed_without_human_pct": 92.97,
+      "same_day_seat_pct": 51.4,
+      "delta_same_day": -14.75
+    },
+    {
+      "lever": "Perfect prediction lead",
+      "closed_without_human_pct": 93.36,
+      "same_day_seat_pct": 77.5,
+      "delta_same_day": 11.35
+    },
+    {
+      "lever": "Our share 2% (low self-contention)",
+      "closed_without_human_pct": 93.53,
+      "same_day_seat_pct": 77.37,
+      "delta_same_day": 11.22
+    },
+    {
+      "lever": "Our share 25% (heavy self-contention)",
+      "closed_without_human_pct": 92.76,
+      "same_day_seat_pct": 29.23,
+      "delta_same_day": -36.92
+    },
+    {
+      "lever": "Share 25% + NO portfolio (one flight for all)",
+      "closed_without_human_pct": 92.76,
+      "same_day_seat_pct": 4.57,
+      "delta_same_day": -61.58
+    },
+    {
+      "lever": "Share 25% + portfolio ON",
+      "closed_without_human_pct": 92.76,
+      "same_day_seat_pct": 29.23,
+      "delta_same_day": -36.92
+    }
+  ],
+  "stability": {
+    "reps": 12,
+    "mean": 93.29,
+    "stdev": 0.177,
+    "min": 92.96,
+    "max": 93.68
+  }
+}
