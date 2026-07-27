@@ -1,0 +1,98 @@
+{
+  "_source": "Recorded Sabre Air Availability + Bargain Finder Max response, replayed offline.",
+  "_captured": "2026-08-25T06:12:04+05:30",
+  "request": {
+    "origin": "MAA",
+    "destination": "DEL",
+    "departureWindow": ["2026-08-25T06:12:00+05:30", "2026-08-25T23:59:00+05:30"],
+    "onwardConnection": { "flight": "AI111", "departIso": "2026-08-26T03:30:00+05:30" },
+    "pnr": "6JQ8XZ"
+  },
+  "offers": [
+    {
+      "offer_id": "O-3B7T",
+      "carrier": "UK",
+      "carrier_name": "Vistara",
+      "flight": "UK828",
+      "from": "MAA",
+      "to": "DEL",
+      "departIso": "2026-08-25T11:40:00+05:30",
+      "arriveIso": "2026-08-25T14:20:00+05:30",
+      "cabin": "BUSINESS",
+      "seats_available": 2,
+      "fare_delta_inr": 62400,
+      "offer_ttl_s": 300
+    },
+    {
+      "offer_id": "O-2H4M",
+      "carrier": "G8",
+      "carrier_name": "Go First",
+      "flight": "G8512",
+      "from": "MAA",
+      "to": "DEL",
+      "departIso": "2026-08-25T12:10:00+05:30",
+      "arriveIso": "2026-08-25T14:55:00+05:30",
+      "cabin": "ECONOMY",
+      "seats_available": 7,
+      "fare_delta_inr": 3100,
+      "offer_ttl_s": 180
+    },
+    {
+      "offer_id": "O-7T0Q",
+      "carrier": "AI",
+      "carrier_name": "Air India",
+      "flight": "AI2807",
+      "from": "MAA",
+      "to": "DEL",
+      "departIso": "2026-08-25T13:05:00+05:30",
+      "arriveIso": "2026-08-25T15:50:00+05:30",
+      "cabin": "ECONOMY",
+      "seats_available": 1,
+      "fare_delta_inr": 5900,
+      "offer_ttl_s": 12
+    },
+    {
+      "offer_id": "O-9F2K",
+      "carrier": "6E",
+      "carrier_name": "IndiGo",
+      "flight": "6E2114",
+      "from": "MAA",
+      "to": "DEL",
+      "departIso": "2026-08-25T15:20:00+05:30",
+      "arriveIso": "2026-08-25T18:05:00+05:30",
+      "cabin": "ECONOMY",
+      "seats_available": 9,
+      "fare_delta_inr": 8450,
+      "offer_ttl_s": 240
+    },
+    {
+      "offer_id": "O-4K8N",
+      "carrier": "6E",
+      "carrier_name": "IndiGo",
+      "flight": "6E5312",
+      "from": "MAA",
+      "to": "DEL",
+      "departIso": "2026-08-25T19:45:00+05:30",
+      "arriveIso": "2026-08-25T22:30:00+05:30",
+      "cabin": "ECONOMY",
+      "seats_available": 4,
+      "fare_delta_inr": 2200,
+      "offer_ttl_s": 600
+    }
+  ],
+  "protection": {
+    "offer_id": "O-PROT-AI111",
+    "carrier": "AI",
+    "carrier_name": "Air India",
+    "flight": "AI111",
+    "from": "DEL",
+    "to": "LHR",
+    "departIso": "2026-08-26T03:30:00+05:30",
+    "arriveIso": "2026-08-26T07:35:00+01:00",
+    "cabin": "ECONOMY",
+    "seats_available": 3,
+    "fare_delta_inr": 0,
+    "offer_ttl_s": 900,
+    "note": "Same-PNR protection — no fare change, subject to a confirmed inbound."
+  }
+}

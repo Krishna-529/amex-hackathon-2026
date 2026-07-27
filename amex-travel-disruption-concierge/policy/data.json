@@ -1,0 +1,12 @@
+{
+  "policy": {
+    "trip": {
+      "pnr": "6JQ8XZ",
+      "cabins": ["ECONOMY", "PREMIUM_ECONOMY", "BUSINESS"],
+      "blocked_carriers": ["G8", "9W"],
+      "max_fare_delta_inr": 45000,
+      "currency": "INR",
+      "regulator": "DGCA_IN"
+    }
+  }
+}
