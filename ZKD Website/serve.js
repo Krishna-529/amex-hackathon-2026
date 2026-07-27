@@ -57,27 +57,32 @@ function serveSite({ dir, port, label }) {
     .createServer((req, res) => {
       let urlPath;
       try {
-        urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+        // Normalise AFTER decoding. The WHATWG URL parser collapses `..` and even
+        // `%2e%2e`, but `..%2f` is a single opaque segment to it — it only becomes
+        // a real `../` once decoded, which used to be after the containment check.
+        urlPath = path.posix.normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname));
       } catch {
         res.writeHead(400).end('Bad request');
         return;
       }
 
-      let file = path.join(root, urlPath);
-      // never escape the site root
-      if (!file.startsWith(root)) {
+      let file = path.resolve(root, '.' + urlPath);
+      // Never escape the site root. The trailing separator is load-bearing:
+      // without it, root `/site/design` also prefix-matches `/site/design-notes`.
+      if (file !== root && !file.startsWith(root + path.sep)) {
         res.writeHead(403).end('Forbidden');
         return;
       }
 
-      // SPA fallback: no extension means it is a client route, not a file
-      if (!path.extname(file) || !fs.existsSync(file)) {
-        if (!path.extname(urlPath)) {
-          file = path.join(root, 'index.html');
-        } else {
-          res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
-          return;
-        }
+      // SPA fallback. Only a KNOWN static extension counts as a file request —
+      // testing for "has any extension" sends `/proof/v1.2` (extname `.2`) to a
+      // 404 when it is a client route.
+      const isAsset = Object.prototype.hasOwnProperty.call(TYPES, path.extname(file).toLowerCase());
+      if (!isAsset) {
+        file = path.join(root, 'index.html');
+      } else if (!fs.existsSync(file)) {
+        res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
+        return;
       }
 
       fs.readFile(file, (err, buf) => {
@@ -109,7 +114,10 @@ SITES.forEach(serveSite);
 
 const ip = lanAddress();
 setTimeout(() => {
-  console.log('\n  This machine :  http://localhost:5173  ·  5174  ·  5175');
-  if (ip) console.log(`  On your LAN  :  http://${ip}:5173  ·  5174  ·  5175`);
+  // derived from SITES so adding a site cannot leave this line stale
+  const ports = SITES.map((s) => s.port);
+  const tail = ports.slice(1).join('  ·  ');
+  console.log(`\n  This machine :  http://localhost:${ports[0]}  ·  ${tail}`);
+  if (ip) console.log(`  On your LAN  :  http://${ip}:${ports[0]}  ·  ${tail}`);
   console.log('\n  Ctrl+C to stop.\n');
 }, 250);

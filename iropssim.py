@@ -94,8 +94,16 @@ def tri(rng, lo, hi):
     return rng.triangular(lo, hi, (lo + hi) / 2.0)
 
 
-def run(params, n_cases=N_CASES, seed=SEED, portfolio=True, share_override=None,
+def run(params, n_cases=N_CASES, seed=SEED, max_alts=None, share_override=None,
         access_override=None):
+    """Run the model.
+
+    max_alts caps how many alternatives we can SEE and transact on. None = all
+    of them. This is the BREADTH lever and it is deliberately separate from the
+    allocation loop below, which is the ALLOCATION lever. Collapsing the two
+    into one boolean (the old `portfolio=False`) attributed breadth's effect to
+    allocation - see decomposition_breadth_vs_allocation().
+    """
     rng = random.Random(seed)
     outcomes = Counter()
     delays = []
@@ -117,22 +125,16 @@ def run(params, n_cases=N_CASES, seed=SEED, portfolio=True, share_override=None,
 
         displaced = int(params["seats_per_aircraft"] * lf)
 
-        # Raw empty seats across all alternatives in the window.
+        # Raw empty seats on ONE alternative in the window. Systemic scarcity is
+        # applied per-alternative where the inventory is actually built, below -
+        # not aggregated here.
         seats_per_alt = params["seats_per_aircraft"] * (1.0 - lf)
-        pool = n_alts * seats_per_alt
-
-        # During a systemic event the alternatives are themselves absorbing
-        # displaced passengers from OTHER cancellations.
-        if systemic:
-            pool *= tri(rng, 0.25, 0.55)
 
         predicted = rng.random() < params["p_prediction_lead"]
         ar_lo, ar_hi = (params["airline_autorebook_predicted"] if predicted
                         else params["airline_autorebook_reactive"])
         taken_airline = tri(rng, ar_lo, ar_hi)
         taken_other = tri(rng, *params["other_demand"])
-
-        remaining = pool * max(0.0, 1.0 - taken_airline - taken_other)
 
         access = access_override if access_override is not None else tri(rng, *params["cross_carrier_access"])
         share = share_override if share_override is not None else tri(rng, *params["our_share"])
@@ -153,12 +155,16 @@ def run(params, n_cases=N_CASES, seed=SEED, portfolio=True, share_override=None,
             free_j = seats_j * (1.0 - take_j) * access
             alt_pool.append([(j + 1) * spacing, free_j])
 
-        # Without portfolio allocation we only draw from the single best
-        # alternative everyone was pointed at.
-        if not portfolio:
-            alt_pool = alt_pool[:1]
+        # BREADTH: how many alternatives we can see at all. Capping this to 1 is
+        # "we only ever looked at the single best flight" - it costs recovery even
+        # for a lone passenger with nobody to contend with, because that flight is
+        # already full of OTHER carriers' displaced passengers.
+        if max_alts is not None:
+            alt_pool = alt_pool[:max_alts]
 
-        # Allocate our users earliest-first across whatever we can reach.
+        # ALLOCATION: assign our users earliest-first across whatever we can reach,
+        # advancing when an alternative is exhausted. This is what stops OUR OWN
+        # members colliding on the same seat; its value scales with our share.
         assigned = []
         ai = 0
         for _ in range(ours):
@@ -253,9 +259,11 @@ def sensitivity(params, seed=SEED):
     add("Full multi-supplier access (0.90)",
         run(params, 120_000, seed + 13, access_override=0.90))
 
-    # Portfolio allocation off: everyone chases one flight
-    add("No portfolio - all users one flight",
-        run(params, 120_000, seed + 13, portfolio=False))
+    # BREADTH curve: how many alternatives we look at. Note the first step
+    # (1 -> 2) buys most of it. This is NOT an allocation effect.
+    for m in (1, 2, 3, 5):
+        add(f"Breadth capped at {m} alternative{'s' if m > 1 else ''}",
+            run(params, 120_000, seed + 13, max_alts=m))
 
     # Prediction lead
     p_nopred = json.loads(json.dumps(params)); p_nopred["p_prediction_lead"] = 0.0
@@ -268,29 +276,75 @@ def sensitivity(params, seed=SEED):
         run(params, 120_000, seed + 13, share_override=0.02))
     add("Our share 25% (heavy self-contention)",
         run(params, 120_000, seed + 13, share_override=0.25))
+    add("Share 25% + breadth capped at 1",
+        run(params, 120_000, seed + 13, share_override=0.25, max_alts=1))
 
-    # Portfolio allocation only earns its keep when OUR OWN users contend
-    # for the same seats. At a 3% share it is nearly free; at 25% it is the
-    # difference between a working system and a stampede.
-    add("Share 25% + NO portfolio (one flight for all)",
-        run(params, 120_000, seed + 13, share_override=0.25, portfolio=False))
-    add("Share 25% + portfolio ON",
-        run(params, 120_000, seed + 13, share_override=0.25, portfolio=True))
+    # The escalation floor. closed_without_human tracks THIS assumption almost
+    # 1:1 - it is the parameter the metric is really reporting, so it belongs in
+    # the sensitivity table rather than being quoted as a model finding.
+    for pc in (0.0, 0.02, 0.10, 0.20):
+        p = json.loads(json.dumps(params)); p["p_intrinsically_complex"] = pc
+        add(f"p_intrinsically_complex = {pc}", run(p, 120_000, seed + 13))
 
     return rows
 
 
-def ci(params, seed=SEED, reps=12):
-    """Seed-to-seed spread, to show the headline number is stable."""
-    vals = [run(params, 40_000, seed + 100 * i)["closed_without_human_pct"]
-            for i in range(reps)]
+def decomposition_breadth_vs_allocation(params, seed=SEED):
+    """Split the old single 'portfolio' lever into its two real mechanisms.
+
+    The old model conflated them: `portfolio=False` truncated the candidate list
+    to ONE alternative, which simultaneously removed breadth AND removed any
+    scope for allocation, then attributed the whole delta to allocation.
+
+    Isolation trick: at share -> 0 exactly one of our members exists per event,
+    so self-contention is impossible by construction and anything the cap still
+    costs is pure breadth.
+    """
+    rows = []
+    for label, sh in (("isolated member (share 0.001)", 0.001),
+                      ("our real share 2%", 0.02),
+                      ("our real share 6%", 0.06),
+                      ("hypothetical share 25%", 0.25)):
+        full = run(params, 120_000, seed + 13, share_override=sh)["same_day_seat_pct"]
+        one = run(params, 120_000, seed + 13, share_override=sh,
+                  max_alts=1)["same_day_seat_pct"]
+        rows.append({
+            "cohort": label,
+            "share": sh,
+            "same_day_full_breadth": full,
+            "same_day_one_alternative": one,
+            "combined_lever_pts": round(full - one, 2),
+        })
+
+    breadth_only = rows[0]["combined_lever_pts"]
     return {
-        "reps": reps,
-        "mean": round(statistics.mean(vals), 2),
-        "stdev": round(statistics.pstdev(vals), 3),
-        "min": min(vals),
-        "max": max(vals),
+        "rows": rows,
+        "breadth_pts_no_contention_possible": breadth_only,
+        "note": ("At share 0.001 there is exactly ONE of our members per event, so "
+                 "no self-contention can exist. Whatever the 1-alternative cap "
+                 "still costs there is BREADTH - searching more than one flight. "
+                 "Allocation across our own members is the remainder, and only "
+                 "that remainder scales with our share."),
     }
+
+
+def ci(params, seed=SEED, reps=12):
+    """Seed-to-seed spread, for BOTH reported metrics.
+
+    same_day_seat_pct is the number we lead with, so it is the one that most
+    needs a published interval; closed_without_human_pct is reported alongside.
+    """
+    runs = [run(params, 40_000, seed + 100 * i) for i in range(reps)]
+    out = {"reps": reps}
+    for metric in ("same_day_seat_pct", "closed_without_human_pct"):
+        vals = [r[metric] for r in runs]
+        out[metric] = {
+            "mean": round(statistics.mean(vals), 2),
+            "stdev": round(statistics.pstdev(vals), 3),
+            "min": min(vals),
+            "max": max(vals),
+        }
+    return out
 
 
 if __name__ == "__main__":
@@ -299,6 +353,7 @@ if __name__ == "__main__":
         "headline": run(PARAMS),
         "by_regime": by_regime(PARAMS),
         "sensitivity": sensitivity(PARAMS),
+        "breadth_vs_allocation": decomposition_breadth_vs_allocation(PARAMS),
         "stability": ci(PARAMS),
     }
     print(json.dumps(out, indent=2))

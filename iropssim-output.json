@@ -63,21 +63,21 @@
   },
   "headline": {
     "n": 250000,
-    "events": 39301,
+    "events": 39314,
     "counts": {
-      "A_same_day_constraints_met": 131902,
-      "B_same_day_compromised": 31887,
-      "C_next_day_duty_of_care": 69198,
-      "D_escalated": 17013
+      "A_same_day_constraints_met": 131530,
+      "B_same_day_compromised": 32164,
+      "C_next_day_duty_of_care": 69105,
+      "D_escalated": 17201
     },
     "pct": {
-      "A_same_day_constraints_met": 52.76,
-      "B_same_day_compromised": 12.75,
-      "C_next_day_duty_of_care": 27.68,
-      "D_escalated": 6.81
+      "A_same_day_constraints_met": 52.61,
+      "B_same_day_compromised": 12.87,
+      "C_next_day_duty_of_care": 27.64,
+      "D_escalated": 6.88
     },
-    "same_day_seat_pct": 65.51,
-    "closed_without_human_pct": 93.19,
+    "same_day_seat_pct": 65.48,
+    "closed_without_human_pct": 93.12,
     "median_delay_h": 6.0,
     "p90_delay_h": 10.5
   },
@@ -104,21 +104,21 @@
     },
     "systemic": {
       "n": 120000,
-      "events": 18163,
+      "events": 18162,
       "counts": {
-        "A_same_day_constraints_met": 33102,
-        "B_same_day_compromised": 13148,
-        "C_next_day_duty_of_care": 59649,
-        "D_escalated": 14101
+        "A_same_day_constraints_met": 32777,
+        "B_same_day_compromised": 13006,
+        "C_next_day_duty_of_care": 60297,
+        "D_escalated": 13920
       },
       "pct": {
-        "A_same_day_constraints_met": 27.59,
-        "B_same_day_compromised": 10.96,
-        "C_next_day_duty_of_care": 49.71,
-        "D_escalated": 11.75
+        "A_same_day_constraints_met": 27.31,
+        "B_same_day_compromised": 10.84,
+        "C_next_day_duty_of_care": 50.25,
+        "D_escalated": 11.6
       },
-      "same_day_seat_pct": 38.55,
-      "closed_without_human_pct": 88.25,
+      "same_day_seat_pct": 38.15,
+      "closed_without_human_pct": 88.4,
       "median_delay_h": 9.0,
       "p90_delay_h": 12.0
     }
@@ -126,70 +126,148 @@
   "sensitivity": [
     {
       "lever": "BASELINE",
-      "closed_without_human_pct": 93.28,
-      "same_day_seat_pct": 66.15,
+      "closed_without_human_pct": 93.15,
+      "same_day_seat_pct": 65.49,
       "delta_same_day": 0.0
     },
     {
       "lever": "Single-carrier access only (0.30)",
-      "closed_without_human_pct": 92.84,
-      "same_day_seat_pct": 40.61,
-      "delta_same_day": -25.54
+      "closed_without_human_pct": 92.92,
+      "same_day_seat_pct": 40.06,
+      "delta_same_day": -25.43
     },
     {
       "lever": "Full multi-supplier access (0.90)",
-      "closed_without_human_pct": 93.24,
-      "same_day_seat_pct": 72.25,
-      "delta_same_day": 6.1
+      "closed_without_human_pct": 93.27,
+      "same_day_seat_pct": 72.11,
+      "delta_same_day": 6.62
     },
     {
-      "lever": "No portfolio - all users one flight",
-      "closed_without_human_pct": 93.28,
-      "same_day_seat_pct": 27.52,
-      "delta_same_day": -38.63
+      "lever": "Breadth capped at 1 alternative",
+      "closed_without_human_pct": 93.15,
+      "same_day_seat_pct": 27.64,
+      "delta_same_day": -37.85
+    },
+    {
+      "lever": "Breadth capped at 2 alternatives",
+      "closed_without_human_pct": 93.15,
+      "same_day_seat_pct": 41.58,
+      "delta_same_day": -23.91
+    },
+    {
+      "lever": "Breadth capped at 3 alternatives",
+      "closed_without_human_pct": 93.15,
+      "same_day_seat_pct": 50.6,
+      "delta_same_day": -14.89
+    },
+    {
+      "lever": "Breadth capped at 5 alternatives",
+      "closed_without_human_pct": 93.15,
+      "same_day_seat_pct": 60.79,
+      "delta_same_day": -4.7
     },
     {
       "lever": "No prediction lead at all",
-      "closed_without_human_pct": 92.97,
-      "same_day_seat_pct": 51.4,
-      "delta_same_day": -14.75
+      "closed_without_human_pct": 92.96,
+      "same_day_seat_pct": 51.33,
+      "delta_same_day": -14.16
     },
     {
       "lever": "Perfect prediction lead",
       "closed_without_human_pct": 93.36,
-      "same_day_seat_pct": 77.5,
-      "delta_same_day": 11.35
+      "same_day_seat_pct": 77.18,
+      "delta_same_day": 11.69
     },
     {
       "lever": "Our share 2% (low self-contention)",
-      "closed_without_human_pct": 93.53,
-      "same_day_seat_pct": 77.37,
-      "delta_same_day": 11.22
+      "closed_without_human_pct": 93.42,
+      "same_day_seat_pct": 76.88,
+      "delta_same_day": 11.39
     },
     {
       "lever": "Our share 25% (heavy self-contention)",
-      "closed_without_human_pct": 92.76,
-      "same_day_seat_pct": 29.23,
-      "delta_same_day": -36.92
+      "closed_without_human_pct": 92.58,
+      "same_day_seat_pct": 29.54,
+      "delta_same_day": -35.95
     },
     {
-      "lever": "Share 25% + NO portfolio (one flight for all)",
-      "closed_without_human_pct": 92.76,
-      "same_day_seat_pct": 4.57,
-      "delta_same_day": -61.58
+      "lever": "Share 25% + breadth capped at 1",
+      "closed_without_human_pct": 92.58,
+      "same_day_seat_pct": 4.68,
+      "delta_same_day": -60.81
     },
     {
-      "lever": "Share 25% + portfolio ON",
-      "closed_without_human_pct": 92.76,
-      "same_day_seat_pct": 29.23,
-      "delta_same_day": -36.92
+      "lever": "p_intrinsically_complex = 0.0",
+      "closed_without_human_pct": 97.06,
+      "same_day_seat_pct": 68.13,
+      "delta_same_day": 2.64
+    },
+    {
+      "lever": "p_intrinsically_complex = 0.02",
+      "closed_without_human_pct": 95.16,
+      "same_day_seat_pct": 67.01,
+      "delta_same_day": 1.52
+    },
+    {
+      "lever": "p_intrinsically_complex = 0.1",
+      "closed_without_human_pct": 87.39,
+      "same_day_seat_pct": 61.26,
+      "delta_same_day": -4.23
+    },
+    {
+      "lever": "p_intrinsically_complex = 0.2",
+      "closed_without_human_pct": 77.69,
+      "same_day_seat_pct": 54.4,
+      "delta_same_day": -11.09
     }
   ],
+  "breadth_vs_allocation": {
+    "rows": [
+      {
+        "cohort": "isolated member (share 0.001)",
+        "share": 0.001,
+        "same_day_full_breadth": 84.59,
+        "same_day_one_alternative": 58.28,
+        "combined_lever_pts": 26.31
+      },
+      {
+        "cohort": "our real share 2%",
+        "share": 0.02,
+        "same_day_full_breadth": 76.88,
+        "same_day_one_alternative": 43.37,
+        "combined_lever_pts": 33.51
+      },
+      {
+        "cohort": "our real share 6%",
+        "share": 0.06,
+        "same_day_full_breadth": 58.2,
+        "same_day_one_alternative": 19.57,
+        "combined_lever_pts": 38.63
+      },
+      {
+        "cohort": "hypothetical share 25%",
+        "share": 0.25,
+        "same_day_full_breadth": 29.54,
+        "same_day_one_alternative": 4.68,
+        "combined_lever_pts": 24.86
+      }
+    ],
+    "breadth_pts_no_contention_possible": 26.31,
+    "note": "At share 0.001 there is exactly ONE of our members per event, so no self-contention can exist. Whatever the 1-alternative cap still costs there is BREADTH - searching more than one flight. Allocation across our own members is the remainder, and only that remainder scales with our share."
+  },
   "stability": {
     "reps": 12,
-    "mean": 93.29,
-    "stdev": 0.177,
-    "min": 92.96,
-    "max": 93.68
+    "same_day_seat_pct": {
+      "mean": 65.67,
+      "stdev": 0.469,
+      "min": 64.49,
+      "max": 66.12
+    },
+    "closed_without_human_pct": {
+      "mean": 93.21,
+      "stdev": 0.145,
+      "min": 92.88,
+      "max": 93.43
+    }
   }
 }

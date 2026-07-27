@@ -1,5 +1,21 @@
 # ZKD Concierge — Architecture Validation & Rewrite
 
+
+> **PARTIALLY SUPERSEDED — read against the v2.0 agent files, not instead of them.**
+>
+> The 13 findings below still stand and are still the Q&A rehearsal sheet. **Part 2's
+> adaptive SLA does not.** `T_recover` / `T_negotiate` / `T_commit` appear **zero** times
+> in the four `*_v2.0.md` files: v2.0 dissolves finding 13 differently — and better — by
+> iterating negotiation over **one pre-fetched in-memory candidate set with zero extra
+> supplier calls**, so there is no 3-fan-out latency to bound in the first place.
+>
+> One consequence is easy to miss: Part 2's safety argument, *"the traveller can never end
+> worse off: the fallback is already held"*, **does not hold under v2.0**. v2.0's hold gate
+> is conditional (`hold_TTL > expected_time_to_announcement` AND the value test), so the
+> common case is *no hold at all* — candidates stay warm. Escalation therefore reads
+> "confirm the held baseline **where one exists**". Do not repeat the unconditional version
+> on stage.
+
 ## Context
 
 `ZKD-Concierge-Pitch-India.pptx` (10 slides, Codestreet 2026 / Amex Round 1, Team ZKD, IIT Madras)

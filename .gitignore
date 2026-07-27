@@ -1,0 +1,33 @@
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Office lock files -------------------------------------------------------
+# `~$ZKD-Concierge-Pitch-India.pptx` was present while the deck was open in
+# PowerPoint. Committing one of these is how a "file is locked" mystery starts.
+~$*
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# --- Local secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Next.js ---
+.next/
+out/
+next-env.d.ts

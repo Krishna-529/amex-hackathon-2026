@@ -142,11 +142,20 @@ per carrier, target **≥ 85%**. Below threshold, speculative holding for that c
 **auto-disables**. Prediction precision *is* hold conversion: churning at scale loses distribution
 access, which ends the product rather than degrading it.
 
-**Portfolio, not one best flight.** Build a **portfolio of alternatives** and run **min-cost
-assignment across passengers × seats**. Portfolio allocation is the **single largest measured lever —
-38.63 points** of same-day recovery (proof `sens-portfolio`). Its absence is self-inflicted: a hundred
-members pointed at the same alternative means ninety-five queue for a seat already gone (proof
-`sens-worst`, 4.57%).
+**Portfolio, not one best flight — and it is TWO levers, not one.** Build a **portfolio of
+alternatives** and run **min-cost assignment across passengers × seats**. The combined lever is worth
+**38.63 points** of same-day recovery at the top of our share range (proof `sens-portfolio`), but it
+decomposes, and quoting it undivided is not defensible:
+- **Breadth — searching more than one alternative: 26.31 points** (proof `sens-breadth`). Measured at
+  a share of 0.001, i.e. **exactly one of our members per event, so self-contention is impossible by
+  construction**. This is the larger half and it has nothing to do with allocation: the earliest
+  alternative is already full of *other* carriers' displaced passengers.
+- **Allocation — min-cost assignment across our own members: 7.20 points at a 2% share, 12.32 points
+  at 6%** (proof `sens-allocation`). This is the half that scales with our footprint.
+
+State the split before a judge does. Claiming 38.63 for allocation invites the reply *"most of that
+is just searching more than one flight"* — which is correct, and cheap to concede when it is already
+in the spec. Degenerate case (breadth capped at 1, share 25%): **4.68%** (proof `sens-worst`).
 
 **Per-route coordinator.** Group affected trips by disrupted route; run **one** reshop per group with
 request coalescing and jittered backoff. **300 → 102** API calls for 100 members, a 66% reduction
@@ -171,10 +180,23 @@ no-ops.
 
 **The invariant.** Every executed side effect ⇒ exactly one OPA allow decision ∧ exactly one
 registered compensation. Idempotency keys are deterministic and **attempt-invariant**, derived from
-`(workflowID, activityID)`, so an at-least-once retry cannot double-book.
+the **business entity** — `(pnr, segment, member, intent)` — **not** from `(workflowID, activityID)`.
+The workflow-scoped form defeats at-least-once *activity* retry and nothing else: a workflow reset, or
+a fresh run after an escalation returns, mints a new `workflowID`, therefore a new key, therefore a
+**second real booking for the same leg**. The key must span every execution that could ever settle the
+same obligation, or it is not an idempotency key — it is a retry token.
 
 **VERIFY — onward segments.** After disposal, verify every onward segment is intact. **A no-show on
 the first leg can silently cancel the rest of the itinerary.** Not intact ⇒ escalate.
+
+**WATCH reconcile — edge dedup is not enough.** Dedup makes the signal path idempotent under
+*duplicate* delivery. It does nothing under *dropped* delivery, and a dropped cancellation is the
+worst failure this system has: it is **indistinguishable from a healthy trip**, the member's phone
+stays silent, and silence is precisely what the lifecycle table marks as the safe state. Therefore a
+**periodic reconcile sweep** is mandatory, not optional — scheduled over trips inside the active
+travel window only, batched by departure-time bucket, comparing held trip state against carrier
+schedule state and injecting a synthetic WATCH event on divergence. A change-feed cannot substitute
+for it; the sweep is what makes the feed's misses recoverable rather than permanent.
 
 **CLAIM — duty of care is claimed, not charged.** Claim meals, hotel and transfer from the carrier
 where owed, then settle **only the uncovered remainder**.
@@ -195,16 +217,22 @@ acceptable outcome or a failure — **same system, same inventory, opposite verd
 
 | Outcome | Definition | Modelled | Proof |
 |---|---|---|---|
-| **A** | Same-day seat **and** the hard constraint held | 52.76% | `sim-outcome-a` |
-| **B** | Same-day seat, but arrives past the member's slack | 12.75% | `sim-outcome-b` |
-| **C** | No reachable same-day seat; next-day flight + hotel + duty of care | 27.68% | `sim-outcome-c` |
-| **D** | Escalated to a human | 6.81% | `sim-outcome-d` |
+| **A** | Same-day seat **and** the hard constraint held | 52.61% | `sim-outcome-a` |
+| **B** | Same-day seat, but arrives past the member's slack | 12.87% | `sim-outcome-b` |
+| **C** | No reachable same-day seat; next-day flight + hotel + duty of care | 27.64% | `sim-outcome-c` |
+| **D** | Escalated to a human | 6.88% | `sim-outcome-d` |
 
-Same-day recovery (A+B) is **65.51%** (`sim-same-day`) and is the headline because it discriminates.
-Closed-without-a-human is **93.19%** (`sim-closed-no-human`) but moves only between 92.8% and 93.5%
-across every sensitivity configuration including deliberately broken ones, so it is reported as a
-secondary floor, never led with. **Same-day cutoff is 12 h**; beyond it a recovery becomes an
-overnight case with hotel and duty of care. By regime: isolated **81.22%**, systemic **38.55%**.
+Same-day recovery (A+B) is **65.48%** (`sim-same-day`) and is the headline because it discriminates.
+Seed-to-seed spread at n=40,000: mean 65.67, stdev 0.469, range [64.49, 66.12] (`sim-stability`).
+**Same-day cutoff is 12 h**; beyond it a recovery becomes an overnight case with hotel and duty of
+care. By regime: isolated **81.22%**, systemic **38.15%**.
+
+**Closed-without-a-human (93.12%) is NOT a model finding — do not lead with it, and be ready to say
+why.** It is the `p_intrinsically_complex` **assumption** echoed back, near 1:1: hold every other
+parameter and vary that one alone and the metric tracks it — 97.06% at 0.0, 95.16% at 0.02, 93.12% at
+our assumed 0.04, 87.39% at 0.10, 77.69% at 0.20 (proof `sens-escalation-floor`). Its apparent
+stability across the other levers is not robustness; it is the metric being independent of everything
+those levers touch. Quote it only as *"our assumed escalation floor, restated"*, tier `assumed`.
 
 **Latency (proof `latency-budget`, tier `budget`).** **~10 s** from carrier event to confirmed
 alternative **on the prepared path**. Of the 53 s cold path, **42 s is done in advance during WARM**
@@ -223,7 +251,13 @@ never hang, never expire in silence.
 the 90-second quiet window, or by rejecting a presented plan. On intervention
 (`{MEMBER_INTERVENTION}`):
 - The member's input becomes a **new hard constraint**, gating at OPA like any other.
-- The rejected option is appended to `rejected_by_member[]` and **must never be re-proposed**.
+- The rejected option is appended to `rejected_by_member[]` and **must never be re-proposed**. This is
+  a member-facing promise, so **it is enforced at OPA, not in a prompt**: `rejected_offer_ids` is a
+  first-class field of the OPA input document with a matching `deny` rule, and the Layer A instruction
+  is defence-in-depth on top of it. Enforcing it only in Layer A would put a member-safety guarantee
+  inside the layer this architecture explicitly declares to hold **zero authority** — one
+  non-compliant model turn and the gate that is supposed to be unbypassable waves it through. A rule
+  that lives only in a prompt is a preference, not a control.
 - The iteration counter resets **once per intervention**, while `visited_tuples` **persists** — so the
   agent may re-plan but cannot ping-pong.
 - Live holds stay live throughout. This is what the tentative-hold model buys: the member can take
@@ -249,6 +283,14 @@ holding until measured), Amex ACE + vPayment (select devs, mocked behind a contr
 **Amadeus Self-Service was decommissioned 17 Jul 2026 — never reference it as available.** Abstract
 the supplier so no single GDS is load-bearing.
 
+**WATCH evaluation is a sized component, not a background detail.** The delay-to-departure ratio is
+evaluated **only over trips whose departure falls inside the active window**, driven off a covering
+index on `(departure_time)` and bucketed by departure hour. It must **never** be expressed as a scan
+over all live PNRs: at 3 lakh passengers per burst that is the one unbounded shape in the design, and
+a fast path that is cheap in the common case will hide it right up to the event that matters. Publish
+its per-cycle row count and p95 alongside the Temporal and supplier numbers below — an unsized
+watcher is the component a judge will find precisely because everything around it is sized.
+
 **Scale.** Burst target is the Dec 2025 IndiGo event: 2,507 cancellations, 3 lakh passengers over 72 h
 = **1.16 disruptions/s** (`burst-rate`). Temporal persistence load **~58 writes/s**, ~1,157/s at 20×
 burst (`temporal-write-load`). **Do not shard** — a single well-provisioned PostgreSQL absorbs this;
@@ -257,6 +299,15 @@ creation — pick 512 up front. Keep the decision ledger off the hot path (event
 
 **Orchestration.** **Temporal only. Celery was evaluated and dropped — one orchestrator, one failure
 model, one idempotency story. Do not reintroduce Celery.**
+
+**Model and prompt pinning.** These agents *are* the system, so the prompt is production code and
+gets the same discipline: the model **id and version are pinned** (never a floating alias), decode
+settings are fixed for reproducibility, and every runtime prompt carries a **content hash recorded on
+each decision** in the decision log — so any decision can be replayed against the exact prompt that
+produced it. Any prompt edit **invalidates the provider-side cache explicitly**; a deploy that ships
+code while a cached prior prompt keeps serving is a silent, and entirely invisible, regression. A
+superseded prompt file must carry a supersession banner **in its own header**, because the engineer
+who opens it will not have read the newer file first.
 
 **Evidence tiers.** Every number carries one, and a proof ID: `verified` (external source retrieved
 and linked) · `calc` (arithmetic over cited inputs) · `sim` (simulation output, fixed seed,

@@ -1,15 +1,28 @@
 @echo off
 title ZKD Sites - Team ZKD
-cd /d "C:\Users\HPW\Desktop\Amex GOAT\zkd-sites"
+rem Resolve relative to THIS script, never to one machine's Desktop. The previous
+rem version did `cd /d "C:\Users\HPW\Desktop\Amex GOAT\zkd-sites"` and then
+rem `npm run dev`, so it worked on exactly one laptop - and the zkd-sites\ path it
+rem pointed at is empty in a fresh clone. The sibling launcher (ZKD Website\Start
+rem Website.cmd) already used %~dp0 correctly; this now matches it.
+cd /d "%~dp0..\ZKD Website"
+
+if not exist "serve.js" (
+  echo.
+  echo   ERROR: cannot find "ZKD Website\serve.js" next to this script.
+  echo   Expected layout:  ^<repo^>\ZKD Sites\  and  ^<repo^>\ZKD Website\
+  echo.
+  pause
+  exit /b 1
+)
 
 echo.
 echo   Team ZKD - starting three sites
 echo   ------------------------------------------------
 
-for /f "tokens=2 delims=:" %%a in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 ^| Where-Object { $_.InterfaceAlias -notlike '*WSL*' -and $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } ^| Select-Object -First 1).IPAddress"') do set IP=%%a
-if "%IP%"=="" powershell -NoProfile -Command "$i=(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike '*WSL*' -and $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress; Write-Host ''; Write-Host ('   This machine : http://localhost:5173  5174  5175'); Write-Host ('   On your LAN  : http://' + $i + ':5173  5174  5175'); Write-Host ''"
-
-echo   Ctrl+C twice to stop.
+rem serve.js hosts the production builds and prints its own localhost + LAN URLs,
+rem so there is no IP to detect or hardcode here.
+echo   Ctrl+C to stop.
 echo.
-call npm run dev
+node serve.js
 pause

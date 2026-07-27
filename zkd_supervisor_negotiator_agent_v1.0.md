@@ -1,4 +1,24 @@
 <!--
+================================================================================
+  SUPERSEDED - DO NOT BUILD FROM THIS FILE.
+
+  Replaced by the v2.0 file of the same name. v2.0 is re-grounded on the live
+  design site and the shared proof registry, which supersede the Round 1 deck
+  this file names as its only permitted source of fact.
+
+  Known-stale in here, each of which is disqualifying if quoted on 25 Aug:
+    - targets section 5.1; v2.0 targets 1.2 (and 1.3 / 1.4 / 1.5 for the workers)
+    - "60 seconds" is the superseded COLD-path figure; prepared path is ~10 s
+    - no 7-phase lifecycle, no WAIT gate, no three-clocks separation
+    - Celery still present; it was evaluated and dropped
+    - outcome percentages predate the corrected Monte Carlo
+
+  Kept only for provenance. A superseded prompt that does not say so in its own
+  header is the exact way a stale prompt gets shipped alongside fresh code.
+================================================================================
+-->
+
+<!--
 ZKD Concierge — SUPERVISOR / NEGOTIATOR AGENT — v1.0
 Team ZKD, IIT Madras · Codestreet 2026 / American Express · Round 1
 

@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "ZKD Concierge",
+    "slug": "zkd-concierge",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "in.zettatech.zkdconcierge",
+      "adaptiveIcon": {
+        "backgroundColor": "#080c14"
+      },
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "VIBRATE",
+        "SCHEDULE_EXACT_ALARM"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#2f7ff0"
+        }
+      ],
+      "expo-asset"
+    ]
+  }
+}
