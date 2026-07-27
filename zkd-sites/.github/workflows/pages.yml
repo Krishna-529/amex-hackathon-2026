@@ -1,0 +1,65 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages needs these; the default GITHUB_TOKEN is enough — no secrets to add.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race. Queue instead of cancel, so a push mid-deploy
+# still ships rather than being silently dropped.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build all three sites
+        env:
+          DEPLOY_TARGET: pages
+        run: npm run build
+
+      - name: Assemble the site tree
+        run: |
+          mkdir -p _site
+          cp -r apps/design/dist   _site/design
+          cp -r apps/metrics/dist  _site/metrics
+          cp -r apps/personas/dist _site/personas
+          cp public/index.html _site/index.html
+          # Pages serves the root 404 for anything unmatched; send it to the
+          # landing page rather than GitHub's default not-found.
+          cp public/index.html _site/404.html
+          # .nojekyll stops Pages ignoring files that begin with an underscore.
+          touch _site/.nojekyll
+          echo "--- tree ---"; find _site -maxdepth 2 -type d
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

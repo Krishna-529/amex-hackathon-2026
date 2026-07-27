@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.vite/
+
+# local env
+.env
+.env.local
+.env.*.local
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# logs
+npm-debug.log*
+yarn-error.log*
+*.log
