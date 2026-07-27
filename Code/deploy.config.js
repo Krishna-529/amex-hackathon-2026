@@ -24,5 +24,20 @@ export const APPS = [
 
 export const isPages = () => process.env.DEPLOY_TARGET === 'pages';
 
-/** Vite `base` for a given app. */
+/* Vercel deploys each app as its own project on its own domain, so neither the
+   local port scheme nor the Pages sub-path scheme addresses a sibling site
+   correctly. Vercel sets VERCEL=1 during a build, so this needs no project
+   configuration. Keep the keys in step with APPS above. */
+export const isVercel = () => process.env.DEPLOY_TARGET === 'vercel' || Boolean(process.env.VERCEL);
+
+export const VERCEL_URLS = {
+  design: 'https://zkd-design.vercel.app/',
+  metrics: 'https://zkd-metrics.vercel.app/',
+  personas: 'https://zkd-personas.vercel.app/',
+};
+
+/** Absolute sibling-site URLs when they are known at build time, else null. */
+export const siteUrls = () => (isVercel() ? VERCEL_URLS : null);
+
+/** Vite `base` for a given app. Vercel serves each project at its own root. */
 export const baseFor = (app) => (isPages() ? `/${REPO}/${app}/` : '/');

@@ -291,6 +291,9 @@ export function Panels({ items, initial = 0 }) {
 /* Build-time constants injected by vite.config.js (see deploy.config.js). */
 const PAGES = typeof __ZKD_PAGES__ !== 'undefined' ? __ZKD_PAGES__ : false;
 const REPO = typeof __ZKD_REPO__ !== 'undefined' ? __ZKD_REPO__ : '';
+/* Absolute sibling URLs when the deploy target puts each app on its own
+   domain (Vercel). Null everywhere else, so the port/sub-path logic stands. */
+const SITE_URLS = typeof __ZKD_SITE_URLS__ !== 'undefined' ? __ZKD_SITE_URLS__ : null;
 const SITES = typeof __ZKD_APPS__ !== 'undefined'
   ? __ZKD_APPS__
   : [
@@ -305,6 +308,7 @@ const SITES = typeof __ZKD_APPS__ !== 'undefined'
    this from a phone, because it would point at THEIR machine.
    Pages: one origin, the three apps under sub-paths. */
 const siteUrl = (site) => {
+  if (SITE_URLS && SITE_URLS[site.key]) return SITE_URLS[site.key];
   if (PAGES) return `/${REPO}/${site.key}/`;
   if (typeof window === 'undefined') return `http://localhost:${site.port}/`;
   return `${window.location.protocol}//${window.location.hostname}:${site.port}/`;
