@@ -17,7 +17,7 @@ and an Android app, both wired to real sandbox APIs.
 | Read the design docs | [`docs/`](docs/README.md) |
 | Check which APIs are wired vs. stubbed | [`round2-api-requirements.xlsx`](round2-api-requirements.xlsx) / `.csv` |
 | Read the current agent specs | `zkd_*_agent_v2.0.md` (see below — never edit `_v1.0.md`, provenance only) |
-| See the Round 1 evidence sites | `ZKD Website/` (built) or `Code/` (source) — see [below](#round-1-evidence-sites) |
+| See the Round 1 evidence sites | `zkd-website/` (built) or `Code/` (source) — see [below](#round-1-evidence-sites) |
 
 ---
 
@@ -80,10 +80,10 @@ provenance badge (VERIFIED / CALC·SIM / ASSUMED·BUDGET) linking to its derivat
 |---|---|
 | `Code/` | Editable source for the three sites (`apps/design`, `apps/metrics`, `apps/personas`) — run `npm install && npm run dev` here for local editing. |
 | `zkd-sites/` | The same source, configured for GitHub Pages deploy (own `.github/workflows/pages.yml`, own `deploy.config.js`). Push changes to **both** `Code/` and `zkd-sites/` if you edit the sites — they are kept in sync by hand, not by a build step. |
-| `ZKD Website/` | Production build of all three sites + `serve.js`, a zero-dependency static host. Run `node "ZKD Website/serve.js"` → ports 5173 / 5174 / 5175. |
-| `ZKD Sites/` | Windows launcher (`Start ZKD Sites.cmd`) and `.url` shortcuts to the hosted versions — not source, just shortcuts. |
+| `zkd-website/` | Production build of all three sites + `serve.js`, a zero-dependency static host. Run `node "zkd-website/serve.js"` → ports 5173 / 5174 / 5175. |
+| `zkd-launcher/` | Windows launcher (`Start ZKD Sites.cmd`) and `.url` shortcuts to the hosted versions — not source, just shortcuts. |
 
-The servers in `ZKD Website/` bind `0.0.0.0` so a phone on the same Wi-Fi can reach them. That
+The servers in `zkd-website/` bind `0.0.0.0` so a phone on the same Wi-Fi can reach them. That
 is intentional for a demo on your own network — **do not run them on conference or public
 Wi-Fi.**
 
