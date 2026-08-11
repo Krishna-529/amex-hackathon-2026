@@ -1,5 +1,5 @@
-import { hhmm } from '../time';
-import type { Alt } from '../data';
+import { hhmm } from '@/lib/time';
+import type { Alt } from '@/lib/data';
 
 /**
  * Duffel test-mode sandbox. Reliably returns offers for its own dummy routes

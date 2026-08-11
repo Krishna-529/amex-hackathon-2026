@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { lookupFlightStatus } from '@/lib/server/aviationstack';
+import { lookupFlightStatus } from '@/server/aviationstack';
 import type { FlightStatusResponse } from '@/lib/apiTypes';
 
 export async function GET(req: NextRequest) {

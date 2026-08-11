@@ -1,6 +1,6 @@
 import { getOrSet } from './cache';
-import { hhmm } from '../time';
-import type { Alt } from '../data';
+import { hhmm } from '@/lib/time';
+import type { Alt } from '@/lib/data';
 
 /**
  * Sabre Dev Studio "Try It Out" trial credentials, cert environment.

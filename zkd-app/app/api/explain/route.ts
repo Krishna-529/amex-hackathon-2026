@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { explain } from '@/lib/server/gemini';
+import { explain } from '@/server/gemini';
 import type { ExplainRequest, ExplainResponse } from '@/lib/apiTypes';
 
 function promptFor(req: ExplainRequest): string {

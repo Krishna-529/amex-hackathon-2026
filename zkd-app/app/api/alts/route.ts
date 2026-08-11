@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { searchDuffelAlts } from '@/lib/server/duffel';
-import { searchSabreAlts } from '@/lib/server/sabre';
+import { searchDuffelAlts } from '@/server/duffel';
+import { searchSabreAlts } from '@/server/sabre';
 import type { AltsResponse, SourceStatus } from '@/lib/apiTypes';
 
 export async function GET(req: NextRequest) {

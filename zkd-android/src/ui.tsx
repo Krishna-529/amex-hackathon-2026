@@ -5,6 +5,7 @@
  */
 import React from 'react';
 import {
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -45,9 +46,7 @@ export function TopBar({
           <Text style={s.backTxt}>←</Text>
         </TouchableOpacity>
       ) : (
-        <View style={s.logo}>
-          <View style={s.logoIn} />
-        </View>
+        <Image source={require('../assets/logo.png')} style={s.logo} accessibilityLabel="ZKD Concierge" />
       )}
       <Text style={s.brand}>ZKD Concierge</Text>
       <View style={{ flex: 1 }} />
@@ -227,11 +226,7 @@ export const s = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 9,
-    backgroundColor: C.iris,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  logoIn: { width: 11, height: 11, borderRadius: 4, backgroundColor: '#080910' },
   backBtn: {
     width: 30,
     height: 30,

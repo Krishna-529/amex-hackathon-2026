@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { searchHotels } from '@/lib/server/liteapi';
+import { searchHotels } from '@/server/liteapi';
 import type { HotelsResponse } from '@/lib/apiTypes';
 
 export async function GET(req: NextRequest) {
