@@ -10,6 +10,7 @@ import { secs, money, agoLabel } from '../lib/time';
 import { useWorld } from '../world';
 import { notifyBooked, notifyHandedOver } from '../notify';
 import { Cta, Eyebrow, Glass, KV, Page, PageHead } from '../ui';
+import { getDisruptionState, resolveDisruption, type DisruptionResolution, type DisruptionState } from '../api';
 
 type Phase = 'deciding' | 'waiting' | 'choosing' | 'acting' | 'booked' | 'handed';
 
@@ -19,6 +20,10 @@ const FLOOR = 260;
 /** Real seconds. The 90-second window is the member's time to think, so it is
  *  not compressed — 1.5 minutes is the point, not an inconvenience. */
 const TICK = 1000;
+
+/** This screen only ever shows AI 2803 / world.upcoming[0], same as the rest
+ *  of this app — matches the flight id the web app uses for the same flight. */
+const FLIGHT_ID = 'u1';
 
 export default function RecoveryScreen({ navigation }: any) {
   const { world, consent, chosen, setChosen, rejected, reject, setSettled } = useWorld();
@@ -37,55 +42,101 @@ export default function RecoveryScreen({ navigation }: any) {
   const pick = world?.alts.find((a) => a.id === chosen);
   const hotel = world?.hotels.find((h) => h.id === hotelId) ?? world?.hotels[0];
   const cab = world?.cabs.find((c) => c.id === cabId) ?? world?.cabs[0];
+  const owedNow = (pick?.fare ?? 0) + (hotel?.extra ?? 0) + (cab?.extra ?? 0);
 
-  /* ── phase 1: the machine decides ─────────────────────────────────── */
+  // The same canonical clock the web app reads — fetched from the laptop over
+  // Wi-Fi (see src/config.ts for the address) so this phone's countdown and
+  // outcome agree with whatever anyone sees on the web app for this flight.
+  const [detectedAt, setDetectedAt] = useState<number | null>(null);
+
+  /** Land on a resolution's outcome — whether THIS device just reported it, or
+   *  discovered one already set by the web app or another device. */
+  const applyResolution = useCallback((resolution: DisruptionResolution) => {
+    if (resolution.kind === 'handed-over') {
+      setNote((n) => n ?? 'The consent window closed without a response — nothing was booked, nothing was charged.');
+      setPhase('handed');
+      return;
+    }
+    setChosen(resolution.altId);
+    setHotelId(resolution.hotelId);
+    setCabId(resolution.cabId);
+    setNote((n) => n ?? "No one answered in time, so autopilot went ahead — that's the permission that was set.");
+    setPhase('acting');
+  }, [setChosen]);
+
+  const settleExpired = useCallback(() => {
+    let resolution: DisruptionResolution;
+    if (consent === 'autopilot') {
+      setNote("You didn't answer, so we went ahead — that's the permission you gave us.");
+      resolution = { kind: 'autopilot', at: Date.now(), altId: chosen, hotelId, cabId };
+    } else if (owedNow === 0) {
+      setNote("You didn't answer. This costs you nothing, so we booked it rather than leave you stranded — there was no spend to ask about.");
+      resolution = { kind: 'autopilot', at: Date.now(), altId: chosen, hotelId, cabId };
+    } else {
+      setNote("You didn't answer, and this one would cost you money — so we stopped. Nothing was booked and nothing was charged.");
+      resolution = { kind: 'handed-over', at: Date.now() };
+    }
+    resolveDisruption(FLIGHT_ID, resolution).then((state) => {
+      // If the network call itself failed, fall back to what this device
+      // decided locally rather than leaving the screen stuck.
+      applyResolution(state?.resolution ?? resolution);
+    });
+  }, [consent, owedNow, chosen, hotelId, cabId, applyResolution]);
+
+  /* ── phase 1: fetch the real clock, then figure out where we actually are ── */
   useEffect(() => {
     if (!world || started.current) return;
     started.current = true;
-    let i = 0;
-    const run = () => {
-      if (i >= DECIDE_STEPS.length) {
-        setLeft(QUIET_WINDOW_SECONDS);
-        setPhase('waiting');
+
+    getDisruptionState(FLIGHT_ID).then((state: DisruptionState | null) => {
+      // No network reachable (phone off Wi-Fi, wrong IP in src/config.ts,
+      // laptop server not running) — fall back to the old local-only timing
+      // rather than freezing the screen.
+      const dAt = state?.detectedAt ?? Date.now();
+      setDetectedAt(dAt);
+
+      if (state?.resolution) {
+        setShown(DECIDE_STEPS);
+        applyResolution(state.resolution);
         return;
       }
-      const s = DECIDE_STEPS[i];
-      setShown((p) => [...p, s]);
-      i += 1;
-      timer.current = setTimeout(run, Math.max(FLOOR, s.d * PLAY));
-    };
-    run();
+
+      const windowExpiresAt = dAt + QUIET_WINDOW_SECONDS * 1000;
+      const finishDecide = () => {
+        const remaining = windowExpiresAt - Date.now();
+        if (remaining <= 0) { settleExpired(); return; }
+        setLeft(Math.ceil(remaining / 1000));
+        setPhase('waiting');
+      };
+
+      let i = 0;
+      const run = () => {
+        if (i >= DECIDE_STEPS.length) { finishDecide(); return; }
+        const s = DECIDE_STEPS[i];
+        setShown((p) => [...p, s]);
+        i += 1;
+        timer.current = setTimeout(run, Math.max(FLOOR, s.d * PLAY));
+      };
+      run();
+    });
     return () => clearTimeout(timer.current);
   }, [world]);
 
-  /* ── phase 2: the member's 90 seconds, in real seconds ────────────── */
-  const owedNow = (pick?.fare ?? 0) + (hotel?.extra ?? 0) + (cab?.extra ?? 0);
-
+  /* ── phase 2: the member's 90 seconds, ticking off the real clock ────── */
   useEffect(() => {
-    if (phase !== 'waiting') return;
+    if (phase !== 'waiting' || !detectedAt) return;
+    const windowExpiresAt = detectedAt + QUIET_WINDOW_SECONDS * 1000;
     const t = setInterval(() => {
-      setLeft((n) => {
-        if (n > 1) return n - 1;
+      const remaining = windowExpiresAt - Date.now();
+      if (remaining <= 0) {
         clearInterval(t);
-        // Silence means different things depending on what you asked for — but
-        // consent gates SPENDING, not care. If the recovery costs nothing there
-        // is nothing to consent to, and stranding someone because they didn't
-        // pick up is the worse outcome.
-        if (consent === 'autopilot') {
-          setNote("You didn't answer, so we went ahead — that's the permission you gave us.");
-          setPhase('acting');
-        } else if (owedNow === 0) {
-          setNote("You didn't answer. This costs you nothing, so we booked it rather than leave you stranded — there was no spend to ask about.");
-          setPhase('acting');
-        } else {
-          setNote("You didn't answer, and this one would cost you money — so we stopped. Nothing was booked and nothing was charged.");
-          setPhase('handed');
-        }
-        return 0;
-      });
+        settleExpired();
+        return;
+      }
+      setLeft(Math.ceil(remaining / 1000));
     }, TICK);
     return () => clearInterval(t);
-  }, [phase, consent, owedNow]);
+  }, [phase, detectedAt, settleExpired]);
 
   /* ── phase 3: the irreversible half ───────────────────────────────── */
   useEffect(() => {
@@ -128,13 +179,15 @@ export default function RecoveryScreen({ navigation }: any) {
 
   const approve = useCallback(() => {
     setNote('You approved it, so we went straight through.');
-    setPhase('acting');
-  }, []);
+    const resolution: DisruptionResolution = { kind: 'approved', at: Date.now(), altId: chosen, hotelId, cabId };
+    resolveDisruption(FLIGHT_ID, resolution).then((state) => applyResolution(state?.resolution ?? resolution));
+  }, [chosen, hotelId, cabId, applyResolution]);
 
   const handOver = useCallback(() => {
     setNote('You took the wheel. We stopped immediately — nothing confirmed, nothing paid, and your held seats stay held.');
-    setPhase('handed');
-  }, []);
+    const resolution: DisruptionResolution = { kind: 'handed-over', at: Date.now() };
+    resolveDisruption(FLIGHT_ID, resolution).then((state) => applyResolution(state?.resolution ?? resolution));
+  }, [applyResolution]);
 
   /* opening the options is itself an intervention: hold the clock */
   const browse = useCallback(() => {
