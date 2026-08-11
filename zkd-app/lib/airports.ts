@@ -1,4 +1,4 @@
-/** Static IATA -> ICAO/coordinates lookup for the airports used in lib/data.ts's mock world. */
+/** Static IATA -> ICAO/coordinates lookup for the airports used in the seeded flight data. */
 
 export type AirportInfo = { icao: string; lat: number; lon: number; city: string; country: string };
 

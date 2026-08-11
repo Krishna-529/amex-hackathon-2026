@@ -25,10 +25,11 @@ const CHOICES = [
 ];
 
 export default function SettingsPage() {
-  const { world, consent, setConsent } = useWorld();
-  if (!world) return <div className="page-h"><h1>Your card</h1></div>;
+  const { schedule, setConsent } = useWorld();
+  if (!schedule) return <div className="page-h"><h1>Your card</h1></div>;
 
-  const activated = days(world.now, -412);
+  const activated = days(new Date(), -412);
+  const consent = schedule.passenger.consent;
 
   return (
     <div className="skeleton">
@@ -44,7 +45,7 @@ export default function SettingsPage() {
       <div className="g panel" style={{ marginBottom: 16 }}>
         <h3>Card</h3>
         <div className="kv"><span className="k">Product</span><span className="v">Platinum Travel</span></div>
-        <div className="kv"><span className="k">Member</span><span className="v">Priya S.</span></div>
+        <div className="kv"><span className="k">Member</span><span className="v">{schedule.passenger.displayName}</span></div>
         <div className="kv">
           <span className="k">Activated</span>
           <span className="v">{ddMon(activated)} {activated.getFullYear()}</span>

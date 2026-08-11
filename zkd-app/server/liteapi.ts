@@ -1,4 +1,4 @@
-import type { HotelOpt } from '@/lib/data';
+import type { HotelOpt } from '@/server/domain/types';
 
 /** LiteAPI (Nuitee Connect) sandbox — real inventory for real Indian cities, no card required. */
 

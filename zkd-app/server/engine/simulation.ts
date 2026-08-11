@@ -17,7 +17,6 @@
  * spin up fresh isolates per request and these setTimeout chains would not
  * survive between invocations. Not solved here — acceptable for a prototype.
  */
-import { risk } from '@/lib/risk';
 import {
   DECIDE_STEPS, ACT_STEPS, DECIDE_TOTAL, QUIET_WINDOW_SECONDS, PLAY, FLOOR,
 } from '@/lib/recovery';
@@ -81,10 +80,9 @@ export function detectDisruption(flightId: string): DisruptionEvent | null {
 
   const flight = store.getFlight(flightId);
   if (!flight) return null;
-
-  const r = risk(flight.signals);
-  flight.riskPct = r.pct;
-  flight.riskBand = r.band;
+  // riskPct/riskBand are already computed and cached by store.createFlight() —
+  // this is confirming a real disruption on a flight that was already being
+  // watched, not the first time its risk is known.
 
   const event: DisruptionEvent = { id: `de-${flightId}`, flightId, detectedAt: Date.now(), phase: 'DECIDING' };
   store.createDisruptionEvent(event);

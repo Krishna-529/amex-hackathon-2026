@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import type { PastFlight } from '@/lib/data';
-import { OUTCOME } from '@/lib/data';
+import type { PastFlight } from '@/server/domain/types';
+import { OUTCOME } from '@/lib/outcome';
 import Pill from '@/components/Pill';
 
 export default function HistoryTable({ rows }: { rows: PastFlight[] }) {

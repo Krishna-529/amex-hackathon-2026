@@ -5,6 +5,7 @@
  * deployment would back this with a shared store (Postgres/Redis) so it
  * survives restarts and works across multiple server instances.
  */
+import { risk } from '@/lib/risk';
 import type {
   Passenger, Flight, Booking, Itinerary, PreAuthRecord, PastFlight,
   DisruptionEvent, RecoveryTask,
@@ -23,7 +24,17 @@ let bookingSeq = 0;
 let itinerarySeq = 0;
 let taskSeq = 0;
 
+/**
+ * Risk is a standing prediction on any upcoming flight, not something that
+ * only exists once a disruption has actually been caught — so it's computed
+ * here, at creation, not lazily inside detectDisruption(). This is what lets
+ * the flights list show a risk gauge and offer pre-authorisation *before*
+ * anything has actually gone wrong, which is the whole point of pre-auth.
+ */
 export function createFlight(f: Flight) {
+  const r = risk(f.signals);
+  f.riskPct = r.pct;
+  f.riskBand = r.band;
   flights.set(f.id, f);
 }
 
