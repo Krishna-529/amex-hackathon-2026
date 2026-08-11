@@ -1,8 +1,40 @@
 'use client';
 
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { buildWorld, type World } from '@/lib/data';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { buildWorld, type World, type Alt, type HotelOpt } from '@/lib/data';
 import type { Consent, PreAuth } from '@/lib/recovery';
+import type { Signals } from '@/lib/risk';
+import type {
+  SignalsResponse,
+  FlightStatusResponse,
+  AltsResponse,
+  HotelsResponse,
+  ExplainRequest,
+} from '@/lib/apiTypes';
+
+type LiveEntry<T> = { status: 'idle' | 'loading' | 'ok' | 'error'; data?: T };
+
+/**
+ * Real API data, kept separate from `world` rather than merged into it — this
+ * way `buildWorld()`/`risk()` never change, and the app renders exactly what it
+ * renders today if every live call fails. Pages merge `{...mockDefaults, ...live}`
+ * themselves at render time.
+ */
+type LiveState = {
+  signals: Record<string, LiveEntry<Partial<Signals>>>;
+  flightStatus: Record<string, LiveEntry<FlightStatusResponse['match']>>;
+  alts: LiveEntry<Alt[]>;
+  hotels: LiveEntry<HotelOpt[]>;
+  explain: Record<string, LiveEntry<string>>;
+};
+
+const emptyLive: LiveState = {
+  signals: {},
+  flightStatus: {},
+  alts: { status: 'idle' },
+  hotels: { status: 'idle' },
+  explain: {},
+};
 
 type Ctx = {
   world: World | null;
@@ -26,6 +58,14 @@ type Ctx = {
   /** has the member been through the early ask, either way */
   prepared: boolean;
   setPrepared: (v: boolean) => void;
+  /** real external API data — on-demand only, never polled */
+  live: LiveState;
+  refreshSignals: (flightId: string, from: string, to: string) => void;
+  refreshFlightStatus: (flightId: string, flightIata: string) => void;
+  refreshAlts: (from: string, to: string, date: string, cabin?: string) => void;
+  refreshHotels: (city: string, checkin: string, checkout: string) => void;
+  explainRisk: (flightId: string, req: Extract<ExplainRequest, { kind: 'risk' }>) => void;
+  explainAlt: (altId: string, req: Extract<ExplainRequest, { kind: 'alt' }>) => void;
 };
 
 const WorldCtx = createContext<Ctx | null>(null);
@@ -62,6 +102,98 @@ export function WorldProvider({ children }: { children: React.ReactNode }) {
     try { localStorage.setItem('zkd.prepared', v ? '1' : '0'); } catch {}
   };
 
+  const [live, setLive] = useState<LiveState>(emptyLive);
+  // Client-side half of "never call twice per session" — the server-side half is
+  // the TTL cache in lib/server/cache.ts. Also guards against React Strict Mode's
+  // dev-mode double-invoke of effects.
+  const startedRef = useRef(new Set<string>());
+
+  const refreshSignals = (flightId: string, from: string, to: string) => {
+    const key = `signals:${flightId}`;
+    if (startedRef.current.has(key)) return;
+    startedRef.current.add(key);
+    setLive((l) => ({ ...l, signals: { ...l.signals, [flightId]: { status: 'loading' } } }));
+    fetch(`/api/signals?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .then((r) => r.json() as Promise<SignalsResponse>)
+      .then((json) =>
+        setLive((l) => ({
+          ...l,
+          signals: { ...l.signals, [flightId]: { status: 'ok', data: json.signals } },
+        })),
+      )
+      .catch(() =>
+        setLive((l) => ({ ...l, signals: { ...l.signals, [flightId]: { status: 'error' } } })),
+      );
+  };
+
+  const refreshFlightStatus = (flightId: string, flightIata: string) => {
+    const key = `flightStatus:${flightId}`;
+    if (startedRef.current.has(key)) return;
+    startedRef.current.add(key);
+    setLive((l) => ({ ...l, flightStatus: { ...l.flightStatus, [flightId]: { status: 'loading' } } }));
+    fetch(`/api/flight-status?flightIata=${encodeURIComponent(flightIata)}`)
+      .then((r) => r.json() as Promise<FlightStatusResponse>)
+      .then((json) =>
+        setLive((l) => ({
+          ...l,
+          flightStatus: { ...l.flightStatus, [flightId]: { status: 'ok', data: json.match } },
+        })),
+      )
+      .catch(() =>
+        setLive((l) => ({
+          ...l,
+          flightStatus: { ...l.flightStatus, [flightId]: { status: 'error' } },
+        })),
+      );
+  };
+
+  const refreshAlts = (from: string, to: string, date: string, cabin?: string) => {
+    if (startedRef.current.has('alts')) return;
+    startedRef.current.add('alts');
+    setLive((l) => ({ ...l, alts: { status: 'loading' } }));
+    const q = new URLSearchParams({ from, to, date, ...(cabin ? { cabin } : {}) });
+    fetch(`/api/alts?${q}`)
+      .then((r) => r.json() as Promise<AltsResponse>)
+      .then((json) => setLive((l) => ({ ...l, alts: { status: 'ok', data: json.alts } })))
+      .catch(() => setLive((l) => ({ ...l, alts: { status: 'error' } })));
+  };
+
+  const refreshHotels = (city: string, checkin: string, checkout: string) => {
+    if (startedRef.current.has('hotels')) return;
+    startedRef.current.add('hotels');
+    setLive((l) => ({ ...l, hotels: { status: 'loading' } }));
+    const q = new URLSearchParams({ city, checkin, checkout });
+    fetch(`/api/hotels?${q}`)
+      .then((r) => r.json() as Promise<HotelsResponse>)
+      .then((json) => setLive((l) => ({ ...l, hotels: { status: 'ok', data: json.hotels } })))
+      .catch(() => setLive((l) => ({ ...l, hotels: { status: 'error' } })));
+  };
+
+  // `id` is the dict key pages read (`live.explain['risk:u1']` / `live.explain['alt:a1']`);
+  // it also doubles as the dedup key so the same explanation is never fetched twice.
+  const runExplain = (id: string, req: ExplainRequest) => {
+    if (startedRef.current.has(id)) return;
+    startedRef.current.add(id);
+    setLive((l) => ({ ...l, explain: { ...l.explain, [id]: { status: 'loading' } } }));
+    fetch('/api/explain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    })
+      .then((r) => r.json() as Promise<{ text: string | null }>)
+      .then((json) =>
+        setLive((l) => ({
+          ...l,
+          explain: { ...l.explain, [id]: json.text ? { status: 'ok', data: json.text } : { status: 'error' } },
+        })),
+      )
+      .catch(() => setLive((l) => ({ ...l, explain: { ...l.explain, [id]: { status: 'error' } } })));
+  };
+  const explainRisk = (flightId: string, req: Extract<ExplainRequest, { kind: 'risk' }>) =>
+    runExplain(`risk:${flightId}`, req);
+  const explainAlt = (altId: string, req: Extract<ExplainRequest, { kind: 'alt' }>) =>
+    runExplain(`alt:${altId}`, req);
+
   useEffect(() => {
     setWorld(buildWorld(new Date()));
     try {
@@ -90,8 +222,15 @@ export function WorldProvider({ children }: { children: React.ReactNode }) {
       setPreAuth,
       prepared,
       setPrepared,
+      live,
+      refreshSignals,
+      refreshFlightStatus,
+      refreshAlts,
+      refreshHotels,
+      explainRisk,
+      explainAlt,
     }),
-    [world, consent, disrupted, chosen, rejected, settled, preAuth, prepared],
+    [world, consent, disrupted, chosen, rejected, settled, preAuth, prepared, live],
   );
 
   return <WorldCtx.Provider value={value}>{children}</WorldCtx.Provider>;
