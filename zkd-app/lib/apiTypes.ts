@@ -35,9 +35,6 @@ export type ExplainResponse = { text: string | null };
 // --- Domain API (server-authoritative multi-flight/multi-passenger model) ---
 export type { DisruptionResolution, RecoveryView };
 
-/** @deprecated superseded by RecoveryView — kept only until WorldProvider.tsx's cutover (see plan step 5/6) so this isn't a breaking change mid-refactor. */
-export type DisruptionStateResponse = { detectedAt: number; resolution: DisruptionResolution | null };
-
 export type FlightSummary = {
   id: string; code: string; from: string; to: string; depISO: string; durationMin: number;
   aircraft?: string; terminal?: string;
