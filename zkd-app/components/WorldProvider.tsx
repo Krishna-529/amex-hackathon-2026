@@ -10,6 +10,8 @@ import type {
   AltsResponse,
   HotelsResponse,
   ExplainRequest,
+  DisruptionResolution,
+  DisruptionStateResponse,
 } from '@/lib/apiTypes';
 
 type LiveEntry<T> = { status: 'idle' | 'loading' | 'ok' | 'error'; data?: T };
@@ -26,6 +28,8 @@ type LiveState = {
   alts: LiveEntry<Alt[]>;
   hotels: LiveEntry<HotelOpt[]>;
   explain: Record<string, LiveEntry<string>>;
+  /** the server-authoritative "when did this land, and how was it resolved" record — see server/disruptionState.ts */
+  disruption: Record<string, LiveEntry<DisruptionStateResponse>>;
 };
 
 const emptyLive: LiveState = {
@@ -34,6 +38,7 @@ const emptyLive: LiveState = {
   alts: { status: 'idle' },
   hotels: { status: 'idle' },
   explain: {},
+  disruption: {},
 };
 
 type Ctx = {
@@ -66,6 +71,16 @@ type Ctx = {
   refreshHotels: (city: string, checkin: string, checkout: string) => void;
   explainRisk: (flightId: string, req: Extract<ExplainRequest, { kind: 'risk' }>) => void;
   explainAlt: (altId: string, req: Extract<ExplainRequest, { kind: 'alt' }>) => void;
+  /** Fetches the canonical detectedAt/resolution for a flight so every viewer's countdown agrees. */
+  refreshDisruption: (flightId: string) => void;
+  /**
+   * Reports what happened (autopilot fired / member approved / member handed over).
+   * First report for a flight wins server-side — the promise always resolves to
+   * whatever actually became canonical, which may not be what THIS client sent if
+   * another device got there first, so callers must reconcile against the result,
+   * not assume their own action stuck.
+   */
+  resolveDisruption: (flightId: string, resolution: DisruptionResolution) => Promise<DisruptionStateResponse>;
 };
 
 const WorldCtx = createContext<Ctx | null>(null);
@@ -194,6 +209,36 @@ export function WorldProvider({ children }: { children: React.ReactNode }) {
   const explainAlt = (altId: string, req: Extract<ExplainRequest, { kind: 'alt' }>) =>
     runExplain(`alt:${altId}`, req);
 
+  const refreshDisruption = (flightId: string) => {
+    const key = `disruption:${flightId}`;
+    if (startedRef.current.has(key)) return;
+    startedRef.current.add(key);
+    setLive((l) => ({ ...l, disruption: { ...l.disruption, [flightId]: { status: 'loading' } } }));
+    fetch(`/api/disruption?flightId=${encodeURIComponent(flightId)}`)
+      .then((r) => r.json() as Promise<DisruptionStateResponse>)
+      .then((json) =>
+        setLive((l) => ({ ...l, disruption: { ...l.disruption, [flightId]: { status: 'ok', data: json } } })),
+      )
+      .catch(() =>
+        setLive((l) => ({ ...l, disruption: { ...l.disruption, [flightId]: { status: 'error' } } })),
+      );
+  };
+
+  const resolveDisruption = (
+    flightId: string,
+    resolution: DisruptionResolution,
+  ): Promise<DisruptionStateResponse> =>
+    fetch('/api/disruption', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flightId, resolution }),
+    })
+      .then((r) => r.json() as Promise<DisruptionStateResponse>)
+      .then((json) => {
+        setLive((l) => ({ ...l, disruption: { ...l.disruption, [flightId]: { status: 'ok', data: json } } }));
+        return json;
+      });
+
   useEffect(() => {
     setWorld(buildWorld(new Date()));
     try {
@@ -229,6 +274,8 @@ export function WorldProvider({ children }: { children: React.ReactNode }) {
       refreshHotels,
       explainRisk,
       explainAlt,
+      refreshDisruption,
+      resolveDisruption,
     }),
     [world, consent, disrupted, chosen, rejected, settled, preAuth, prepared, live],
   );

@@ -11,6 +11,7 @@ import {
 import { secs, money, agoLabel } from '@/lib/time';
 import { AIRPORTS } from '@/lib/airports';
 import SandboxNotice from '@/components/SandboxNotice';
+import type { DisruptionResolution } from '@/lib/apiTypes';
 
 type Phase = 'deciding' | 'waiting' | 'choosing' | 'acting' | 'booked' | 'handed';
 
@@ -23,8 +24,10 @@ const TICK = 1000;
 
 export default function RecoveryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { world, consent, chosen, setChosen, rejected, reject, setSettled, preAuth, live, refreshAlts, refreshHotels } =
-    useWorld();
+  const {
+    world, consent, chosen, setChosen, rejected, reject, setSettled, preAuth,
+    live, refreshAlts, refreshHotels, refreshDisruption, resolveDisruption,
+  } = useWorld();
 
   const [phase, setPhase] = useState<Phase>('deciding');
   const [shown, setShown] = useState<Step[]>([]);
@@ -42,72 +45,130 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
   // Mock hotels price via `extra` (rate always 0); live LiteAPI hotels price via
   // `rate` (extra always 0) — one of the two is always the real cost.
   const hotelCost = hotel ? hotel.extra || hotel.rate : 0;
+  const owedNow = (pick?.fare ?? 0) + hotelCost + (cab?.extra ?? 0);
 
-  /* ── phase 1: the machine decides ─────────────────────────────────── */
+  // The canonical "when did this land" clock — fetched once, shared by every
+  // viewer of this flight (laptop, phone, a second tab), so the 90-second
+  // window counts down from the same real moment everywhere instead of from
+  // whenever each client happened to open this page. See server/disruptionState.ts.
   useEffect(() => {
-    if (!world || started.current) return;
+    if (!world) return;
+    refreshDisruption(id);
+  }, [world, id]);
+  const disruption = live.disruption[id];
+  const detectedAt = disruption?.data?.detectedAt;
+
+  /** Land on a resolution's outcome — whether it's the one THIS client just
+   *  reported, or one discovered already set by another device. `setNote`'s
+   *  functional update means a caller's own specific note (set just before
+   *  calling this) is kept; a bare discovery gets a generic fallback. */
+  const applyResolution = useCallback((resolution: DisruptionResolution) => {
+    if (resolution.kind === 'handed-over') {
+      setNote((n) => n ?? 'The consent window closed without a response — nothing was booked, nothing was charged.');
+      setPhase('handed');
+      return;
+    }
+    setChosen(resolution.altId);
+    setHotelId(resolution.hotelId);
+    setCabId(resolution.cabId);
+    setNote((n) => n ?? "No one answered in time, so autopilot went ahead — that's the permission that was set.");
+    setPhase('acting');
+  }, [setChosen]);
+
+  /** The window ran out with nobody watching (or this viewer's own countdown
+   *  hit zero) — apply the same silence rule a live viewer would get, and
+   *  report it so it becomes canonical for every other viewer too. */
+  const settleExpired = useCallback(() => {
+    // Silence means different things depending on what you asked for — but
+    // consent gates SPENDING, not care. If the recovery costs you nothing
+    // there is nothing to consent to, and stranding you because you didn't
+    // pick up is a worse outcome than a free seat you didn't ask for.
+    let resolution: DisruptionResolution;
+    if (consent === 'autopilot') {
+      setNote("You didn't answer, so we went ahead — that's the permission you gave us.");
+      resolution = { kind: 'autopilot', at: Date.now(), altId: chosen, hotelId, cabId };
+    } else if (owedNow === 0) {
+      setNote("You didn't answer. This costs you nothing, so we booked it rather than leave you stranded — there was no spend to ask about. You can still change it with us.");
+      resolution = { kind: 'autopilot', at: Date.now(), altId: chosen, hotelId, cabId };
+    } else {
+      setNote(`You didn't answer, and this one would cost you ${money(owedNow)} — so we stopped. Nothing was booked and nothing was charged. Your seats are still held.`);
+      resolution = { kind: 'handed-over', at: Date.now() };
+    }
+    resolveDisruption(id, resolution).then((state) => applyResolution(state.resolution!));
+  }, [consent, owedNow, chosen, hotelId, cabId, id, resolveDisruption, applyResolution]);
+
+  /* ── phase 1: figure out where in the real timeline we actually are ──── */
+  useEffect(() => {
+    if (!world || !disruption || disruption.status !== 'ok' || !detectedAt || started.current) return;
     started.current = true;
-    let i = 0;
-    const run = () => {
-      if (i >= DECIDE_STEPS.length) {
-        // A pre-authorisation is the member's decision, already given. The only
-        // reason to open the window is if the plan they approved is no longer
-        // available — substituting silently would break the one promise we make.
-        const planIntact = preAuth
-          && world!.alts.find((a) => a.id === preAuth.altId)?.ok
-          && world!.hotels.find((h) => h.id === preAuth.hotelId)?.ok
-          && world!.cabs.find((c) => c.id === preAuth.cabId)?.ok;
-        if (preAuth && planIntact) {
-          setChosen(preAuth.altId);
-          setHotelId(preAuth.hotelId);
-          setCabId(preAuth.cabId);
-          setNote('You authorised this in advance, so there was no window to wait for — we acted the moment the airline filed.');
-          setPhase('acting');
-          return;
-        }
-        if (preAuth && !planIntact) {
-          setNote('You had authorised a plan, but part of it is no longer available. We are not substituting something you never saw — over to you.');
-        }
-        setLeft(QUIET_WINDOW_SECONDS);
-        setPhase('waiting');
+
+    const existing = disruption.data!.resolution;
+    if (existing) {
+      // Already resolved — by autopilot, by this member on another device, or
+      // by this same page in a prior render. Nothing left to decide or wait
+      // for; skip straight to the outcome (the booking animation still plays,
+      // since that's presentational, not a re-decision).
+      setShown(DECIDE_STEPS);
+      applyResolution(existing);
+      return;
+    }
+
+    const windowExpiresAt = detectedAt + QUIET_WINDOW_SECONDS * 1000;
+
+    const finishDecide = () => {
+      // A pre-authorisation is the member's decision, already given. The only
+      // reason to open the window is if the plan they approved is no longer
+      // available — substituting silently would break the one promise we make.
+      const planIntact = preAuth
+        && world.alts.find((a) => a.id === preAuth.altId)?.ok
+        && world.hotels.find((h) => h.id === preAuth.hotelId)?.ok
+        && world.cabs.find((c) => c.id === preAuth.cabId)?.ok;
+      if (preAuth && planIntact) {
+        setNote('You authorised this in advance, so there was no window to wait for — we acted the moment the airline filed.');
+        resolveDisruption(id, { kind: 'approved', at: Date.now(), altId: preAuth.altId, hotelId: preAuth.hotelId, cabId: preAuth.cabId })
+          .then((state) => applyResolution(state.resolution!));
         return;
       }
+      if (preAuth && !planIntact) {
+        setNote('You had authorised a plan, but part of it is no longer available. We are not substituting something you never saw — over to you.');
+      }
+
+      const remaining = windowExpiresAt - Date.now();
+      if (remaining <= 0) {
+        // Nobody was watching when the real clock ran out.
+        settleExpired();
+        return;
+      }
+      setLeft(Math.ceil(remaining / 1000));
+      setPhase('waiting');
+    };
+
+    let i = 0;
+    const run = () => {
+      if (i >= DECIDE_STEPS.length) { finishDecide(); return; }
       const s = DECIDE_STEPS[i];
       setShown((p) => [...p, s]);
       i += 1;
       setTimeout(run, Math.max(FLOOR, s.d * PLAY));
     };
     run();
-  }, [world]);
+  }, [world, disruption, detectedAt]);
 
-  /* ── phase 2: the member's 90 seconds ─────────────────────────────── */
-  const owedNow = (pick?.fare ?? 0) + hotelCost + (cab?.extra ?? 0);
-
+  /* ── phase 2: the member's 90 seconds, ticking off the real clock ────── */
   useEffect(() => {
-    if (phase !== 'waiting') return;
+    if (phase !== 'waiting' || !detectedAt) return;
+    const windowExpiresAt = detectedAt + QUIET_WINDOW_SECONDS * 1000;
     const t = setInterval(() => {
-      setLeft((n) => {
-        if (n > 1) return n - 1;
+      const remaining = windowExpiresAt - Date.now();
+      if (remaining <= 0) {
         clearInterval(t);
-        // Silence means different things depending on what you asked for — but
-        // consent gates SPENDING, not care. If the recovery costs you nothing
-        // there is nothing to consent to, and stranding you because you didn't
-        // pick up is a worse outcome than a free seat you didn't ask for.
-        if (consent === 'autopilot') {
-          setNote("You didn't answer, so we went ahead — that's the permission you gave us.");
-          setPhase('acting');
-        } else if (owedNow === 0) {
-          setNote("You didn't answer. This costs you nothing, so we booked it rather than leave you stranded — there was no spend to ask about. You can still change it with us.");
-          setPhase('acting');
-        } else {
-          setNote(`You didn't answer, and this one would cost you ${money(owedNow)} — so we stopped. Nothing was booked and nothing was charged. Your seats are still held.`);
-          setPhase('handed');
-        }
-        return 0;
-      });
+        settleExpired();
+        return;
+      }
+      setLeft(Math.ceil(remaining / 1000));
     }, TICK);
     return () => clearInterval(t);
-  }, [phase, consent, owedNow]);
+  }, [phase, detectedAt, settleExpired]);
 
   /* ── phase 3: the irreversible half ───────────────────────────────── */
   useEffect(() => {
@@ -145,13 +206,15 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
 
   const approve = useCallback(() => {
     setNote('You approved it, so we went straight through.');
-    setPhase('acting');
-  }, []);
+    resolveDisruption(id, { kind: 'approved', at: Date.now(), altId: chosen, hotelId, cabId })
+      .then((state) => applyResolution(state.resolution!));
+  }, [id, chosen, hotelId, cabId, resolveDisruption, applyResolution]);
 
   const handOver = useCallback(() => {
     setNote('You took the wheel. We stopped immediately — nothing confirmed, nothing paid, and your held seats stay held.');
-    setPhase('handed');
-  }, []);
+    resolveDisruption(id, { kind: 'handed-over', at: Date.now() })
+      .then((state) => applyResolution(state.resolution!));
+  }, [id, resolveDisruption, applyResolution]);
 
   /* opening the options is itself an intervention: hold the clock */
   const browse = useCallback(() => {
@@ -195,7 +258,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
         <h1>AI 2803 was cancelled</h1>
         <p>
           MAA → DEL, was due to depart {world.upcoming[0].dep} today.
-          Detected {agoLabel(world.detected, world.now)}.
+          Detected {agoLabel(detectedAt ? new Date(detectedAt) : world.detected, new Date())}.
         </p>
       </div>
       <div className="split">

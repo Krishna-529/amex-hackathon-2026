@@ -28,3 +28,12 @@ export type ExplainRequest =
   | { kind: 'alt'; flightCode: string; altCode: string; fare: number; cabin: string };
 
 export type ExplainResponse = { text: string | null };
+
+export type DisruptionResolution =
+  | { kind: 'autopilot' | 'approved'; at: number; altId: string; hotelId: string; cabId: string }
+  | { kind: 'handed-over'; at: number };
+
+export type DisruptionStateResponse = {
+  detectedAt: number;
+  resolution: DisruptionResolution | null;
+};
