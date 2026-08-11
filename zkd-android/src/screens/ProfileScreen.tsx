@@ -1,23 +1,24 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { C, mono } from '../theme';
-import { PROFILE } from '../lib/data';
+import { hhmm } from '../lib/time';
 import { useWorld } from '../world';
+import { usePoll } from '../lib/usePoll';
+import { API_BASE_URL } from '../config';
+import type { Passenger } from '../api';
 import { Eyebrow, Glass, KV, Page, PageHead, Sect, Why } from '../ui';
 
-export default function ProfileScreen() {
-  const { world, consent, setConsent, settled, chosen } = useWorld();
+export default function ProfileScreen({ navigation }: any) {
+  const { passengerId, schedule, setConsent } = useWorld();
+  const passenger = usePoll<Passenger>(`${API_BASE_URL}/api/passengers/${passengerId}`, 8000);
 
-  if (!world) {
+  if (!schedule || !passenger) {
     return (
       <Page>
         <PageHead title="Your details" />
       </Page>
     );
   }
-
-  const pick = world.alts.find((a) => a.id === chosen)!;
-  const rebooked = settled === 'booked';
 
   return (
     <Page>
@@ -29,10 +30,10 @@ export default function ProfileScreen() {
 
       <Glass style={s.card}>
         <Eyebrow>Who the ticket is issued to</Eyebrow>
-        <KV first k="Name, exactly as on your passport" v={PROFILE.legalName} />
-        <KV k="Date of birth" v={PROFILE.dob} />
-        <KV k="Gender" v={PROFILE.gender} />
-        <KV k="Nationality" v={PROFILE.nationality} />
+        <KV first k="Name, exactly as on your passport" v={passenger.legalName} />
+        <KV k="Date of birth" v={passenger.dob} />
+        <KV k="Gender" v={passenger.gender} />
+        <KV k="Nationality" v={passenger.nationality} />
         <Why>
           Airlines match these three against your travel document at check-in. A mismatch is the most
           common reason an automatic rebooking is rejected, so we store them exactly as printed.
@@ -41,9 +42,9 @@ export default function ProfileScreen() {
 
       <Glass style={s.card}>
         <Eyebrow>Travel document</Eyebrow>
-        <KV first k="Passport" v={PROFILE.passport.number} />
-        <KV k="Expires" v={PROFILE.passport.expiry} />
-        <KV k="Issued by" v={PROFILE.passport.issued} />
+        <KV first k="Passport" v={passenger.passport.number} />
+        <KV k="Expires" v={passenger.passport.expiry} />
+        <KV k="Issued by" v={passenger.passport.issued} />
         <Why>
           Needed for the international leg only. We show you the last two digits so you can confirm it
           is the right document without us displaying the number back to anyone.
@@ -52,8 +53,8 @@ export default function ProfileScreen() {
 
       <Glass style={s.card}>
         <Eyebrow>How the airline reaches you</Eyebrow>
-        <KV first k="Email" v={PROFILE.contact.email} />
-        <KV k="Mobile" v={PROFILE.contact.phone} />
+        <KV first k="Email" v={passenger.contact.email} />
+        <KV k="Mobile" v={passenger.contact.phone} />
         <Why>
           These go on the booking itself. It is how the carrier sends your boarding pass — and how we
           reach you inside the 90 seconds before we act.
@@ -62,7 +63,7 @@ export default function ProfileScreen() {
 
       <Glass style={s.card}>
         <Eyebrow>Frequent flyer</Eyebrow>
-        {PROFILE.loyalty.map((l, i) => (
+        {passenger.loyalty.map((l, i) => (
           <KV
             key={l.number}
             first={i === 0}
@@ -75,48 +76,23 @@ export default function ProfileScreen() {
 
       <Sect>Your bookings</Sect>
       <Glass style={s.card}>
-        {world.upcoming.map((f, i) => {
-          const wasCancelled = f.id === 'u1';
-          return (
-            <View key={f.id} style={[s.bk, i === 0 && s.bkFirst]}>
-              <View style={s.bkH}>
-                <Text style={s.fc}>{f.code}</Text>
-                <Text style={s.rt}>
-                  {f.from} → {f.to}
-                </Text>
-                <Text style={s.pnr}>{wasCancelled && rebooked ? 'RB4T9Z' : f.pnr}</Text>
-              </View>
-              <Text style={s.bkM}>
-                {wasCancelled && rebooked
-                  ? `Reissued as ${pick.code} · ${pick.dep} — new record locator, old one voided`
-                  : `${f.date} · ${f.dep} · seat ${f.seat} · ${f.terminal}`}
-              </Text>
-            </View>
-          );
-        })}
-        <View style={s.bk}>
-          <View style={s.bkH}>
-            <Text style={s.fc}>HOTEL</Text>
-            <Text style={s.rt}>{world.hotels[0].name}</Text>
-            <Text style={s.pnr}>HT-88214</Text>
-          </View>
-          <Text style={s.bkM}>
-            {rebooked
-              ? 'Check-in moved to 16:30 · same rate'
-              : `Check-in ${world.hotels[0].checkin} · 1 night`}
-          </Text>
-        </View>
-        {world.cabLegs.map((l, i) => (
-          <View key={l.id} style={s.bk}>
+        {schedule.upcoming.map((f, i) => (
+          <View key={f.id} style={[s.bk, i === 0 && s.bkFirst]}>
             <View style={s.bkH}>
-              <Text style={s.fc}>CAB</Text>
+              <Text style={s.fc}>{f.code}</Text>
               <Text style={s.rt}>
-                {l.from} → {l.to}
+                {f.from} → {f.to}
               </Text>
-              <Text style={s.pnr}>{i === 0 ? 'CB-4471' : 'CB-4472'}</Text>
+              <Text style={s.pnr}>{f.booking?.pnr ?? '—'}</Text>
             </View>
             <Text style={s.bkM}>
-              {world.cabs[0].kind} · pickup {l.pickup}
+              {f.disruptionPhase !== 'none' ? (
+                <Text style={{ color: C.iris }} onPress={() => navigation.navigate('Recovery', { id: f.id })}>
+                  Disrupted — view recovery →
+                </Text>
+              ) : (
+                `${hhmm(new Date(f.depISO))} · seat ${f.booking?.seat ?? '—'} · ${f.terminal ?? ''}`
+              )}
             </Text>
           </View>
         ))}
@@ -124,7 +100,7 @@ export default function ProfileScreen() {
 
       <Glass style={s.card}>
         <Eyebrow>How you like to fly</Eyebrow>
-        {PROFILE.prefs.map((p, i) => (
+        {passenger.prefs.map((p, i) => (
           <KV key={p.k} first={i === 0} k={p.k} v={p.v} />
         ))}
         <Text style={s.permLbl}>When a flight breaks</Text>
@@ -132,18 +108,18 @@ export default function ProfileScreen() {
           {(['autopilot', 'ask'] as const).map((c) => (
             <TouchableOpacity
               key={c}
-              style={[s.segBtn, consent === c && s.segOn]}
+              style={[s.segBtn, passenger.consent === c && s.segOn]}
               onPress={() => setConsent(c)}
               activeOpacity={0.8}
             >
-              <Text style={[s.segTxt, consent === c && { color: '#fff' }]}>
+              <Text style={[s.segTxt, passenger.consent === c && { color: '#fff' }]}>
                 {c === 'autopilot' ? 'Autopilot' : 'Ask me first'}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
         <Why>
-          {consent === 'autopilot'
+          {passenger.consent === 'autopilot'
             ? 'We rebook inside your policy without waking you. You still get 90 seconds to stop us before anything is paid for.'
             : 'We do all the work then stop and wait for your go-ahead. If you do not answer, we hold rather than book.'}
         </Why>
@@ -151,8 +127,8 @@ export default function ProfileScreen() {
 
       <Glass style={s.card}>
         <Eyebrow>Payment</Eyebrow>
-        <KV first k="Card on file" v={PROFILE.payment.card} />
-        <KV k="How we charge" v={PROFILE.payment.method} />
+        <KV first k="Card on file" v={passenger.payment.card} />
+        <KV k="How we charge" v={passenger.payment.method} />
         <Why>
           Each booking gets its own single-use card number, locked to that amount and that date. It
           cannot be reused, so nothing here can be charged twice.
@@ -161,9 +137,9 @@ export default function ProfileScreen() {
 
       <Glass style={[s.card, { borderColor: 'rgba(75,171,124,.3)', marginBottom: 0 }]}>
         <Eyebrow color={C.safe}>What we never hold</Eyebrow>
-        {PROFILE.never.map((n, i) => (
-          <KV key={n} first={i === 0} k={n} v="✓" ok />
-        ))}
+        <KV first k="We never store your CVV or full card number" v="✓" ok />
+        <KV k="We never share your passport with anyone but the operating airline" v="✓" ok />
+        <KV k="We never hold payment credentials the agent can reuse" v="✓" ok />
       </Glass>
     </Page>
   );

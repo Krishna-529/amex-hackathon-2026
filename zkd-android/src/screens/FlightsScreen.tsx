@@ -1,37 +1,35 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { C, mono, tone } from '../theme';
-import { risk, BAND_SAY } from '../lib/risk';
-import { agoLabel } from '../lib/time';
-import { OUTCOME, type PastFlight } from '../lib/data';
+import React, { useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { C, tone, mono } from '../theme';
+import { BAND_SAY } from '../lib/risk';
+import { agoLabel, hhmm, mins, durLabel, dayLabel } from '../lib/time';
+import { OUTCOME } from '../lib/outcome';
+import { PREAUTH_THRESHOLD } from '../lib/recovery';
 import { useWorld } from '../world';
-import { notifyCancelled } from '../notify';
-import { Glass, Page, PageHead, Pill, RouteLine, Sect, s as u } from '../ui';
+import { usePoll } from '../lib/usePoll';
+import { API_BASE_URL } from '../config';
+import type { PreAuthResponse, RecoveryView } from '../api';
+import { Glass, Page, PageHead, Pill, RouteLine, Sect } from '../ui';
 
 export default function FlightsScreen({ navigation }: any) {
-  const { world, disrupted, setDisrupted, consent, settled, chosen } = useWorld();
+  const { passengerId, schedule } = useWorld();
   const [allHistory, setAllHistory] = useState(false);
-  const fired = useRef(false);
-  const drop = useRef(new Animated.Value(0)).current;
 
-  /* the cancellation lands a couple of seconds after you open the app */
-  useEffect(() => {
-    if (!world || disrupted) return;
-    const t = setTimeout(() => setDisrupted(true), 3000);
-    return () => clearTimeout(t);
-  }, [world, disrupted, setDisrupted]);
+  const upcoming = schedule?.upcoming ?? [];
+  const past = schedule?.past ?? [];
+  const next = upcoming[0];
+  const nextDisrupted = !!next && next.disruptionPhase !== 'none';
 
-  /* …and it arrives as a real notification, not just an in-app banner */
-  useEffect(() => {
-    if (!world || !disrupted || fired.current) return;
-    fired.current = true;
-    notifyCancelled(world.upcoming[0].code, world.upcoming[0].dep, consent === 'autopilot').catch(
-      () => {},
-    );
-    Animated.timing(drop, { toValue: 1, duration: 520, useNativeDriver: true }).start();
-  }, [world, disrupted, consent, drop]);
+  const nextRecovery = usePoll<RecoveryView>(
+    nextDisrupted ? `${API_BASE_URL}/api/disruptions/${next!.id}?passengerId=${passengerId}` : null,
+    2000,
+  );
+  const preAuth = usePoll<PreAuthResponse>(
+    next && !nextDisrupted ? `${API_BASE_URL}/api/flights/${next.id}/preauth?passengerId=${passengerId}` : null,
+    6000,
+  );
 
-  if (!world) {
+  if (!schedule || !next) {
     return (
       <Page>
         <PageHead title="Your flights" />
@@ -39,9 +37,8 @@ export default function FlightsScreen({ navigation }: any) {
     );
   }
 
-  const { upcoming, past, alts, detected } = world;
-  const pick = alts.find((a) => a.id === chosen)!;
-  const rows: PastFlight[] = allHistory ? past : past.slice(0, 4);
+  const consent = schedule.passenger.consent;
+  const rows = allHistory ? past : past.slice(0, 4);
 
   return (
     <Page>
@@ -54,64 +51,79 @@ export default function FlightsScreen({ navigation }: any) {
         is the permission you set when you activated your card.
       </PageHead>
 
-      {disrupted && (
-        <Animated.View
-          style={{
-            opacity: drop,
-            transform: [{ translateY: drop.interpolate({ inputRange: [0, 1], outputRange: [-14, 0] }) }],
-          }}
+      {!nextDisrupted && (next.riskPct ?? 0) >= PREAUTH_THRESHOLD && (
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('FlightDetail', { id: next.id })}
+          style={s.alert}
         >
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('Recovery')}
-            style={[s.alert, settled === 'booked' && s.alertOk]}
-          >
-            <View style={[s.alertIc, settled === 'booked' && s.alertIcOk]}>
-              <Text style={{ color: settled === 'booked' ? C.safe : C.risk, fontSize: 17 }}>
-                {settled === 'booked' ? '✓' : '!'}
-              </Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.alertT}>
-                {settled === 'booked'
-                  ? 'Rebooked. Your trip is back together.'
-                  : settled === 'handed-over'
-                    ? 'A person has taken over your trip'
-                    : `${upcoming[0].code} has been cancelled`}
-              </Text>
-              <Text style={s.alertB}>
-                {settled === 'booked'
-                  ? `${pick.code} at ${pick.dep} · hotel moved · you paid nothing`
-                  : settled === 'handed-over'
-                    ? 'Nothing was booked and nothing was charged.'
-                    : `Detected ${agoLabel(detected, world.now)}. ${
-                        consent === 'autopilot'
-                          ? "We're rebooking you now — tap to watch."
-                          : 'We need your go-ahead before we book anything.'
-                      }`}
-              </Text>
-            </View>
-            <Text style={[s.alertGo, settled === 'booked' && { color: C.safe }]}>
-              {settled === 'none' ? 'Open →' : 'View →'}
+          <View style={s.alertIc}>
+            <Text style={{ color: C.risk, fontSize: 17 }}>!</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.alertT}>
+              {preAuth
+                ? `You've told us what to do if ${next.code} cancels`
+                : `${next.code} looks like it will cancel — ${next.riskPct}%`}
             </Text>
-          </TouchableOpacity>
-        </Animated.View>
+            <Text style={s.alertB}>
+              {preAuth
+                ? 'We act the second it happens. No 90-second window needed.'
+                : "It hasn't been cancelled. Tell us now what you'd want, while you have time to think."}
+            </Text>
+          </View>
+          <Text style={s.alertGo}>{preAuth ? 'Review →' : 'Decide →'}</Text>
+        </TouchableOpacity>
+      )}
+
+      {nextDisrupted && (
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('Recovery', { id: next.id })}
+          style={[s.alert, nextRecovery?.phase === 'booked' && s.alertOk]}
+        >
+          <View style={[s.alertIc, nextRecovery?.phase === 'booked' && s.alertIcOk]}>
+            <Text style={{ color: nextRecovery?.phase === 'booked' ? C.safe : C.risk, fontSize: 17 }}>
+              {nextRecovery?.phase === 'booked' ? '✓' : '!'}
+            </Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.alertT}>
+              {nextRecovery?.phase === 'booked'
+                ? 'Rebooked. Your trip is back together.'
+                : nextRecovery?.phase === 'handed'
+                  ? 'A person has taken over your trip'
+                  : `${next.code} has been cancelled`}
+            </Text>
+            <Text style={s.alertB}>
+              {nextRecovery?.phase === 'booked'
+                ? 'Alternative booked · hotel moved · you paid nothing'
+                : nextRecovery?.phase === 'handed'
+                  ? 'Nothing was booked and nothing was charged.'
+                  : `Detected ${agoLabel(new Date(nextRecovery?.detectedAt ?? Date.now()), new Date())}. ${
+                      consent === 'autopilot'
+                        ? "We're rebooking you now — tap to watch."
+                        : 'We need your go-ahead before we book anything.'
+                    }`}
+            </Text>
+          </View>
+          <Text style={[s.alertGo, nextRecovery?.phase === 'booked' && { color: C.safe }]}>
+            {!nextRecovery?.resolution ? 'Open →' : 'View →'}
+          </Text>
+        </TouchableOpacity>
       )}
 
       <Sect>Upcoming</Sect>
       <Glass>
         {upcoming.map((f, i) => {
-          const cancelled = f.id === 'u1' && disrupted;
-          const r = risk(f.signals!);
+          const cancelled = f.disruptionPhase !== 'none';
+          const dep = new Date(f.depISO);
+          const arr = mins(dep, f.durationMin);
           return (
             <TouchableOpacity
               key={f.id}
               activeOpacity={0.7}
-              onPress={() =>
-                cancelled
-                  ? navigation.navigate('Recovery')
-                  : navigation.navigate('FlightDetail', { id: f.id })
-              }
+              onPress={() => navigation.navigate(cancelled ? 'Recovery' : 'FlightDetail', { id: f.id })}
               style={[s.uprow, i > 0 && s.uprowDiv]}
             >
               <View style={{ flex: 1, minWidth: 0 }}>
@@ -127,15 +139,11 @@ export default function FlightsScreen({ navigation }: any) {
                       <Text style={[s.tagTxt, { color: C.risk }]}>Cancelled</Text>
                     </View>
                   )}
-                  <Text style={s.when}>{f.date}</Text>
+                  <Text style={s.when}>{dayLabel(dep, new Date())}</Text>
                 </View>
-                <RouteLine from={f.from} to={f.to} dep={f.dep} arr={f.arr} dur={f.dur} />
+                <RouteLine from={f.from} to={f.to} dep={hhmm(dep)} arr={hhmm(arr)} dur={durLabel(f.durationMin)} />
                 <Text style={s.say}>
-                  {cancelled
-                    ? settled === 'booked'
-                      ? `We rebooked you on ${pick.code} at ${pick.dep} and moved tonight's hotel — you paid nothing.`
-                      : 'We have alternatives ready and are waiting on the go-ahead.'
-                    : BAND_SAY[r.band]}
+                  {cancelled ? 'Cancelled — tap to see the recovery.' : BAND_SAY[f.riskBand ?? 'low']}
                 </Text>
               </View>
               <View style={s.pred}>
@@ -146,7 +154,7 @@ export default function FlightsScreen({ navigation }: any) {
                   </>
                 ) : (
                   <>
-                    <Text style={[s.predN, { color: tone(r.band) }]}>{r.pct}%</Text>
+                    <Text style={[s.predN, { color: tone(f.riskBand ?? 'low') }]}>{f.riskPct ?? 0}%</Text>
                     <Text style={s.predLb}>cancel risk</Text>
                   </>
                 )}

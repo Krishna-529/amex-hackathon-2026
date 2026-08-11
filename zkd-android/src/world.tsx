@@ -1,59 +1,63 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { buildWorld, type World } from './lib/data';
-import type { Consent } from './lib/recovery';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import { usePoll } from './lib/usePoll';
+import { hhmm } from './lib/time';
+import { API_BASE_URL } from './config';
+import { notifyCancelled } from './notify';
+import { setConsentRemote, type Consent, type PassengerScheduleResponse } from './api';
 
-type Settled = 'none' | 'booked' | 'handed-over';
+/**
+ * No mock World built on mount any more — this is a thin poller of the same
+ * server-authoritative engine every web tab reads (server/engine/simulation.ts).
+ * The phone has no identity switcher UI like the web app's ?as=; it always
+ * looks at one seeded passenger, same as picking up one specific member's
+ * phone in the demo.
+ */
+export const DEFAULT_PASSENGER_ID = 'p-priya';
 
 type Ctx = {
-  world: World | null;
-  consent: Consent;
+  passengerId: string;
+  schedule: PassengerScheduleResponse | null;
   setConsent: (c: Consent) => void;
-  /** has the cancellation landed yet in this session */
-  disrupted: boolean;
-  setDisrupted: (v: boolean) => void;
-  /** which alternative is currently selected */
-  chosen: string;
-  setChosen: (id: string) => void;
-  /** offers the member has explicitly rejected — never re-proposed */
-  rejected: string[];
-  reject: (id: string) => void;
-  /** how the recovery resolved, so the flights list can reflect it */
-  settled: Settled;
-  setSettled: (s: Settled) => void;
 };
 
 const WorldCtx = createContext<Ctx | null>(null);
 
 export function WorldProvider({ children }: { children: React.ReactNode }) {
-  // Built exactly once, on mount. Every time in the app is relative to this
-  // `now`, so the cancellation always reads as having just happened — and
-  // rebuilding it on a re-render would make the clock jump under the user.
-  const [world, setWorld] = useState<World | null>(null);
-  const [consent, setConsent] = useState<Consent>('autopilot');
-  const [disrupted, setDisrupted] = useState(false);
-  const [chosen, setChosen] = useState('a1');
-  const [rejected, setRejected] = useState<string[]>([]);
-  const [settled, setSettled] = useState<Settled>('none');
+  const passengerId = DEFAULT_PASSENGER_ID;
+  const schedule = usePoll<PassengerScheduleResponse>(
+    `${API_BASE_URL}/api/passengers/${passengerId}/schedule`,
+    4000,
+  );
 
+  // A real notification the moment ANY flight on this schedule flips out of
+  // 'none' — this is the phone noticing a change the backend already made,
+  // not a local timer standing in for detection. `null` means "haven't seen
+  // a first poll yet", so a flight that's already disrupted when the app
+  // opens doesn't fire a false notification.
+  const seenPhases = useRef<Record<string, string> | null>(null);
   useEffect(() => {
-    setWorld(buildWorld(new Date()));
-  }, []);
+    if (!schedule) return;
+    const isFirst = seenPhases.current === null;
+    const next: Record<string, string> = {};
+    for (const f of schedule.upcoming) {
+      next[f.id] = f.disruptionPhase;
+      if (!isFirst) {
+        const prev = seenPhases.current![f.id] ?? 'none';
+        if (prev === 'none' && f.disruptionPhase !== 'none') {
+          notifyCancelled(f.id, f.code, hhmm(new Date(f.depISO)), schedule.passenger.consent === 'autopilot').catch(() => {});
+        }
+      }
+    }
+    seenPhases.current = next;
+  }, [schedule]);
+
+  const setConsent = useCallback((c: Consent) => {
+    setConsentRemote(passengerId, c);
+  }, [passengerId]);
 
   const value = useMemo<Ctx>(
-    () => ({
-      world,
-      consent,
-      setConsent,
-      disrupted,
-      setDisrupted,
-      chosen,
-      setChosen,
-      rejected,
-      reject: (id) => setRejected((r) => (r.includes(id) ? r : [...r, id])),
-      settled,
-      setSettled,
-    }),
-    [world, consent, disrupted, chosen, rejected, settled],
+    () => ({ passengerId, schedule, setConsent }),
+    [passengerId, schedule, setConsent],
   );
 
   return <WorldCtx.Provider value={value}>{children}</WorldCtx.Provider>;

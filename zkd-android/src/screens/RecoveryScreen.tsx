@@ -1,210 +1,52 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { C, mono } from '../theme';
-import {
-  WARM_STEPS, DECIDE_STEPS, ACT_STEPS,
-  WARM_TOTAL, DECIDE_TOTAL, ACT_TOTAL, MACHINE_TOTAL,
-  QUIET_WINDOW_SECONDS, type Step,
-} from '../lib/recovery';
-import { secs, money, agoLabel } from '../lib/time';
+import { WARM_STEPS, WARM_TOTAL, DECIDE_TOTAL, ACT_TOTAL, MACHINE_TOTAL, QUIET_WINDOW_SECONDS } from '../lib/recovery';
+import { secs, money, agoLabel, hhmm } from '../lib/time';
 import { useWorld } from '../world';
+import { usePoll } from '../lib/usePoll';
+import { API_BASE_URL } from '../config';
 import { notifyBooked, notifyHandedOver } from '../notify';
 import { Cta, Eyebrow, Glass, KV, Page, PageHead } from '../ui';
-import { getDisruptionState, resolveDisruption, type DisruptionResolution, type DisruptionState } from '../api';
+import { resolveTask, type FlightDetail, type PreAuthResponse, type RecoveryView, type Step } from '../api';
 
-type Phase = 'deciding' | 'waiting' | 'choosing' | 'acting' | 'booked' | 'handed';
-
-/** playback: 1 second of real budget → this many ms on screen */
-const PLAY = 190;
-const FLOOR = 260;
-/** Real seconds. The 90-second window is the member's time to think, so it is
- *  not compressed — 1.5 minutes is the point, not an inconvenience. */
-const TICK = 1000;
-
-/** This screen only ever shows AI 2803 / world.upcoming[0], same as the rest
- *  of this app — matches the flight id the web app uses for the same flight. */
-const FLIGHT_ID = 'u1';
-
-export default function RecoveryScreen({ navigation }: any) {
-  const { world, consent, chosen, setChosen, rejected, reject, setSettled } = useWorld();
-
-  const [phase, setPhase] = useState<Phase>('deciding');
-  const [shown, setShown] = useState<Step[]>([]);
-  const [left, setLeft] = useState(QUIET_WINDOW_SECONDS);
-  const [note, setNote] = useState<string | null>(null);
-  const [hotelId, setHotelId] = useState('h1');
-  const [cabId, setCabId] = useState('c1');
-  const started = useRef(false);
-  const acting = useRef(false);
+/**
+ * A pure renderer of whatever server/engine/simulation.ts says. No local
+ * phase machine, no local step timers — `view.shown`/`view.phase`/
+ * `view.secondsLeft` are all computed server-side and just displayed here,
+ * the same as the web recovery page.
+ */
+export default function RecoveryScreen({ route, navigation }: any) {
+  const { id } = route.params as { id: string };
+  const { passengerId, schedule } = useWorld();
   const told = useRef(false);
-  const timer = useRef<any>(null);
 
-  const pick = world?.alts.find((a) => a.id === chosen);
-  const hotel = world?.hotels.find((h) => h.id === hotelId) ?? world?.hotels[0];
-  const cab = world?.cabs.find((c) => c.id === cabId) ?? world?.cabs[0];
-  const owedNow = (pick?.fare ?? 0) + (hotel?.extra ?? 0) + (cab?.extra ?? 0);
+  const view = usePoll<RecoveryView>(`${API_BASE_URL}/api/disruptions/${id}?passengerId=${passengerId}`, 1500);
+  const detail = usePoll<FlightDetail>(`${API_BASE_URL}/api/flights/${id}`, 5000);
+  const preAuth = usePoll<PreAuthResponse>(`${API_BASE_URL}/api/flights/${id}/preauth?passengerId=${passengerId}`, 10000);
 
-  // The same canonical clock the web app reads — fetched from the laptop over
-  // Wi-Fi (see src/config.ts for the address) so this phone's countdown and
-  // outcome agree with whatever anyone sees on the web app for this flight.
-  const [detectedAt, setDetectedAt] = useState<number | null>(null);
+  const f = schedule?.upcoming.find((x) => x.id === id);
+  const booking = f?.booking;
 
-  /** Land on a resolution's outcome — whether THIS device just reported it, or
-   *  discovered one already set by the web app or another device. */
-  const applyResolution = useCallback((resolution: DisruptionResolution) => {
-    if (resolution.kind === 'handed-over') {
-      setNote((n) => n ?? 'The consent window closed without a response — nothing was booked, nothing was charged.');
-      setPhase('handed');
-      return;
-    }
-    setChosen(resolution.altId);
-    setHotelId(resolution.hotelId);
-    setCabId(resolution.cabId);
-    setNote((n) => n ?? "No one answered in time, so autopilot went ahead — that's the permission that was set.");
-    setPhase('acting');
-  }, [setChosen]);
+  const act = (action: Parameters<typeof resolveTask>[2]) => {
+    resolveTask(id, passengerId, action);
+  };
 
-  const settleExpired = useCallback(() => {
-    let resolution: DisruptionResolution;
-    if (consent === 'autopilot') {
-      setNote("You didn't answer, so we went ahead — that's the permission you gave us.");
-      resolution = { kind: 'autopilot', at: Date.now(), altId: chosen, hotelId, cabId };
-    } else if (owedNow === 0) {
-      setNote("You didn't answer. This costs you nothing, so we booked it rather than leave you stranded — there was no spend to ask about.");
-      resolution = { kind: 'autopilot', at: Date.now(), altId: chosen, hotelId, cabId };
-    } else {
-      setNote("You didn't answer, and this one would cost you money — so we stopped. Nothing was booked and nothing was charged.");
-      resolution = { kind: 'handed-over', at: Date.now() };
-    }
-    resolveDisruption(FLIGHT_ID, resolution).then((state) => {
-      // If the network call itself failed, fall back to what this device
-      // decided locally rather than leaving the screen stuck.
-      applyResolution(state?.resolution ?? resolution);
-    });
-  }, [consent, owedNow, chosen, hotelId, cabId, applyResolution]);
-
-  /* ── phase 1: fetch the real clock, then figure out where we actually are ── */
   useEffect(() => {
-    if (!world || started.current) return;
-    started.current = true;
-
-    getDisruptionState(FLIGHT_ID).then((state: DisruptionState | null) => {
-      // No network reachable (phone off Wi-Fi, wrong IP in src/config.ts,
-      // laptop server not running) — fall back to the old local-only timing
-      // rather than freezing the screen.
-      const dAt = state?.detectedAt ?? Date.now();
-      setDetectedAt(dAt);
-
-      if (state?.resolution) {
-        setShown(DECIDE_STEPS);
-        applyResolution(state.resolution);
-        return;
-      }
-
-      const windowExpiresAt = dAt + QUIET_WINDOW_SECONDS * 1000;
-      const finishDecide = () => {
-        const remaining = windowExpiresAt - Date.now();
-        if (remaining <= 0) { settleExpired(); return; }
-        setLeft(Math.ceil(remaining / 1000));
-        setPhase('waiting');
-      };
-
-      let i = 0;
-      const run = () => {
-        if (i >= DECIDE_STEPS.length) { finishDecide(); return; }
-        const s = DECIDE_STEPS[i];
-        setShown((p) => [...p, s]);
-        i += 1;
-        timer.current = setTimeout(run, Math.max(FLOOR, s.d * PLAY));
-      };
-      run();
-    });
-    return () => clearTimeout(timer.current);
-  }, [world]);
-
-  /* ── phase 2: the member's 90 seconds, ticking off the real clock ────── */
-  useEffect(() => {
-    if (phase !== 'waiting' || !detectedAt) return;
-    const windowExpiresAt = detectedAt + QUIET_WINDOW_SECONDS * 1000;
-    const t = setInterval(() => {
-      const remaining = windowExpiresAt - Date.now();
-      if (remaining <= 0) {
-        clearInterval(t);
-        settleExpired();
-        return;
-      }
-      setLeft(Math.ceil(remaining / 1000));
-    }, TICK);
-    return () => clearInterval(t);
-  }, [phase, detectedAt, settleExpired]);
-
-  /* ── phase 3: the irreversible half ───────────────────────────────── */
-  useEffect(() => {
-    if (phase !== 'acting' || acting.current) return;
-    acting.current = true;
-    let i = 0;
-    const run = () => {
-      if (i >= ACT_STEPS.length) { setPhase('booked'); return; }
-      const s = ACT_STEPS[i];
-      setShown((p) => [...p, s]);
-      i += 1;
-      timer.current = setTimeout(run, Math.max(FLOOR, s.d * PLAY));
-    };
-    run();
-    return () => clearTimeout(timer.current);
-  }, [phase]);
-
-  /* ── tell the rest of the app, and tell the phone ─────────────────── */
-  useEffect(() => {
-    if (phase === 'booked') {
-      setSettled('booked');
-      if (!told.current && pick && hotel && cab) {
+    if (!view || told.current) return;
+    if (view.phase === 'booked' && detail) {
+      const alt = detail.candidates.alts.find((a) => a.id === view.chosenAltId);
+      if (alt) {
         told.current = true;
-        const total = pick.fare + hotel.extra + cab.extra;
-        notifyBooked(
-          pick.code,
-          pick.dep,
-          total ? `${money(total)} to you` : 'you paid nothing',
-        ).catch(() => {});
+        notifyBooked(id, alt.code, alt.dep, view.owedNow ? `${money(view.owedNow)} to you` : 'you paid nothing').catch(() => {});
       }
+    } else if (view.phase === 'handed') {
+      told.current = true;
+      notifyHandedOver(id).catch(() => {});
     }
-    if (phase === 'handed') {
-      setSettled('handed-over');
-      if (!told.current) {
-        told.current = true;
-        notifyHandedOver().catch(() => {});
-      }
-    }
-  }, [phase]);
+  }, [view, detail, id]);
 
-  const approve = useCallback(() => {
-    setNote('You approved it, so we went straight through.');
-    const resolution: DisruptionResolution = { kind: 'approved', at: Date.now(), altId: chosen, hotelId, cabId };
-    resolveDisruption(FLIGHT_ID, resolution).then((state) => applyResolution(state?.resolution ?? resolution));
-  }, [chosen, hotelId, cabId, applyResolution]);
-
-  const handOver = useCallback(() => {
-    setNote('You took the wheel. We stopped immediately — nothing confirmed, nothing paid, and your held seats stay held.');
-    const resolution: DisruptionResolution = { kind: 'handed-over', at: Date.now() };
-    resolveDisruption(FLIGHT_ID, resolution).then((state) => applyResolution(state?.resolution ?? resolution));
-  }, [applyResolution]);
-
-  /* opening the options is itself an intervention: hold the clock */
-  const browse = useCallback(() => {
-    setNote('You stepped in, so the clock is held. Nothing proceeds while you are deciding.');
-    setPhase('choosing');
-  }, []);
-
-  const choose = useCallback((altId: string) => {
-    // The one we were about to book is now permanently rejected, and that
-    // exclusion is a policy input — not a preference the planner may ignore.
-    if (chosen !== altId) reject(chosen);
-    setChosen(altId);
-    setNote('Swapped. The one we had picked is now permanently excluded — it can never be re-proposed.');
-    setPhase('waiting');
-  }, [chosen, reject, setChosen]);
-
-  if (!world || !pick || !hotel || !cab) {
+  if (!schedule || !view || !detail || !f || !booking) {
     return (
       <Page>
         <PageHead title="Recovering your trip" />
@@ -212,37 +54,33 @@ export default function RecoveryScreen({ navigation }: any) {
     );
   }
 
-  /* what the member actually ends up paying, from what they actually picked */
-  const owed = pick.fare + hotel.extra + cab.extra;
+  const alt = detail.candidates.alts.find((a) => a.id === view.chosenAltId);
+  const hotel = detail.candidates.hotels.find((h) => h.id === view.chosenHotelId) ?? detail.candidates.hotels[0];
+  const cab = detail.candidates.cabs.find((c) => c.id === view.chosenCabId) ?? detail.candidates.cabs[0];
+  const hotelCost = hotel ? hotel.extra || hotel.rate : 0;
+  const bookable = detail.candidates.alts.filter((a) => a.ok && !view.rejectedAltIds.includes(a.id));
+  const elapsed = view.shown.reduce((a, st) => a + st.d, 0);
+  const consent = schedule.passenger.consent;
+  const gateOpen = view.phase === 'waiting' || view.phase === 'choosing';
 
-  const body = (s: Step) =>
-    s.live === 'seat'
-      ? `${pick.code} at ${pick.dep}, seat 14C. The airline cancelled, so the fare difference is theirs — you pay nothing.`
-      : s.live === 'van'
-        ? `A single-use card locked to ${owed ? money(owed) : '₹0'} and today's date — exactly the plan you were shown, and it cannot be reused or overspent.`
-      : s.live === 'hotel'
-        ? `${hotel.name}, check-in ${hotel.checkin}. ${hotel.why}.`
-      : s.live === 'cab'
-        ? `${cab.kind} booked for both legs — ${world.cabLegs[0].from} → ${world.cabLegs[0].to} at ${world.cabLegs[0].pickup}, and back at ${world.cabLegs[1].pickup}.`
-      : s.live === 'onward'
-        ? `${world.upcoming[1].code} to London at ${world.upcoming[1].dep} re-checked and still valid — a no-show on the first leg can silently void the rest of an itinerary.`
-        : s.s;
-
-  const elapsed = shown.reduce((a, s) => a + s.d, 0);
-  const bookable = world.alts.filter((a) => a.ok && !rejected.includes(a.id));
-  const gateOpen = phase === 'waiting' || phase === 'choosing';
+  const waitingNote =
+    consent === 'autopilot'
+      ? ' If you say nothing, we book all of it.'
+      : view.owedNow === 0
+        ? " You asked to be consulted first — but this costs you nothing, so if you don't answer we'll book it rather than leave you stranded."
+        : ` You asked to be consulted first, and this would cost you ${money(view.owedNow)} — so if you don't answer, we stop.`;
 
   return (
     <Page>
-      <PageHead title={`${world.upcoming[0].code} was cancelled`}>
-        MAA → DEL, was due to depart {world.upcoming[0].dep} today. Detected{' '}
-        {agoLabel(world.detected, world.now)}.
+      <PageHead title={`${f.code} was cancelled`}>
+        {f.from} → {f.to}, was due to depart {hhmm(new Date(f.depISO))} today. Detected{' '}
+        {agoLabel(new Date(view.detectedAt), new Date())}.
       </PageHead>
 
-      {note && phase !== 'handed' && (
+      {view.note && view.phase !== 'handed' && (
         <Glass style={s.noteCard}>
           <Eyebrow color={C.iris}>Why this happened</Eyebrow>
-          <Text style={s.noteTxt}>{note}</Text>
+          <Text style={s.noteTxt}>{view.note}</Text>
         </Glass>
       )}
 
@@ -269,67 +107,70 @@ export default function RecoveryScreen({ navigation }: any) {
           <Eyebrow>The moment it was cancelled</Eyebrow>
           <Text style={s.timer}>
             {secs(elapsed)}
-            {phase === 'booked' ? ` of ${secs(MACHINE_TOTAL)}` : ''}
+            {view.phase === 'booked' ? ` of ${secs(MACHINE_TOTAL)}` : ''}
           </Text>
         </View>
         <Text style={s.phaseNote}>
-          Machine time only. The 90 seconds you get to object is yours, and is not counted here.
+          {preAuth
+            ? 'You authorised this beforehand, so there was no waiting on a human at all — this is the entire recovery.'
+            : 'Machine time only. The 90 seconds you get to object is yours, and is not counted here.'}
         </Text>
 
         <View style={s.tl}>
-          {shown.map((st, i) => (
+          {view.phase === 'deciding' && (
+            <Ev name="Working it out" d={0} body="Confirming the cancellation and locking in your alternative — a few seconds." state="busy" />
+          )}
+
+          {view.shown.map((st: Step, i: number) => (
             <Ev
               key={`${st.n}-${i}`}
               name={st.n}
               d={st.d}
-              body={body(st)}
-              state={i === shown.length - 1 && (phase === 'deciding' || phase === 'acting') ? 'busy' : 'done'}
-              last={i === shown.length - 1 && !gateOpen && phase !== 'handed'}
+              body={st.s}
+              state={i === view.shown.length - 1 && view.phase === 'acting' ? 'busy' : 'done'}
+              last={i === view.shown.length - 1 && !gateOpen && view.phase !== 'handed'}
             />
           ))}
         </View>
 
         {/* ── the consent gate ───────────────────────────────────────── */}
         {gateOpen && (
-          <View style={[s.gate, phase === 'choosing' && s.gatePaused]}>
+          <View style={[s.gate, view.phase === 'choosing' && s.gatePaused]}>
             <View style={s.gateH}>
-              <Text style={[s.gateLbl, phase === 'choosing' && { color: C.warn }]}>
-                {phase === 'choosing'
+              <Text style={[s.gateLbl, view.phase === 'choosing' && { color: C.warn }]}>
+                {view.phase === 'choosing'
                   ? 'Held while you decide'
                   : consent === 'autopilot'
                     ? 'Booking unless you stop us'
                     : 'Waiting for you'}
               </Text>
-              <Text style={[s.cd, phase === 'choosing' && { color: C.warn }]}>{left}s</Text>
+              <Text style={[s.cd, view.phase === 'choosing' && { color: C.warn }]}>{view.secondsLeft}s</Text>
             </View>
             <View style={s.bar}>
               <View
                 style={[
                   s.barFill,
                   {
-                    width: `${(left / QUIET_WINDOW_SECONDS) * 100}%`,
-                    backgroundColor: phase === 'choosing' ? C.warn : C.iris,
+                    width: `${(view.secondsLeft / QUIET_WINDOW_SECONDS) * 100}%`,
+                    backgroundColor: view.phase === 'choosing' ? C.warn : C.iris,
                   },
                 ]}
               />
             </View>
 
-            {phase === 'waiting' ? (
+            {view.phase === 'waiting' && alt && hotel && cab ? (
               <>
                 <Text style={s.gateP}>
-                  Here is the whole plan — the flight, the room and both cab legs.
-                  {consent === 'autopilot'
-                    ? ' If you say nothing, we book all of it.'
-                    : ' We will not book any of it until you say so.'}
+                  Here is the whole plan — the flight, the room and both cab legs.{waitingNote}
                 </Text>
 
                 <Grp label="Flight">
                   <Line
                     ic="✈"
-                    t1={`${pick.code} · ${pick.dep}`}
-                    t2={`arrives ${pick.arr} · ${pick.cabin} · seat 14C`}
-                    r={pick.fare ? money(pick.fare) : 'no cost'}
-                    free={!pick.fare}
+                    t1={`${alt.code} · ${alt.dep}`}
+                    t2={`arrives ${alt.arr} · ${alt.cabin} · seat ${booking.seat}`}
+                    r={alt.fare ? money(alt.fare) : 'no cost'}
+                    free={!alt.fare}
                   />
                 </Grp>
 
@@ -338,13 +179,13 @@ export default function RecoveryScreen({ navigation }: any) {
                     ic="BED"
                     t1={hotel.name}
                     t2={`${hotel.area} · check-in ${hotel.checkin} · ${hotel.walk}`}
-                    r={hotel.extra ? money(hotel.extra) : 'airline pays'}
-                    free={!hotel.extra}
+                    r={hotelCost ? money(hotelCost) : 'airline pays'}
+                    free={!hotelCost}
                   />
                 </Grp>
 
                 <Grp label={`Cab · ${cab.kind}`}>
-                  {world.cabLegs.map((l) => (
+                  {detail.candidates.cabLegs.map((l) => (
                     <Line
                       key={l.id}
                       ic="CAB"
@@ -357,34 +198,34 @@ export default function RecoveryScreen({ navigation }: any) {
                 </Grp>
 
                 <View style={s.acts}>
-                  <TouchableOpacity style={[s.btn, s.btnGo]} onPress={approve} activeOpacity={0.85}>
+                  <TouchableOpacity style={[s.btn, s.btnGo]} onPress={() => act({ kind: 'approve' })} activeOpacity={0.85}>
                     <Text style={s.btnGoTxt}>Yes, book it now</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={s.btn} onPress={browse} activeOpacity={0.7}>
+                  <TouchableOpacity style={s.btn} onPress={() => act({ kind: 'browse' })} activeOpacity={0.7}>
                     <Text style={s.btnTxt}>Show me other options</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={s.btn} onPress={handOver} activeOpacity={0.7}>
+                  <TouchableOpacity style={s.btn} onPress={() => act({ kind: 'hand-over' })} activeOpacity={0.7}>
                     <Text style={s.btnTxt}>I&apos;ll take it from here</Text>
                   </TouchableOpacity>
                 </View>
               </>
-            ) : (
+            ) : view.phase === 'choosing' ? (
               <>
                 <Text style={s.gateP}>
-                  {bookable.length} of {world.alts.length} work for you. The rest are blocked by your own
-                  policy — we&apos;ll tell you which rule, not just &ldquo;unavailable&rdquo;.
+                  {bookable.length} of {detail.candidates.alts.length} work for you. The rest are blocked by
+                  your own policy — we&apos;ll tell you which rule, not just &ldquo;unavailable&rdquo;.
                 </Text>
 
                 <Text style={s.grpLbl}>Flights</Text>
-                {world.alts.map((a) => {
-                  const excluded = rejected.includes(a.id);
+                {detail.candidates.alts.map((a) => {
+                  const excluded = view.rejectedAltIds.includes(a.id);
                   const usable = a.ok && !excluded;
                   return (
                     <Opt
                       key={a.id}
                       usable={usable}
-                      picked={a.id === chosen}
-                      onPress={() => choose(a.id)}
+                      picked={a.id === view.chosenAltId}
+                      onPress={() => act({ kind: 'choose', altId: a.id })}
                       fl={`${a.code} · ${a.dep}`}
                       mt={
                         excluded
@@ -400,12 +241,12 @@ export default function RecoveryScreen({ navigation }: any) {
                 })}
 
                 <Text style={[s.grpLbl, { marginTop: 18 }]}>Room tonight</Text>
-                {world.hotels.map((h) => (
+                {detail.candidates.hotels.map((h) => (
                   <Opt
                     key={h.id}
                     usable={h.ok}
-                    picked={h.id === hotelId}
-                    onPress={() => { setHotelId(h.id); setNote(`Room swapped to ${h.name}.`); }}
+                    picked={h.id === view.chosenHotelId}
+                    onPress={() => act({ kind: 'swap-hotel', hotelId: h.id })}
                     fl={h.name}
                     mt={h.ok ? `${h.area} · check-in ${h.checkin}` : h.why}
                     pr={h.ok ? (h.extra ? `${money(h.extra)} over` : 'airline pays') : 'over the cap'}
@@ -414,12 +255,12 @@ export default function RecoveryScreen({ navigation }: any) {
                 ))}
 
                 <Text style={[s.grpLbl, { marginTop: 18 }]}>Cab for both legs</Text>
-                {world.cabs.map((c) => (
+                {detail.candidates.cabs.map((c) => (
                   <Opt
                     key={c.id}
                     usable={c.ok}
-                    picked={c.id === cabId}
-                    onPress={() => { setCabId(c.id); setNote(`Cab swapped to ${c.kind}.`); }}
+                    picked={c.id === view.chosenCabId}
+                    onPress={() => act({ kind: 'swap-cab', cabId: c.id })}
                     fl={c.kind}
                     mt={c.ok ? `up to ${c.seats} seats · ${c.why}` : c.why}
                     pr={c.ok ? (c.extra ? `${money(c.extra)} over` : 'airline pays') : 'over the cap'}
@@ -428,47 +269,66 @@ export default function RecoveryScreen({ navigation }: any) {
                 ))}
 
                 <View style={[s.acts, { marginTop: 16 }]}>
-                  <TouchableOpacity style={[s.btn, s.btnGo]} onPress={approve} activeOpacity={0.85}>
+                  <TouchableOpacity style={[s.btn, s.btnGo]} onPress={() => act({ kind: 'approve' })} activeOpacity={0.85}>
                     <Text style={s.btnGoTxt}>Book this plan</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={s.btn} onPress={() => setPhase('waiting')} activeOpacity={0.7}>
+                  <TouchableOpacity style={s.btn} onPress={() => act({ kind: 'back' })} activeOpacity={0.7}>
                     <Text style={s.btnTxt}>Back to the plan</Text>
                   </TouchableOpacity>
                 </View>
               </>
-            )}
+            ) : null}
           </View>
         )}
 
-        {phase === 'handed' && (
+        {view.phase === 'handed' && (
           <View style={[s.gate, s.gateStopped]}>
             <View style={s.gateH}>
               <Text style={[s.gateLbl, { color: C.risk }]}>Stopped</Text>
             </View>
-            <Text style={s.gateP}>{note}</Text>
+            <Text style={s.gateP}>{view.note}</Text>
             <Cta label="Back to my flights" ghost onPress={() => navigation.navigate('Flights')} />
           </View>
         )}
       </Glass>
 
       {/* ── once it is booked, nothing above is changeable any more ──── */}
-      {phase === 'booked' && (
+      {view.phase === 'booked' && alt && hotel && cab && (
         <>
           <Glass style={s.done}>
             <Eyebrow color={C.safe}>Your trip now</Eyebrow>
-            <Diff k1="Flight" v1={`${world.upcoming[0].code} · ${world.upcoming[0].dep}`} k2="Rebooked" v2={`${pick.code} · ${pick.dep}`} first />
-            <Diff k1="Hotel" v1={`${world.hotels[0].name}, 14:00`} k2={hotel.id === 'h1' ? 'Re-timed' : 'Changed'} v2={`${hotel.name}, ${hotel.checkin}`} />
-            <Diff k1="Cab" v1={world.cabs[0].kind} k2={cab.id === 'c1' ? 'Re-timed' : 'Upgraded'} v2={`${cab.kind}, both legs`} />
-            <Diff k1="Record locator" v1="QK7R2M" k2="Reissued" v2="RB4T9Z" />
-            <Diff k1="London leg" v1={`${world.upcoming[1].code} · ${world.upcoming[1].dep}`} k2="Unchanged" v2="still valid" />
+            <Diff k1="Flight" v1={`${f.code} · ${hhmm(new Date(f.depISO))}`} k2="Rebooked" v2={`${alt.code} · ${alt.dep}`} first />
+            <Diff
+              k1="Hotel"
+              v1={`${detail.candidates.hotels[0].name}, 14:00`}
+              k2={hotel.id === detail.candidates.hotels[0].id ? 'Re-timed' : 'Changed'}
+              v2={`${hotel.name}, ${hotel.checkin}`}
+            />
+            <Diff
+              k1="Cab"
+              v1={detail.candidates.cabs[0].kind}
+              k2={cab.id === detail.candidates.cabs[0].id ? 'Re-timed' : 'Upgraded'}
+              v2={`${cab.kind}, both legs`}
+            />
+            <Diff k1="Record locator" v1={booking.pnr} k2="Reissued" v2="new reference on file" />
           </Glass>
 
           <Glass style={{ padding: 18 }}>
             <Eyebrow>What it cost you</Eyebrow>
-            <KV first k="Flight fare difference" v={pick.fare ? money(pick.fare) : 'airline pays'} ok={!pick.fare} warn={!!pick.fare} />
-            <KV k={`Room · ${hotel.name}`} v={hotel.extra ? `${money(hotel.extra)} over the allowance` : 'airline pays'} ok={!hotel.extra} warn={!!hotel.extra} />
-            <KV k={`Cab · ${cab.kind}, both legs`} v={cab.extra ? `${money(cab.extra)} over the allowance` : 'airline pays'} ok={!cab.extra} warn={!!cab.extra} />
-            <KV total k="Charged to your card" v={owed ? money(owed) : 'nothing'} ok={!owed} warn={!!owed} />
+            <KV first k="Flight fare difference" v={alt.fare ? money(alt.fare) : 'airline pays'} ok={!alt.fare} warn={!!alt.fare} />
+            <KV
+              k={`Room · ${hotel.name}`}
+              v={hotelCost ? `${money(hotelCost)} over the allowance` : 'airline pays'}
+              ok={!hotelCost}
+              warn={!!hotelCost}
+            />
+            <KV
+              k={`Cab · ${cab.kind}, both legs`}
+              v={cab.extra ? `${money(cab.extra)} over the allowance` : 'airline pays'}
+              ok={!cab.extra}
+              warn={!!cab.extra}
+            />
+            <KV total k="Charged to your card" v={view.owedNow ? money(view.owedNow) : 'nothing'} ok={!view.owedNow} warn={!!view.owedNow} />
             <KV k="Decision time" v={secs(DECIDE_TOTAL)} />
             <KV k="Execution time" v={secs(ACT_TOTAL)} />
             <KV k="Prepared in advance" v={`${secs(WARM_TOTAL)}, before it happened`} />
@@ -494,7 +354,7 @@ function Ev({
       <View style={{ flex: 1 }}>
         <View style={s.evH}>
           <Text style={[s.evN, state === 'warm' && { color: C.mist }]}>{name}</Text>
-          <Text style={s.evT}>{secs(d)}</Text>
+          {d > 0 && <Text style={s.evT}>{secs(d)}</Text>}
         </View>
         <Text style={s.evS}>{body}</Text>
       </View>
