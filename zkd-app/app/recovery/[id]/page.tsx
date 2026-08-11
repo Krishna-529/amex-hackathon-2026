@@ -9,6 +9,8 @@ import {
   QUIET_WINDOW_SECONDS, type Step,
 } from '@/lib/recovery';
 import { secs, money, agoLabel } from '@/lib/time';
+import { AIRPORTS } from '@/lib/airports';
+import SandboxNotice from '@/components/SandboxNotice';
 
 type Phase = 'deciding' | 'waiting' | 'choosing' | 'acting' | 'booked' | 'handed';
 
@@ -21,7 +23,8 @@ const TICK = 1000;
 
 export default function RecoveryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { world, consent, chosen, setChosen, rejected, reject, setSettled, preAuth } = useWorld();
+  const { world, consent, chosen, setChosen, rejected, reject, setSettled, preAuth, live, refreshAlts, refreshHotels } =
+    useWorld();
 
   const [phase, setPhase] = useState<Phase>('deciding');
   const [shown, setShown] = useState<Step[]>([]);
@@ -31,9 +34,14 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
   const [cabId, setCabId] = useState('c1');
   const started = useRef(false);
 
-  const pick = world?.alts.find((a) => a.id === chosen);
-  const hotel = world?.hotels.find((h) => h.id === hotelId) ?? world?.hotels[0];
+  const liveAlts = live.alts.status === 'ok' ? live.alts.data ?? [] : [];
+  const liveHotels = live.hotels.status === 'ok' ? live.hotels.data ?? [] : [];
+  const pick = [...(world?.alts ?? []), ...liveAlts].find((a) => a.id === chosen);
+  const hotel = [...(world?.hotels ?? []), ...liveHotels].find((h) => h.id === hotelId) ?? world?.hotels[0];
   const cab = world?.cabs.find((c) => c.id === cabId) ?? world?.cabs[0];
+  // Mock hotels price via `extra` (rate always 0); live LiteAPI hotels price via
+  // `rate` (extra always 0) — one of the two is always the real cost.
+  const hotelCost = hotel ? hotel.extra || hotel.rate : 0;
 
   /* ── phase 1: the machine decides ─────────────────────────────────── */
   useEffect(() => {
@@ -73,7 +81,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
   }, [world]);
 
   /* ── phase 2: the member's 90 seconds ─────────────────────────────── */
-  const owedNow = (pick?.fare ?? 0) + (hotel?.extra ?? 0) + (cab?.extra ?? 0);
+  const owedNow = (pick?.fare ?? 0) + hotelCost + (cab?.extra ?? 0);
 
   useEffect(() => {
     if (phase !== 'waiting') return;
@@ -120,6 +128,21 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
     if (phase === 'handed') setSettled('handed-over');
   }, [phase, setSettled]);
 
+  // On-demand only — guarded at the provider level, so if the member already
+  // visited /prepare this session this is a no-op and reuses that result.
+  useEffect(() => {
+    if (!world) return;
+    const f0 = world.upcoming[0];
+    const day = 24 * 60 * 60 * 1000;
+    const dateISO = new Date(world.now.getTime() + 14 * day).toISOString().slice(0, 10);
+    refreshAlts(f0.from, f0.to, dateISO, 'Economy');
+    const city = AIRPORTS[f0.to]?.city;
+    if (city) {
+      const checkout = new Date(world.now.getTime() + 15 * day).toISOString().slice(0, 10);
+      refreshHotels(city, dateISO, checkout);
+    }
+  }, [world]);
+
   const approve = useCallback(() => {
     setNote('You approved it, so we went straight through.');
     setPhase('acting');
@@ -163,7 +186,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
   const elapsed = shown.reduce((a, s) => a + s.d, 0);
   const bookable = world.alts.filter((a) => a.ok && !rejected.includes(a.id));
   /* what the member actually ends up paying, from what they actually picked */
-  const owed = pick.fare + hotel.extra + cab.extra;
+  const owed = pick.fare + hotelCost + cab.extra;
 
   return (
     <div className="skeleton">
@@ -267,8 +290,8 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                             <span className="t1">{hotel.name}</span>
                             <span className="t2">{hotel.area} · check-in {hotel.checkin} · {hotel.walk}</span>
                           </span>
-                          <span className={`r ${hotel.extra ? '' : 'free'}`}>
-                            {hotel.extra ? money(hotel.extra) : 'airline pays'}
+                          <span className={`r ${hotelCost ? '' : 'free'}`}>
+                            {hotelCost ? money(hotelCost) : 'airline pays'}
                           </span>
                         </div>
                       </div>
@@ -333,6 +356,27 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                             </button>
                           );
                         })}
+                        {liveAlts.length > 0 && (
+                          <>
+                            <SandboxNotice kind="flights" />
+                            {liveAlts.map((a) => (
+                              <button
+                                key={a.id}
+                                className={`opt ${a.id === chosen ? 'pick' : ''}`}
+                                onClick={() => choose(a.id)}
+                              >
+                                <span className="l">
+                                  <span className="fl">{a.code} · {a.dep}</span>
+                                  <span className="mt">arrives {a.arr} · {a.cabin}</span>
+                                  {a.id === chosen && <span className="rec">✓ we picked this</span>}
+                                </span>
+                                <span className="r">
+                                  <span className="pr">{money(a.fare)}</span>
+                                </span>
+                              </button>
+                            ))}
+                          </>
+                        )}
                       </div>
 
                       <div className="lbl" style={{ fontFamily: 'var(--mono)', fontSize: 9,
@@ -358,6 +402,27 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                             </span>
                           </button>
                         ))}
+                        {liveHotels.length > 0 && (
+                          <>
+                            <SandboxNotice kind="hotels" />
+                            {liveHotels.map((h) => (
+                              <button
+                                key={h.id}
+                                className={`opt ${h.id === hotelId ? 'pick' : ''}`}
+                                onClick={() => { setHotelId(h.id); setNote(`Room swapped to ${h.name}.`); }}
+                              >
+                                <span className="l">
+                                  <span className="fl">{h.name}</span>
+                                  <span className="mt">{h.area} · check-in {h.checkin}</span>
+                                  {h.id === hotelId && <span className="rec">✓ we picked this</span>}
+                                </span>
+                                <span className="r">
+                                  <span className="pr">{money(h.rate)}</span>
+                                </span>
+                              </button>
+                            ))}
+                          </>
+                        )}
                       </div>
 
                       <div className="lbl" style={{ fontFamily: 'var(--mono)', fontSize: 9,
@@ -466,8 +531,8 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                 </div>
                 <div className="kv">
                   <span className="k">Room · {hotel.name}</span>
-                  <span className={`v ${hotel.extra ? 'warn' : 'ok'}`}>
-                    {hotel.extra ? `${money(hotel.extra)} over the allowance` : 'airline pays'}
+                  <span className={`v ${hotelCost ? 'warn' : 'ok'}`}>
+                    {hotelCost ? `${money(hotelCost)} over the allowance` : 'airline pays'}
                   </span>
                 </div>
                 <div className="kv">

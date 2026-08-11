@@ -1,32 +1,58 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWorld } from '@/components/WorldProvider';
 import { risk, BAND_LABEL } from '@/lib/risk';
 import { PREAUTH_THRESHOLD } from '@/lib/recovery';
 import { money } from '@/lib/time';
+import { AIRPORTS } from '@/lib/airports';
+import SandboxNotice from '@/components/SandboxNotice';
 
 export default function PreparePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { world, chosen, setChosen, preAuth, setPreAuth, setPrepared } = useWorld();
+  const { world, chosen, setChosen, preAuth, setPreAuth, setPrepared, live, refreshAlts, refreshHotels } =
+    useWorld();
 
   const [hotelId, setHotelId] = useState('h1');
   const [cabId, setCabId] = useState('c1');
   const [open, setOpen] = useState(false);
+
+  // On-demand only, fires once per session — guarded at the provider level so
+  // visiting /prepare and /recovery in the same session still only calls once total.
+  useEffect(() => {
+    if (!world) return;
+    const f = world.upcoming.find((x) => x.id === id);
+    if (!f?.signals) return;
+    const day = 24 * 60 * 60 * 1000;
+    const dateISO = new Date(world.now.getTime() + 14 * day).toISOString().slice(0, 10);
+    refreshAlts(f.from, f.to, dateISO, 'Economy');
+    const city = AIRPORTS[f.to]?.city;
+    if (city) {
+      const checkout = new Date(world.now.getTime() + 15 * day).toISOString().slice(0, 10);
+      refreshHotels(city, dateISO, checkout);
+    }
+  }, [world, id]);
 
   if (!world) return <div className="page-h"><h1>Getting ahead of it</h1></div>;
 
   const f = world.upcoming.find((x) => x.id === id);
   if (!f?.signals) return <div className="page-h"><h1>Nothing to prepare</h1></div>;
 
+  const liveAlts = live.alts.status === 'ok' ? live.alts.data ?? [] : [];
+  const liveHotels = live.hotels.status === 'ok' ? live.hotels.data ?? [] : [];
+
   const r = risk(f.signals);
-  const alt = world.alts.find((a) => a.id === chosen)!;
-  const hotel = world.hotels.find((h) => h.id === hotelId)!;
+  const alt = [...world.alts, ...liveAlts].find((a) => a.id === chosen)!;
+  const hotel = [...world.hotels, ...liveHotels].find((h) => h.id === hotelId)!;
   const cab = world.cabs.find((c) => c.id === cabId)!;
-  const owed = alt.fare + hotel.extra + cab.extra;
+  // Mock hotels price via `extra` (over-entitlement amount, rate always 0); live
+  // LiteAPI hotels price via `rate` (real market rate, extra always 0) — one of
+  // the two is always the real cost for a given hotel.
+  const hotelCost = hotel.extra || hotel.rate;
+  const owed = alt.fare + hotelCost + cab.extra;
 
   const authorise = () => {
     setPreAuth({ flightId: id, altId: chosen, hotelId, cabId, owed, grantedAt: Date.now() });
@@ -89,8 +115,8 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
                   <span className="t1">{hotel.name}</span>
                   <span className="t2">{hotel.area} · check-in {hotel.checkin}</span>
                 </span>
-                <span className={`r ${hotel.extra ? '' : 'free'}`}>
-                  {hotel.extra ? money(hotel.extra) : 'airline pays'}
+                <span className={`r ${hotelCost ? '' : 'free'}`}>
+                  {hotelCost ? money(hotelCost) : 'airline pays'}
                 </span>
               </div>
             </div>
@@ -139,6 +165,29 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
                       </span>
                     </button>
                   ))}
+                  {liveAlts.length > 0 && (
+                    <>
+                      <SandboxNotice kind="flights" />
+                      {liveAlts.map((a) => (
+                        <button
+                          key={a.id}
+                          className={`opt ${a.ok ? '' : 'no'} ${a.id === chosen ? 'pick' : ''}`}
+                          disabled={!a.ok}
+                          onClick={() => setChosen(a.id)}
+                        >
+                          <span className="l">
+                            <span className="fl">{a.code} · {a.dep}</span>
+                            <span className="mt">{a.ok ? `arrives ${a.arr} · ${a.cabin}` : a.why}</span>
+                          </span>
+                          <span className="r">
+                            <span className={`pr ${a.ok && !a.fare ? 'free' : ''}`}>
+                              {a.ok ? (a.fare ? money(a.fare) : 'no cost to you') : 'not bookable'}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </>
+                  )}
                 </div>
 
                 <div className="lbl" style={{ marginTop: 18, marginBottom: 9 }}>Room tonight</div>
@@ -161,6 +210,29 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
                       </span>
                     </button>
                   ))}
+                  {liveHotels.length > 0 && (
+                    <>
+                      <SandboxNotice kind="hotels" />
+                      {liveHotels.map((h) => (
+                        <button
+                          key={h.id}
+                          className={`opt ${h.ok ? '' : 'no'} ${h.id === hotelId ? 'pick' : ''}`}
+                          disabled={!h.ok}
+                          onClick={() => setHotelId(h.id)}
+                        >
+                          <span className="l">
+                            <span className="fl">{h.name}</span>
+                            <span className="mt">{h.ok ? `${h.area} · check-in ${h.checkin}` : h.why}</span>
+                          </span>
+                          <span className="r">
+                            <span className={`pr ${h.ok && !h.extra ? 'free' : ''}`}>
+                              {h.ok ? (h.extra ? `${money(h.extra)} over` : money(h.rate)) : 'over the cap'}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </>
+                  )}
                 </div>
 
                 <div className="lbl" style={{ marginTop: 18, marginBottom: 9 }}>Cab for both legs</div>

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { use } from 'react';
+import { use, useEffect } from 'react';
 import { notFound } from 'next/navigation';
 import { useWorld } from '@/components/WorldProvider';
 import RouteLine from '@/components/Route';
@@ -13,7 +13,29 @@ const RING = 2 * Math.PI * 92;
 
 export default function FlightPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { world, disrupted } = useWorld();
+  const { world, disrupted, live, refreshSignals, refreshFlightStatus, explainRisk } = useWorld();
+
+  // On-demand only: fires once per flight id per session (dedup guard lives in
+  // WorldProvider), never on a timer. This is the only place these fire.
+  useEffect(() => {
+    if (!world) return;
+    const f = world.upcoming.find((x) => x.id === id);
+    if (!f || !f.signals) return; // past flight, or nothing to enrich
+    refreshSignals(id, f.from, f.to);
+    refreshFlightStatus(id, f.code.replace(/\s+/g, ''));
+  }, [world, id]);
+
+  const signalsStatus = live.signals[id]?.status;
+  useEffect(() => {
+    if (!world) return;
+    const f = world.upcoming.find((x) => x.id === id);
+    if (!f || !f.signals) return;
+    if (signalsStatus !== 'ok' && signalsStatus !== 'error') return; // wait for the live call to settle
+    const merged = { ...f.signals, ...(live.signals[id]?.data ?? {}) };
+    const r2 = risk(merged);
+    const top = [...r2.parts].sort((a, b) => b.pts - a.pts)[0];
+    explainRisk(id, { kind: 'risk', flightCode: f.code, from: f.from, to: f.to, pct: r2.pct, topFactor: top.name });
+  }, [world, id, signalsStatus]);
 
   if (!world) return <div className="page-h"><h1>Loading your flight</h1></div>;
 
@@ -82,11 +104,16 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
     );
   }
 
-  const r = risk(f.signals!);
+  const liveSignals = live.signals[id]?.data;
+  const mergedSignals = { ...f.signals!, ...(liveSignals ?? {}) };
+  const r = risk(mergedSignals);
   const stops =
     r.band === 'high' ? ['#ff9aa9', 'var(--risk)']
       : r.band === 'mid' ? ['#ffd98a', 'var(--warn)']
         : ['#7cf0c0', 'var(--safe)'];
+  const liveExplain = live.explain[`risk:${id}`];
+  const say = liveExplain?.status === 'ok' && liveExplain.data ? liveExplain.data : BAND_SAY[r.band];
+  const flightStatus = live.flightStatus[id];
 
   return (
     <div className="skeleton">
@@ -117,7 +144,7 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
               </div>
             </div>
             <div className={`band ${r.band}`}>{BAND_LABEL[r.band]}</div>
-            <div className="say">{BAND_SAY[r.band]}</div>
+            <div className="say">{say}</div>
           </div>
 
           <div className="g panel">
@@ -144,6 +171,13 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
               <span className="k">You&apos;ve flown this route</span>
               <span className="v">{rec.flown}× · {rec.cancelled} cancelled</span>
             </div>
+            {flightStatus?.status === 'ok' && (
+              <p style={{ margin: '10px 0 0', color: 'var(--mist)', fontSize: 12 }}>
+                {flightStatus.data
+                  ? `Live status check: ${flightStatus.data.flightStatus}${flightStatus.data.depDelayMin ? ` · dep +${flightStatus.data.depDelayMin}m` : ''}`
+                  : 'Live status check: no live match today — expected for this demo flight.'}
+              </p>
+            )}
           </div>
 
           <div className="g panel">
