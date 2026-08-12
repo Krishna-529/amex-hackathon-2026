@@ -60,7 +60,7 @@ npm install
 npx expo run:android
 ```
 
-Or install the pre-built release APK directly — see [`SUBMISSION.md`](SUBMISSION.md).
+Or install the pre-built release APK directly — see [`SUBMISSION.md`](documentation/project/SUBMISSION.md).
 
 ## `amex-travel-disruption-concierge/` — saga/rollback policy prototype
 
