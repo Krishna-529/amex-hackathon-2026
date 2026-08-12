@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AIRPORTS } from '@/lib/airports';
-import { fetchMetar, weatherSeverityFromMetar } from '@/lib/server/noaa';
-import { fetchForecast, weatherSeverityFromForecast } from '@/lib/server/openMeteo';
-import { statesNear, congestionSeverity, rotationSeverity } from '@/lib/server/opensky';
+import { fetchMetar, weatherSeverityFromMetar } from '@/server/noaa';
+import { fetchForecast, weatherSeverityFromForecast } from '@/server/openMeteo';
+import { statesNear, congestionSeverity, rotationSeverity } from '@/server/opensky';
 import type { SignalsResponse, SourceStatus } from '@/lib/apiTypes';
 
 async function weatherAt(iata: string): Promise<{ v: number | null; status: SourceStatus }> {

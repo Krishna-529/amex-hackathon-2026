@@ -1,44 +1,24 @@
-import type { Alt, HotelOpt } from './data';
-import type { Offer, SupplierId, SupplierStatus } from '@/server/suppliers/types';
-import type { DisruptionKind, Classification } from './disruptionKind';
-import type { Thresholds, Band } from './thresholds';
-import type { ConfirmWindow } from './confirmWindow';
-import type { CareItem } from './entitlement';
-import type { Jurisdiction } from '@/server/airportDirectory';
+import type { Signals } from './risk';
+import type {
+  Alt, HotelOpt, CabOpt, CabLeg, Consent, PastFlight, DisruptionResolution, RecoveryTaskPhase,
+} from '@/server/domain/types';
+import type { RecoveryView } from '@/server/engine/simulation';
 
 export type SourceStatus = 'ok' | 'empty' | 'error';
 
-/** What the disruption forecast says about one flight, and where it came from. */
-export type ForecastResponse = {
-  /** 0-100, so the UI never has to decide how to round a probability */
-  pct: number;
-  connectionRisk: number | null;
-  confidence: number;
-  source: 'lumo' | 'mock';
-  thresholds: Thresholds;
-  band: Band;
-  asOf: number;
+export type SignalsResponse = {
+  signals: Partial<Signals>;
+  sources: { weather: SourceStatus; congestion: SourceStatus; rotation: SourceStatus };
 };
 
 export type FlightStatusResponse = {
   status: SourceStatus;
-  match: null | {
-    flightStatus: string;
-    depDelayMin: number | null;
-    arrDelayMin: number | null;
-    depScheduledAt: number | null;
-    depEstimatedAt: number | null;
-    arrScheduledAt: number | null;
-  };
-  /** what kind of disruption this is, if any — computed against the booked time */
-  classification: Classification | null;
+  match: null | { flightStatus: string; depDelayMin: number | null; arrDelayMin: number | null };
 };
 
 export type AltsResponse = {
   alts: Alt[];
-  offers: Offer[];
-  seatsAvailable: number;
-  sources: Record<SupplierId, SupplierStatus>;
+  sources: { duffel: SourceStatus; sabre: SourceStatus };
 };
 
 export type HotelsResponse = {
@@ -52,43 +32,41 @@ export type ExplainRequest =
 
 export type ExplainResponse = { text: string | null };
 
-/** Re-checking a chosen offer at the moment of spend, before anything is ticketed. */
-export type RevalidateRequest = { offerId: string; candidates: Offer[] };
+// --- Domain API (server-authoritative multi-flight/multi-passenger model) ---
+export type { DisruptionResolution, RecoveryView };
 
-export type RevalidateResponse = {
-  state: 'available' | 'price-changed' | 'switched' | 'gone' | 'unknown';
-  /** what we would actually book now — may not be what the member picked */
-  offer: Offer | null;
-  /** set when the member's pick was gone and we moved to the next candidate */
-  switchedFrom: string | null;
-  message: string;
+export type FlightSummary = {
+  id: string; code: string; from: string; to: string; depISO: string; durationMin: number;
+  aircraft?: string; terminal?: string;
+  riskPct?: number; riskBand?: 'low' | 'mid' | 'high';
+  passengerCount: number;
+  disruptionPhase: 'none' | 'DECIDING' | 'READY';
+  /** present only when the list was filtered by ?passengerId= */
+  booking?: { id: string; seat: string; pnr: string; cabin: string };
 };
 
-export type DisruptionResolution =
-  | { kind: 'autopilot' | 'approved'; at: number; altId: string; hotelId: string; cabId: string }
-  | { kind: 're-timed'; at: number; hotelId: string; cabId: string; shiftMinutes: number }
-  | { kind: 'no-action'; at: number }
-  | { kind: 'handed-over'; at: number };
+export type FlightDetail = FlightSummary & {
+  signals: Signals;
+  candidates: { alts: Alt[]; hotels: HotelOpt[]; cabs: CabOpt[]; cabLegs: CabLeg[] };
+  bookings: { id: string; passengerId: string; passengerName: string; seat: string; pnr: string }[];
+};
 
-export type DisruptionStateResponse = {
-  detectedAt: number;
-  kind: DisruptionKind;
-  windowExpiresAt: number | null;
+export type PassengerScheduleResponse = {
+  passenger: { id: string; displayName: string; consent: Consent };
+  upcoming: FlightSummary[];
+  past: PastFlight[];
+};
+
+export type PreAuthRequest = { passengerId: string; altId: string; hotelId: string; cabId: string };
+export type PreAuthResponse = {
+  flightId: string; passengerId: string; altId: string; hotelId: string; cabId: string; owed: number; grantedAt: number;
+} | null;
+
+export type DisruptionOpsTask = {
+  passengerId: string; passengerName: string; phase: RecoveryTaskPhase; secondsLeft: number;
   resolution: DisruptionResolution | null;
 };
-
-/** The member's decision window, derived rather than assumed. */
-export type WindowResponse = {
-  window: ConfirmWindow;
-  rationale: string;
+export type DisruptionOpsView = {
+  flightId: string; flightCode: string; detectedAt: number; phase: 'DECIDING' | 'READY';
+  tasks: DisruptionOpsTask[];
 };
-
-/** Duty of care owed on this route, under whichever regime governs it. */
-export type CareResponse = {
-  jurisdiction: Jurisdiction;
-  bundleName: string;
-  citation: string;
-  owed: CareItem[];
-};
-
-export type { Offer, SupplierId, SupplierStatus };

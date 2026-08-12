@@ -1,58 +1,46 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useWorld } from '@/components/WorldProvider';
 import RouteLine from '@/components/Route';
-import Pill from '@/components/Pill';
 import HistoryTable from '@/components/HistoryTable';
-import { BAND_SAY, BAND_TONE, GLOW } from '@/lib/thresholds';
-import { agoLabel } from '@/lib/time';
+import { BAND_SAY, GLOW } from '@/lib/risk';
+import { PREAUTH_THRESHOLD } from '@/lib/recovery';
+import { usePoll } from '@/lib/usePoll';
+import { dayLabel, agoLabel } from '@/lib/time';
+import type { RecoveryView, PreAuthResponse } from '@/lib/apiTypes';
 
 export default function FlightsPage() {
-  const { world, disrupted, setDisrupted, consent, settled, chosen, preAuth, prepared, live, refreshForecast } =
-    useWorld();
-  const [hovered, setHovered] = useState('u1');
+  const { passengerId, schedule } = useWorld();
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  // The early ask has to come BEFORE the cancellation, or it is pointless.
-  // Once the member has answered it, the cancellation follows shortly; if they
-  // have not looked at it yet, hold off so the banner is readable.
-  useEffect(() => {
-    if (!world || disrupted) return;
-    const t = setTimeout(() => setDisrupted(true), prepared ? 3500 : 22000);
-    return () => clearTimeout(t);
-  }, [world, disrupted, prepared, setDisrupted]);
+  const upcoming = schedule?.upcoming ?? [];
+  const past = schedule?.past ?? [];
+  const next = upcoming[0];
+  const activeId = hoveredId ?? next?.id;
+  const active = upcoming.find((f) => f.id === activeId) ?? next;
 
-  // Every watched leg gets a forecast, because the early-ask banner has to know
-  // whether the next flight has crossed its own threshold before the member
-  // opens anything.
-  useEffect(() => {
-    if (!world) return;
-    for (const f of world.upcoming) {
-      if (!f.watched || !f.bookedDepartureAt) continue;
-      refreshForecast(f.id, {
-        flightIata: f.code.replace(/\s+/g, ''),
-        from: f.from,
-        to: f.to,
-        date: new Date(f.bookedDepartureAt).toISOString().slice(0, 10),
-        minutesToDeparture: Math.max(0, Math.round((f.bookedDepartureAt - world.now.getTime()) / 60_000)),
-        hasHardConstraint: Boolean(f.hasHardConstraint),
-      });
-    }
-  }, [world]);
+  const nextDisrupted = !!next && next.disruptionPhase !== 'none';
+  const activeDisrupted = !!active && active.disruptionPhase !== 'none';
 
-  if (!world) return <div className="page-h"><h1>Your flights</h1></div>;
+  // On-demand polling only when there's actually something to watch — no
+  // client-side disruption timer any more (that's operator-triggered now).
+  const { data: nextRecovery } = usePoll<RecoveryView>(
+    nextDisrupted ? `/api/disruptions/${next!.id}?passengerId=${passengerId}` : null, 2000,
+  );
+  const { data: preAuth } = usePoll<PreAuthResponse>(
+    next && !nextDisrupted ? `/api/flights/${next.id}/preauth?passengerId=${passengerId}` : null, 5000,
+  );
+  const sameAsNext = active?.id === next?.id;
+  const { data: activeRecoveryOther } = usePoll<RecoveryView>(
+    activeDisrupted && !sameAsNext ? `/api/disruptions/${active!.id}?passengerId=${passengerId}` : null, 2000,
+  );
+  const activeRecovery = sameAsNext ? nextRecovery : activeRecoveryOther;
 
-  const { upcoming, past, alts, detected } = world;
-  const active = upcoming.find((f) => f.id === hovered) ?? upcoming[0];
-  const gone = active.id === 'u1' && disrupted;
-  const pick = alts.find((a) => a.id === chosen)!;
+  if (!schedule || !next) return <div className="page-h"><h1>Your flights</h1></div>;
 
-  const activeForecast = live.forecast[active.id]?.data;
-  const nextForecast = live.forecast[upcoming[0].id]?.data;
-  const activeTone = activeForecast ? BAND_TONE[activeForecast.band] : 'low';
-  // The ask fires on the flight's OWN adapted threshold, not a fixed 80.
-  const asksEarly = nextForecast ? nextForecast.pct >= nextForecast.thresholds.preAuthorise : false;
+  const consent = schedule.passenger.consent;
 
   return (
     <div className="skeleton">
@@ -67,20 +55,21 @@ export default function FlightsPage() {
           is the permission you set when you activated your card.
         </p>
       </div>
+
       {/* Before anything breaks: if we are confident enough, ask early. This is
-          the whole point — consent collected with hours to spare, not under pressure. */}
-      {!disrupted && asksEarly && (
-        <Link href={`/prepare/${upcoming[0].id}`} className="g alert warn" style={{ display: 'flex' }}>
+          the whole point — consent collected with hours to spare, not 90 seconds. */}
+      {!nextDisrupted && (next.riskPct ?? 0) >= PREAUTH_THRESHOLD && (
+        <Link href={`/prepare/${next.id}`} className="g alert warn" style={{ display: 'flex' }}>
           <span className="ic">!</span>
           <span className="tx">
             <span className="tt">
               {preAuth
-                ? "You've told us what to do if AI 2803 cancels"
-                : `AI 2803 looks like it will cancel — ${nextForecast!.pct}%`}
+                ? `You've told us what to do if ${next.code} cancels`
+                : `${next.code} looks like it will cancel — ${next.riskPct}%`}
             </span>
             <span className="bd">
               {preAuth
-                ? 'We act the second it happens. No decision window needed at all.'
+                ? 'We act the second it happens. No 90-second window needed.'
                 : "It hasn't been cancelled. Tell us now what you'd want, while you have time to think."}
             </span>
           </span>
@@ -88,34 +77,34 @@ export default function FlightsPage() {
         </Link>
       )}
 
-      {disrupted && (
+      {nextDisrupted && (
         <Link
-          href="/recovery/u1"
-          className={`g alert ${settled === 'booked' ? 'ok' : ''}`}
+          href={`/recovery/${next.id}`}
+          className={`g alert ${nextRecovery?.phase === 'booked' ? 'ok' : ''}`}
           style={{ display: 'flex' }}
         >
-          <span className="ic">{settled === 'booked' ? '✓' : '!'}</span>
+          <span className="ic">{nextRecovery?.phase === 'booked' ? '✓' : '!'}</span>
           <span className="tx">
             <span className="tt">
-              {settled === 'booked'
+              {nextRecovery?.phase === 'booked'
                 ? 'Rebooked. Your trip is back together.'
-                : settled === 'handed-over'
+                : nextRecovery?.phase === 'handed'
                   ? 'A person has taken over your trip'
-                  : 'AI 2803 has been cancelled'}
+                  : `${next.code} has been cancelled`}
             </span>
             <span className="bd">
-              {settled === 'booked'
-                ? `${pick.code} at ${pick.dep} · hotel moved · you paid nothing`
-                : settled === 'handed-over'
+              {nextRecovery?.phase === 'booked'
+                ? 'Alternative booked · hotel moved · you paid nothing'
+                : nextRecovery?.phase === 'handed'
                   ? 'Nothing was booked and nothing was charged.'
-                  : `Detected ${agoLabel(detected, world.now)}. ${
+                  : `Detected ${agoLabel(new Date(nextRecovery?.detectedAt ?? Date.now()), new Date())}. ${
                       consent === 'autopilot'
                         ? "We're rebooking you now — tap to watch."
                         : 'We need your go-ahead before we book anything.'
                     }`}
             </span>
           </span>
-          <span className="go">{settled === 'none' ? 'Open →' : 'View recovery →'}</span>
+          <span className="go">{!nextRecovery?.resolution ? 'Open →' : 'View recovery →'}</span>
         </Link>
       )}
 
@@ -123,14 +112,14 @@ export default function FlightsPage() {
       <div className="g up">
         <div className="up-list">
           {upcoming.map((f, i) => {
-            const cancelled = f.id === 'u1' && disrupted;
+            const cancelled = f.disruptionPhase !== 'none';
             return (
               <Link
                 key={f.id}
-                href={cancelled ? '/recovery/u1' : `/flights/${f.id}`}
-                className={`uprow ${f.id === hovered ? 'on' : ''}`}
-                onMouseEnter={() => setHovered(f.id)}
-                onFocus={() => setHovered(f.id)}
+                href={cancelled ? `/recovery/${f.id}` : `/flights/${f.id}`}
+                className={`uprow ${f.id === activeId ? 'on' : ''}`}
+                onMouseEnter={() => setHoveredId(f.id)}
+                onFocus={() => setHoveredId(f.id)}
               >
                 <div style={{ minWidth: 0 }}>
                   <div className="meta">
@@ -141,7 +130,7 @@ export default function FlightsPage() {
                         Cancelled
                       </span>
                     )}
-                    <span className="when">{f.date}</span>
+                    <span className="when">{dayLabel(new Date(f.depISO), new Date())}</span>
                   </div>
                   <RouteLine f={f} />
                 </div>
@@ -150,40 +139,25 @@ export default function FlightsPage() {
           })}
         </div>
 
-        <div
-          className="pred"
-          style={{
-            ['--glow' as string]: gone
-              ? GLOW['hold-gate']
-              : activeForecast
-                ? GLOW[activeForecast.band]
-                : GLOW.watch,
-          }}
-        >
-          <div key={active.id + String(gone)} className="fade">
-            <div className="eyebrow">{active.from} → {active.to}</div>
-            {gone ? (
+        <div className="pred" style={{ ['--glow' as string]: activeDisrupted ? GLOW.high : GLOW[active?.riskBand ?? 'low'] }}>
+          <div key={String(active?.id) + String(activeDisrupted)} className="fade">
+            <div className="eyebrow">{active?.from} → {active?.to}</div>
+            {activeDisrupted ? (
               <>
                 <div className="n dead">✕</div>
                 <div className="lb">Cancelled by the airline</div>
                 <div className="say">
-                  {settled === 'booked'
-                    ? `We rebooked you on ${pick.code} at ${pick.dep} and moved tonight's hotel — you paid nothing.`
+                  {activeRecovery?.phase === 'booked'
+                    ? "We rebooked you and moved tonight's hotel — you paid nothing."
                     : 'We have alternatives ready and are waiting on the go-ahead.'}
                 </div>
                 <div className="go">View recovery →</div>
               </>
             ) : (
               <>
-                <div className={`n ${activeTone}`}>
-                  {activeForecast ? `${activeForecast.pct}%` : '—'}
-                </div>
+                <div className={`n ${active?.riskBand ?? 'low'}`}>{active?.riskPct ?? 0}%</div>
                 <div className="lb">chance of cancellation</div>
-                <div className="say">
-                  {activeForecast
-                    ? BAND_SAY[activeForecast.band]
-                    : 'Checking this flight against the disruption forecast.'}
-                </div>
+                <div className="say">{BAND_SAY[active?.riskBand ?? 'low']}</div>
                 <div className="go">View details →</div>
               </>
             )}

@@ -57,7 +57,7 @@ export async function setupNotifications() {
   if (status !== 'granted') await Notifications.requestPermissionsAsync();
 }
 
-export async function notifyCancelled(flight: string, dep: string, autopilot: boolean) {
+export async function notifyCancelled(flightId: string, flight: string, dep: string, autopilot: boolean) {
   return Notifications.scheduleNotificationAsync({
     content: {
       title: `${flight} has been cancelled`,
@@ -68,7 +68,7 @@ export async function notifyCancelled(flight: string, dep: string, autopilot: bo
       color: '#d9615a',
       priority: Notifications.AndroidNotificationPriority.MAX,
       vibrate: [0, 320, 160, 320],
-      data: { screen: 'Recovery' },
+      data: { screen: 'Recovery', flightId },
     },
     // A bare `null` trigger fires immediately but lands on the fallback
     // channel. `{ channelId }` fires just as immediately and keeps the
@@ -77,25 +77,25 @@ export async function notifyCancelled(flight: string, dep: string, autopilot: bo
   });
 }
 
-export async function notifyBooked(code: string, dep: string, owed: string) {
+export async function notifyBooked(flightId: string, code: string, dep: string, owed: string) {
   return Notifications.scheduleNotificationAsync({
     content: {
       title: 'Rebooked — your trip is back together',
       body: `${code} at ${dep} · hotel and cab moved · ${owed}`,
       color: '#4bab7c',
-      data: { screen: 'Recovery' },
+      data: { screen: 'Recovery', flightId },
     },
     trigger: { channelId: CHANNEL_UPDATES },
   });
 }
 
-export async function notifyHandedOver() {
+export async function notifyHandedOver(flightId: string) {
   return Notifications.scheduleNotificationAsync({
     content: {
       title: 'A person has taken over',
       body: 'Nothing was booked and nothing was charged. Meera has your full context.',
       color: '#2f7ff0',
-      data: { screen: 'Recovery' },
+      data: { screen: 'Recovery', flightId },
     },
     trigger: { channelId: CHANNEL_UPDATES },
   });

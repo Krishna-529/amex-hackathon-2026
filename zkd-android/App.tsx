@@ -35,8 +35,10 @@ export default function App() {
     // Every action button and the notification body itself points at the same
     // place — the recovery the member is being asked about.
     const sub = Notifications.addNotificationResponseReceivedListener((r) => {
-      const screen = (r.notification.request.content.data as any)?.screen;
-      if (screen === 'Recovery') nav.current?.navigate('Recovery' as never);
+      const data = r.notification.request.content.data as any;
+      if (data?.screen === 'Recovery' && data?.flightId) {
+        (nav.current as any)?.navigate('Recovery', { id: data.flightId });
+      }
     });
     return () => sub.remove();
   }, []);
@@ -79,7 +81,7 @@ export default function App() {
               <Stack.Screen name="Profile">
                 {(props) => (
                   <Screen {...props}>
-                    <ProfileScreen />
+                    <ProfileScreen {...props} />
                   </Screen>
                 )}
               </Stack.Screen>

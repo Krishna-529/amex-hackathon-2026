@@ -4,122 +4,75 @@ import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWorld } from '@/components/WorldProvider';
+import { usePoll } from '@/lib/usePoll';
+import { risk } from '@/lib/risk';
+import { PREAUTH_THRESHOLD } from '@/lib/recovery';
 import { money } from '@/lib/time';
-import SandboxNotice from '@/components/SandboxNotice';
+import type { FlightDetail, PreAuthResponse } from '@/lib/apiTypes';
 
 export default function PreparePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const {
-    world, chosen, setChosen, preAuth, setPreAuth, setPrepared, live,
-    refreshAlts, refreshHotels, refreshForecast,
-  } = useWorld();
+  const { passengerId, schedule } = useWorld();
 
-  const [hotelId, setHotelId] = useState('h1');
-  const [cabId, setCabId] = useState('c1');
+  const { data: detail } = usePoll<FlightDetail>(`/api/flights/${id}`, 5000);
+  const { data: preAuth } = usePoll<PreAuthResponse>(`/api/flights/${id}/preauth?passengerId=${passengerId}`, 8000);
+
+  const [altId, setAltId] = useState<string | null>(null);
+  const [hotelId, setHotelId] = useState<string | null>(null);
+  const [cabId, setCabId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
-  // On-demand only, fires once per session — guarded at the provider level so
-  // visiting /prepare and /recovery in the same session still only calls once total.
   useEffect(() => {
-    if (!world) return;
-    const f = world.upcoming.find((x) => x.id === id);
-    if (!f?.watched || !f.bookedDepartureAt) return;
-    const day = 24 * 60 * 60 * 1000;
-    const dateISO = new Date(world.now.getTime() + 14 * day).toISOString().slice(0, 10);
-    refreshAlts(f.from, f.to, dateISO, 'Economy');
-    // The destination IATA goes to the server, which owns the airport directory.
-    const checkout = new Date(world.now.getTime() + 15 * day).toISOString().slice(0, 10);
-    refreshHotels(f.to, dateISO, checkout);
-    refreshForecast(id, {
-      flightIata: f.code.replace(/\s+/g, ''),
-      from: f.from,
-      to: f.to,
-      date: new Date(f.bookedDepartureAt).toISOString().slice(0, 10),
-      minutesToDeparture: Math.max(0, Math.round((f.bookedDepartureAt - world.now.getTime()) / 60_000)),
-      hasHardConstraint: Boolean(f.hasHardConstraint),
-    });
-  }, [world, id]);
+    if (!detail) return;
+    setAltId((v) => v ?? detail.candidates.alts.find((a) => a.ok)?.id ?? detail.candidates.alts[0]?.id ?? null);
+    setHotelId((v) => v ?? detail.candidates.hotels.find((h) => h.ok)?.id ?? detail.candidates.hotels[0]?.id ?? null);
+    setCabId((v) => v ?? detail.candidates.cabs.find((c) => c.ok)?.id ?? detail.candidates.cabs[0]?.id ?? null);
+  }, [detail]);
 
-  if (!world) return <div className="page-h"><h1>Getting ahead of it</h1></div>;
+  if (!schedule || !detail) return <div className="page-h"><h1>Getting ahead of it</h1></div>;
 
-  const f = world.upcoming.find((x) => x.id === id);
-  if (!f?.watched) return <div className="page-h"><h1>Nothing to prepare</h1></div>;
+  const alt = detail.candidates.alts.find((a) => a.id === altId);
+  const hotel = detail.candidates.hotels.find((h) => h.id === hotelId);
+  const cab = detail.candidates.cabs.find((c) => c.id === cabId);
+  if (!alt || !hotel || !cab) return <div className="page-h"><h1>Getting ahead of it</h1></div>;
 
-  const liveAlts = live.alts.status === 'ok' ? live.alts.data?.alts ?? [] : [];
-  const liveHotels = live.hotels.status === 'ok' ? live.hotels.data ?? [] : [];
-
-  const forecast = live.forecast[id]?.data;
-  const alt = [...world.alts, ...liveAlts].find((a) => a.id === chosen)!;
-  const hotel = [...world.hotels, ...liveHotels].find((h) => h.id === hotelId)!;
-  const cab = world.cabs.find((c) => c.id === cabId)!;
-  // Mock hotels price via `extra` (over-entitlement amount, rate always 0); live
-  // LiteAPI hotels price via `rate` (real market rate, extra always 0) — one of
-  // the two is always the real cost for a given hotel.
+  const r = risk(detail.signals);
   const hotelCost = hotel.extra || hotel.rate;
   const owed = alt.fare + hotelCost + cab.extra;
 
   const authorise = () => {
-    setPreAuth({ flightId: id, altId: chosen, hotelId, cabId, owed, grantedAt: Date.now() });
-    setPrepared(true);
-    router.push('/flights');
+    fetch(`/api/flights/${id}/preauth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passengerId, altId, hotelId, cabId }),
+    }).then(() => router.push('/flights'));
   };
 
-  const askLater = () => {
-    setPreAuth(null);
-    setPrepared(true);
-    router.push('/flights');
-  };
+  const askLater = () => router.push('/flights');
 
   return (
     <div className="skeleton">
       <Link href="/flights" className="back">← All flights</Link>
 
       <div className="page-h" style={{ padding: '0 0 26px' }}>
-        <h1>{f.code} looks like it will cancel</h1>
+        <h1>{detail.code} looks like it will cancel</h1>
         <p>
-          The forecast puts it at{' '}
-          <b style={{ color: 'var(--risk)' }}>{forecast ? `${forecast.pct}%` : '—'}</b>
-          {forecast ? ` — over the ${forecast.thresholds.preAuthorise}% mark ` : ' — over the mark '}
-          where we come and ask you early rather than in a hurry. It has <b>not</b> been cancelled.
+          We put it at <b style={{ color: 'var(--risk)' }}>{r.pct}%</b> — over the {PREAUTH_THRESHOLD}%
+          mark where we come and ask you early rather than in a hurry. It has <b>not</b> been cancelled.
           Nothing here is booked, and nothing is charged unless it actually is.
         </p>
       </div>
       <div className="split">
         <div>
           <div className="g panel" style={{ marginBottom: 16, borderColor: 'rgba(217,97,90,.3)' }}>
-            <h3 style={{ color: 'var(--risk)' }}>Why we are asking now</h3>
-            {forecast ? (
-              <>
-                <div className="kv">
-                  <span className="k">Cancellation forecast</span>
-                  <span className="v">{forecast.pct}%</span>
-                </div>
-                <div className="kv">
-                  <span className="k">Where it comes from</span>
-                  <span className="v">
-                    {forecast.source === 'lumo' ? 'Lumo — live' : 'Lumo — mocked, no key yet'}
-                  </span>
-                </div>
-                <div className="kv">
-                  <span className="k">Ask-early threshold for this flight</span>
-                  <span className="v">{forecast.thresholds.preAuthorise}%</span>
-                </div>
-                <div className="kv">
-                  <span className="k">Seats left across every source</span>
-                  <span className="v">{forecast.thresholds.inputs.seatsAvailable}</span>
-                </div>
-                <p style={{ margin: '12px 0 0', color: 'var(--mist)', fontSize: 12.5, lineHeight: 1.6 }}>
-                  That threshold is not a fixed number. On a route with plenty of seats we wait for more
-                  certainty; when there is little left to move you onto, asking early is worth more than
-                  being sure.
-                </p>
-              </>
-            ) : (
-              <p style={{ margin: 0, color: 'var(--mist)', fontSize: 13.5 }}>
-                Checking this flight against the disruption forecast.
-              </p>
-            )}
+            <h3 style={{ color: 'var(--risk)' }}>Why we think so</h3>
+            {r.parts.map((p) => (
+              <div className="kv" key={p.id}>
+                <span className="k">{p.name}</span>
+                <span className="v">{p.note}</span>
+              </div>
+            ))}
           </div>
 
           <div className="g panel">
@@ -131,7 +84,7 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
                 <span className="ic">✈</span>
                 <span className="l">
                   <span className="t1">{alt.code} · {alt.dep}</span>
-                  <span className="t2">arrives {alt.arr} · {alt.cabin} · protects your London leg</span>
+                  <span className="t2">arrives {alt.arr} · {alt.cabin}</span>
                 </span>
                 <span className={`r ${alt.fare ? '' : 'free'}`}>
                   {alt.fare ? money(alt.fare) : 'no cost'}
@@ -155,7 +108,7 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
 
             <div className="plan-grp">
               <div className="lbl">Cab · {cab.kind}</div>
-              {world.cabLegs.map((l) => (
+              {detail.candidates.cabLegs.map((l) => (
                 <div className="line-item" key={l.id}>
                   <span className="ic">CAB</span>
                   <span className="l">
@@ -179,12 +132,12 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
               <>
                 <div className="lbl" style={{ marginTop: 20, marginBottom: 9 }}>Flights</div>
                 <div className="opts">
-                  {world.alts.map((a) => (
+                  {detail.candidates.alts.map((a) => (
                     <button
                       key={a.id}
-                      className={`opt ${a.ok ? '' : 'no'} ${a.id === chosen ? 'pick' : ''}`}
+                      className={`opt ${a.ok ? '' : 'no'} ${a.id === altId ? 'pick' : ''}`}
                       disabled={!a.ok}
-                      onClick={() => setChosen(a.id)}
+                      onClick={() => setAltId(a.id)}
                     >
                       <span className="l">
                         <span className="fl">{a.code} · {a.dep}</span>
@@ -197,34 +150,11 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
                       </span>
                     </button>
                   ))}
-                  {liveAlts.length > 0 && (
-                    <>
-                      <SandboxNotice kind="flights" />
-                      {liveAlts.map((a) => (
-                        <button
-                          key={a.id}
-                          className={`opt ${a.ok ? '' : 'no'} ${a.id === chosen ? 'pick' : ''}`}
-                          disabled={!a.ok}
-                          onClick={() => setChosen(a.id)}
-                        >
-                          <span className="l">
-                            <span className="fl">{a.code} · {a.dep}</span>
-                            <span className="mt">{a.ok ? `arrives ${a.arr} · ${a.cabin}` : a.why}</span>
-                          </span>
-                          <span className="r">
-                            <span className={`pr ${a.ok && !a.fare ? 'free' : ''}`}>
-                              {a.ok ? (a.fare ? money(a.fare) : 'no cost to you') : 'not bookable'}
-                            </span>
-                          </span>
-                        </button>
-                      ))}
-                    </>
-                  )}
                 </div>
 
                 <div className="lbl" style={{ marginTop: 18, marginBottom: 9 }}>Room tonight</div>
                 <div className="opts">
-                  {world.hotels.map((h) => (
+                  {detail.candidates.hotels.map((h) => (
                     <button
                       key={h.id}
                       className={`opt ${h.ok ? '' : 'no'} ${h.id === hotelId ? 'pick' : ''}`}
@@ -242,34 +172,11 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
                       </span>
                     </button>
                   ))}
-                  {liveHotels.length > 0 && (
-                    <>
-                      <SandboxNotice kind="hotels" />
-                      {liveHotels.map((h) => (
-                        <button
-                          key={h.id}
-                          className={`opt ${h.ok ? '' : 'no'} ${h.id === hotelId ? 'pick' : ''}`}
-                          disabled={!h.ok}
-                          onClick={() => setHotelId(h.id)}
-                        >
-                          <span className="l">
-                            <span className="fl">{h.name}</span>
-                            <span className="mt">{h.ok ? `${h.area} · check-in ${h.checkin}` : h.why}</span>
-                          </span>
-                          <span className="r">
-                            <span className={`pr ${h.ok && !h.extra ? 'free' : ''}`}>
-                              {h.ok ? (h.extra ? `${money(h.extra)} over` : money(h.rate)) : 'over the cap'}
-                            </span>
-                          </span>
-                        </button>
-                      ))}
-                    </>
-                  )}
                 </div>
 
                 <div className="lbl" style={{ marginTop: 18, marginBottom: 9 }}>Cab for both legs</div>
                 <div className="opts">
-                  {world.cabs.map((c) => (
+                  {detail.candidates.cabs.map((c) => (
                     <button
                       key={c.id}
                       className={`opt ${c.ok ? '' : 'no'} ${c.id === cabId ? 'pick' : ''}`}
@@ -314,7 +221,7 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
           <div className="g panel">
             <h3>Why we are asking now</h3>
             <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
-              If you answer now, a cancellation needs no window at all — we already have your
+              If you answer now, a cancellation needs no 90-second window at all — we already have your
               decision and act the second the airline files it. You get hours to think instead of a
               minute and a half, and we get to skip the only part of the recovery that has to wait for
               a human.

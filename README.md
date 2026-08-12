@@ -25,7 +25,8 @@ and an Android app, both wired to real sandbox APIs.
 
 Next.js 16 / React 19 prototype. Predicts a cancellation, shows the risk gauge with a
 plain-language explanation, and walks the member through pre-authorisation and the live
-rebooking sequence.
+rebooking sequence — for any of several flights, each with any number of passengers, including
+passengers with a connecting itinerary (a layover between two legs).
 
 ```bash
 cd zkd-app
@@ -33,8 +34,25 @@ npm install
 npm run dev          # → http://localhost:5176
 ```
 
+**Architecture: the backend is the only thing that decides anything.** A module-level
+simulation engine (`server/engine/simulation.ts`) runs the whole disruption lifecycle —
+detection, the decision window, rebooking — with real `setTimeout`/`setInterval` chains, so it
+resolves on schedule whether or not any device is watching. Every screen (web tab, phone) is a
+plain poller of that shared state (`GET /api/passengers/[id]/schedule`,
+`GET /api/disruptions/[flightId]`, …); nothing is computed or timed client-side any more. This
+only behaves correctly as one continuous `npm run dev` / `npm start` process — a serverless
+redeploy would drop the in-memory state and any scheduled timers mid-flight. The identity
+switcher in the header (`?as=<passengerId>`) is what makes "multiple members, multiple devices,
+one shared backend" demonstrable: open two tabs with different `?as=` values and watch them
+converge independently.
+
+Since a live demo can't wait for an actual airline to cancel a flight, `/ops` (not linked from
+the nav — direct URL only) is an operator console that adds flights and triggers a disruption on
+one. Its trigger button calls the exact same `detectDisruption()` entry point a real production
+live-status poller would call — only the caller differs, never the detection logic.
+
 Routes: `/flights` · `/flights/[id]` · `/prepare/[id]` · `/recovery/[id]` · `/profile` ·
-`/settings` · `/history` · `/how-it-works`
+`/settings` · `/history` · `/how-it-works` · `/ops` (operator console, direct URL only)
 
 **Live API integrations** (added this round — see `assets/round2-api-requirements.xlsx` for the full
 credential tracker): real weather (NOAA / Open-Meteo) and aircraft-position data (OpenSky) feed

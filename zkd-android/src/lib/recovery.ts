@@ -16,17 +16,17 @@ export const WARM_STEPS: Step[] = [
   {
     n: 'Signal picked up',
     d: 3,
-    s: 'Delay-to-departure ratio crossed threshold on AI 2803. Duplicate feeds deduped at the edge.',
+    s: 'Delay-to-departure ratio crossed threshold on this flight. Duplicate feeds deduped at the edge.',
   },
   {
     n: 'Your trip assembled',
     d: 5,
-    s: "PNR, trip graph, benefit entitlement and travel window pulled together. Your DEL→LHR leg and tonight's Delhi hotel both hang off this flight.",
+    s: "PNR, trip graph, benefit entitlement and travel window pulled together. Any onward leg and tonight's hotel, if either applies, hang off this flight.",
   },
   {
     n: 'Suppliers searched',
     d: 34,
-    s: 'One coordinator reshop covering everyone on MAA→DEL, not one per passenger — 300 calls collapse to 102. Candidates priced and held warm: no booking, no spend, nothing you could be charged for.',
+    s: 'One coordinator reshop covering everyone on this flight, not one per passenger — 300 calls collapse to 102. Candidates priced and held warm: no booking, no spend, nothing you could be charged for.',
   },
 ];
 

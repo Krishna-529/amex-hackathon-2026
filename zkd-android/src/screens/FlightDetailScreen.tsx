@@ -1,17 +1,29 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { C, mono, tone } from '../theme';
-import { forecastFor, BAND_LABEL, BAND_SAY, BAND_TONE } from '../lib/forecast';
-import { OUTCOME, routeRecord, type PastFlight } from '../lib/data';
-import { money } from '../lib/time';
+import { risk, bandOf, BAND_LABEL, BAND_SAY } from '../lib/risk';
+import { OUTCOME } from '../lib/outcome';
+import { money, hhmm, mins, durLabel, dayLabel } from '../lib/time';
 import { useWorld } from '../world';
+import { usePoll } from '../lib/usePoll';
+import { API_BASE_URL } from '../config';
+import type { FlightDetail, PastFlight } from '../api';
 import { Cta, Eyebrow, Glass, KV, Page, PageHead, RouteLine } from '../ui';
+
+function routeRecord(past: PastFlight[], from: string, to: string) {
+  const rows = past.filter((p) => p.from === from && p.to === to);
+  return { flown: rows.length, cancelled: rows.filter((p) => p.outcome === 'cancelled').length };
+}
 
 export default function FlightDetailScreen({ route, navigation }: any) {
   const { id } = route.params as { id: string };
-  const { world, disrupted } = useWorld();
+  const { schedule } = useWorld();
 
-  if (!world) {
+  const upcoming = schedule?.upcoming.find((x) => x.id === id);
+  const past = schedule?.past.find((x) => x.id === id);
+  const detail = usePoll<FlightDetail>(upcoming ? `${API_BASE_URL}/api/flights/${id}` : null, 5000);
+
+  if (!schedule) {
     return (
       <Page>
         <PageHead title="Loading your flight" />
@@ -19,8 +31,7 @@ export default function FlightDetailScreen({ route, navigation }: any) {
     );
   }
 
-  const f = world.upcoming.find((x) => x.id === id) ?? world.past.find((x) => x.id === id);
-  if (!f) {
+  if (!upcoming && !past) {
     return (
       <Page>
         <PageHead title="Flight not found" />
@@ -28,25 +39,22 @@ export default function FlightDetailScreen({ route, navigation }: any) {
     );
   }
 
-  const isPast = !('watched' in f) || !f.watched;
-  const rec = routeRecord(world.past, f.from, f.to);
-
-  const head = (
-    <>
-      <PageHead title={`${f.code} · ${f.from} → ${f.to}`}>
-        {f.date}
-        {f.aircraft ? ` · ${f.aircraft}` : ''} · {f.dep} – {f.arr}
-      </PageHead>
-      <Glass style={{ padding: 18, marginBottom: 14 }}>
-        <RouteLine from={f.from} to={f.to} dep={f.dep} arr={f.arr} dur={f.dur} />
-      </Glass>
-    </>
-  );
+  const routeOf = upcoming ?? past!;
+  const rec = routeRecord(schedule.past, routeOf.from, routeOf.to);
 
   /* ── a flight that already happened ─────────────────────────────── */
-  if (isPast) {
-    const pf = f as PastFlight;
-    const o = OUTCOME[pf.outcome];
+  if (past) {
+    const o = OUTCOME[past.outcome];
+    const head = (
+      <>
+        <PageHead title={`${past.code} · ${past.from} → ${past.to}`}>
+          {past.date} · {past.dep} – {past.arr}
+        </PageHead>
+        <Glass style={{ padding: 18, marginBottom: 14 }}>
+          <RouteLine from={past.from} to={past.to} dep={past.dep} arr={past.arr} dur={past.dur} />
+        </Glass>
+      </>
+    );
     return (
       <Page>
         {head}
@@ -56,20 +64,17 @@ export default function FlightDetailScreen({ route, navigation }: any) {
             first
             k="Outcome"
             v={o.label}
-            ok={pf.outcome === 'ontime'}
-            warn={pf.outcome === 'delayed'}
-            bad={pf.outcome === 'cancelled'}
+            ok={past.outcome === 'ontime'}
+            warn={past.outcome === 'delayed'}
+            bad={past.outcome === 'cancelled'}
           />
-          <KV k="Detail" v={pf.detail} />
-          <KV
-            k={`You've flown ${f.from}→${f.to}`}
-            v={`${rec.flown}× · ${rec.cancelled} cancelled`}
-          />
+          <KV k="Detail" v={past.detail} />
+          <KV k={`You've flown ${past.from}→${past.to}`} v={`${rec.flown}× · ${rec.cancelled} cancelled`} />
         </Glass>
-        {pf.recovered ? (
+        {past.recovered ? (
           <Glass style={s.plan}>
             <Eyebrow color={C.iris}>What we did</Eyebrow>
-            <Text style={s.planP}>{pf.recovered}</Text>
+            <Text style={s.planP}>{past.recovered}</Text>
           </Glass>
         ) : (
           <Glass style={{ padding: 18 }}>
@@ -81,71 +86,100 @@ export default function FlightDetailScreen({ route, navigation }: any) {
     );
   }
 
+  const f = upcoming!;
+  const dep = new Date(f.depISO);
+  const arr = mins(dep, f.durationMin);
+
+  const head = (
+    <>
+      <PageHead title={`${f.code} · ${f.from} → ${f.to}`}>
+        {dayLabel(dep, new Date())}
+        {f.aircraft ? ` · ${f.aircraft}` : ''} · {hhmm(dep)} – {hhmm(arr)}
+      </PageHead>
+      <Glass style={{ padding: 18, marginBottom: 14 }}>
+        <RouteLine from={f.from} to={f.to} dep={hhmm(dep)} arr={hhmm(arr)} dur={durLabel(f.durationMin)} />
+      </Glass>
+    </>
+  );
+
   /* a cancelled upcoming flight belongs on the recovery screen, not here */
-  if (f.id === 'u1' && disrupted) {
+  if (f.disruptionPhase !== 'none') {
     return (
       <Page>
         {head}
         <Glass style={{ padding: 18 }}>
           <Eyebrow>This flight was cancelled</Eyebrow>
           <Text style={s.planP}>We&apos;ve already rebuilt your trip around it.</Text>
-          <Cta label="View the recovery →" onPress={() => navigation.replace('Recovery')} />
+          <Cta label="View the recovery →" onPress={() => navigation.replace('Recovery', { id: f.id })} />
         </Glass>
       </Page>
     );
   }
 
-  const fc = forecastFor(f.code);
-  if (!fc) return <Page>{head}</Page>;
-  const t = BAND_TONE[fc.band];
+  if (!detail) {
+    return (
+      <Page>
+        {head}
+        <PageHead title="Loading risk detail…" />
+      </Page>
+    );
+  }
+
+  const r = risk(detail.signals);
+  const usableAlts = detail.candidates.alts.filter((a) => a.ok);
 
   return (
     <Page>
       {head}
 
       <Glass style={s.gauge}>
-        <Text style={[s.big, { color: tone(t) }]}>{fc.pct}%</Text>
+        <Text style={[s.big, { color: tone(r.band) }]}>{r.pct}%</Text>
         <Text style={s.cap}>cancel risk</Text>
-        <Text style={[s.band, { color: tone(t) }]}>{BAND_LABEL[fc.band]}</Text>
-        <Text style={s.say}>{BAND_SAY[fc.band]}</Text>
+        <Text style={[s.band, { color: tone(r.band) }]}>{BAND_LABEL[r.band]}</Text>
+        <Text style={s.say}>{BAND_SAY[r.band]}</Text>
       </Glass>
 
       <Glass style={{ padding: 18, marginBottom: 14 }}>
-        <Eyebrow>Where this number comes from</Eyebrow>
-        <KV first k="Forecast source" v={fc.source === 'lumo' ? 'Lumo — live' : 'Lumo — mocked, no key yet'} />
-        <KV k="We ask you in advance at" v={`${fc.askEarlyAt}%`} />
-        <Text style={s.note}>
-          We buy this forecast rather than building one, and that threshold moves with how many seats
-          are left on the route and how close departure is. Until it has been checked against what
-          actually happened, it decides when we start preparing — never whether we spend your money.
-        </Text>
+        <Eyebrow>What&apos;s driving it</Eyebrow>
+        {r.parts.map((p) => (
+          <View key={p.id} style={s.fac}>
+            <View style={s.fh}>
+              <Text style={s.fn}>{p.name}</Text>
+              <Text style={s.fv}>+{p.pts}</Text>
+            </View>
+            <View style={s.track}>
+              <View
+                style={[s.fill, { width: `${Math.round(p.v * 100)}%`, backgroundColor: tone(bandOf(p.v)) }]}
+              />
+            </View>
+            <Text style={s.note}>{p.note}</Text>
+          </View>
+        ))}
       </Glass>
 
       <Glass style={{ padding: 18, marginBottom: 14 }}>
         <Eyebrow>Your booking</Eyebrow>
-        <KV first k="Terminal" v={f.terminal!} />
-        <KV k="Seat" v={f.seat!} />
-        <KV k="Reference" v={f.pnr!} />
+        <KV first k="Terminal" v={f.terminal ?? '—'} />
+        <KV k="Seat" v={f.booking?.seat ?? '—'} />
+        <KV k="Reference" v={f.booking?.pnr ?? '—'} />
         <KV k="You've flown this route" v={`${rec.flown}× · ${rec.cancelled} cancelled`} />
       </Glass>
 
       <Glass style={{ padding: 18 }}>
         <Eyebrow>If this one goes</Eyebrow>
         <Text style={[s.planP, { marginBottom: 12 }]}>
-          We&apos;re already holding {world.alts.filter((a) => a.ok).length} alternatives that fit your
-          policy and protect your onward connection.
+          We&apos;re already holding {usableAlts.length} alternatives that fit your policy and protect
+          your onward connection.
         </Text>
-        {world.alts
-          .filter((a) => a.ok)
-          .map((a, i) => (
-            <KV
-              key={a.id}
-              first={i === 0}
-              k={`${a.code} · ${a.dep}`}
-              v={a.fare ? money(a.fare) : 'no cost to you'}
-              ok={!a.fare}
-            />
-          ))}
+        {usableAlts.map((a, i) => (
+          <KV
+            key={a.id}
+            first={i === 0}
+            k={`${a.code} · ${a.dep}`}
+            v={a.fare ? money(a.fare) : 'no cost to you'}
+            ok={!a.fare}
+          />
+        ))}
       </Glass>
     </Page>
   );

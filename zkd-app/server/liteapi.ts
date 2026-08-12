@@ -1,13 +1,6 @@
-import type { HotelOpt } from '@/lib/data';
+import type { HotelOpt } from '@/server/domain/types';
 
-/**
- * LiteAPI (Nuitee Connect) sandbox — real inventory, no card required.
- *
- * Currency and guest nationality used to be hardcoded to INR/IN, which quietly
- * made every hotel search an Indian one. Both now come from the caller: currency
- * from the card member's billing currency in MyCa, nationality from their
- * passport.
- */
+/** LiteAPI (Nuitee Connect) sandbox — real inventory for real Indian cities, no card required. */
 
 type RawHotel = { id: string; name: string; address: string; city: string };
 
@@ -21,8 +14,6 @@ export async function searchHotels(params: {
   countryCode: string;
   checkin: string;
   checkout: string;
-  currency: string;
-  guestNationality: string;
 }): Promise<HotelOpt[]> {
   const key = process.env.LITEAPI_API_KEY;
   if (!key) return [];
@@ -43,8 +34,8 @@ export async function searchHotels(params: {
         checkin: params.checkin,
         checkout: params.checkout,
         occupancies: [{ adults: 1 }],
-        currency: params.currency,
-        guestNationality: params.guestNationality,
+        currency: 'INR',
+        guestNationality: 'IN',
       }),
       cache: 'no-store',
     });
@@ -64,7 +55,6 @@ export async function searchHotels(params: {
           checkin: '15:00',
           rate: Math.round(amount),
           extra: 0,
-          currency: params.currency,
           ok: true,
           why: `Live search result for ${params.cityName} — real inventory, sandbox environment.`,
           walk: 'Live sandbox result',

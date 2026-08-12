@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useWorld } from './WorldProvider';
+import PassengerSwitcher from './PassengerSwitcher';
 
 const NAV = [
   { href: '/flights', label: 'My flights' },
@@ -12,6 +14,10 @@ const NAV = [
 
 export default function SiteHeader() {
   const path = usePathname();
+  const { schedule } = useWorld();
+  const name = schedule?.passenger.displayName ?? '…';
+  const initials = name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+
   return (
     <header className="site">
       <div className="site-in">
@@ -31,8 +37,9 @@ export default function SiteHeader() {
           ))}
         </nav>
         <span className="sp" />
+        <PassengerSwitcher />
         <Link href="/profile" className="who" aria-label="Your card and permissions">
-          <i>PS</i><span>Priya S.</span>
+          <i>{initials}</i><span>{name}</span>
         </Link>
       </div>
     </header>
