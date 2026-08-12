@@ -36,7 +36,7 @@ Production build, served from one zero-dependency host:
 
 ```bash
 npm run build
-node "../ZKD Website/serve.js"
+node "../zkd-website/serve.js"
 ```
 
 ## Deploy to GitHub Pages

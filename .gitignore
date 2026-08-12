@@ -4,6 +4,14 @@ npm-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# --- Dev/serve server logs (redirected stdout/stderr from local runs) ---
+dev.out.log
+dev.err.log
+dev-out.log
+dev-err.log
+serve.out.log
+serve.err.log
+
 # --- Python ---
 __pycache__/
 *.py[cod]

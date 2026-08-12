@@ -81,8 +81,20 @@ export const DECIDE_TOTAL = sum(DECIDE_STEPS);
 export const ACT_TOTAL = sum(ACT_STEPS);
 export const MACHINE_TOTAL = DECIDE_TOTAL + ACT_TOTAL;
 
-/** the member's window to object, per the consent mechanics */
-export const QUIET_WINDOW_SECONDS = 90;
+/**
+ * The member's window to object.
+ *
+ * The web app derives this per disruption from the supplier's own offer expiry
+ * minus the time needed to book inside it (see zkd-app/lib/confirmWindow.ts) —
+ * a fare is guaranteed only until a stated moment, and that guarantee is what
+ * makes the length defensible instead of guessed.
+ *
+ * This build has no backend and therefore no live offer to read an expiry from,
+ * so it carries a representative derived value: ten minutes, which is what the
+ * web app produces for a typical disruption bounded by its ceiling. It is a
+ * fixture standing in for a computation, not a return to the old flat 90 s.
+ */
+export const CONFIRM_WINDOW_SECONDS = 10 * 60;
 
 export type Consent = 'autopilot' | 'ask';
 
@@ -90,18 +102,16 @@ export type Consent = 'autopilot' | 'ask';
 /**
  * Pre-authorisation.
  *
- * Above this probability we stop treating the member's consent as something to
- * collect in a 90-second panic and go and ask for it while there is still time
- * to think. If they answer, the cancellation needs no window at all — we already
- * hold their decision and can execute the moment the airline files.
+ * Above a per-flight threshold (see lib/forecast.ts — it adapts to how many seats
+ * are left and how close departure is, rather than sitting at a flat 80%) we stop
+ * treating consent as something to collect in a panic and go and ask while there
+ * is still time to think. If they answer, the cancellation needs no window at all.
  *
  * The authorisation is CONDITIONAL and SPECIFIC: it fires only if the flight
  * actually cancels, and only for the plan they were shown. If that plan is no
  * longer available we fall back to asking — silently substituting a different
  * plan would break the one promise the whole system rests on.
  */
-export const PREAUTH_THRESHOLD = 80;
-
 export type PreAuth = {
   flightId: string;
   altId: string;

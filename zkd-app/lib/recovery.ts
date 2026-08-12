@@ -81,27 +81,22 @@ export const DECIDE_TOTAL = sum(DECIDE_STEPS);
 export const ACT_TOTAL = sum(ACT_STEPS);
 export const MACHINE_TOTAL = DECIDE_TOTAL + ACT_TOTAL;
 
-/** the member's window to object, per the consent mechanics */
-export const QUIET_WINDOW_SECONDS = 90;
-
 export type Consent = 'autopilot' | 'ask';
 
-
 /**
- * Pre-authorisation.
+ * The member's window used to be a hardcoded 90 seconds, which nothing in this
+ * codebase or the design docs could defend. It is now derived per disruption
+ * from the supplier's own offer expiry — see lib/confirmWindow.ts.
  *
- * Above this probability we stop treating the member's consent as something to
- * collect in a 90-second panic and go and ask for it while there is still time
- * to think. If they answer, the cancellation needs no window at all — we already
- * hold their decision and can execute the moment the airline files.
+ * The threshold at which we ask in advance likewise used to be a flat 80%. It
+ * now adapts to how much inventory is left, how close departure is, and how much
+ * the forecast trusts itself — see lib/thresholds.ts.
  *
- * The authorisation is CONDITIONAL and SPECIFIC: it fires only if the flight
- * actually cancels, and only for the plan they were shown. If that plan is no
- * longer available we fall back to asking — silently substituting a different
- * plan would break the one promise the whole system rests on.
+ * Pre-authorisation itself is unchanged and still CONDITIONAL and SPECIFIC: it
+ * fires only if the flight actually cancels, and only for the plan the member
+ * was shown. If that plan is gone by then we fall back to asking — silently
+ * substituting a different plan would break the one promise the system rests on.
  */
-export const PREAUTH_THRESHOLD = 80;
-
 export type PreAuth = {
   flightId: string;
   altId: string;

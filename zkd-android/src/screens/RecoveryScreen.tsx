@@ -4,7 +4,7 @@ import { C, mono } from '../theme';
 import {
   WARM_STEPS, DECIDE_STEPS, ACT_STEPS,
   WARM_TOTAL, DECIDE_TOTAL, ACT_TOTAL, MACHINE_TOTAL,
-  QUIET_WINDOW_SECONDS, type Step,
+  CONFIRM_WINDOW_SECONDS, type Step,
 } from '../lib/recovery';
 import { secs, money, agoLabel } from '../lib/time';
 import { useWorld } from '../world';
@@ -16,7 +16,7 @@ type Phase = 'deciding' | 'waiting' | 'choosing' | 'acting' | 'booked' | 'handed
 /** playback: 1 second of real budget → this many ms on screen */
 const PLAY = 190;
 const FLOOR = 260;
-/** Real seconds. The 90-second window is the member's time to think, so it is
+/** Real seconds. The window is the member's time to think, so it is
  *  not compressed — 1.5 minutes is the point, not an inconvenience. */
 const TICK = 1000;
 
@@ -25,7 +25,7 @@ export default function RecoveryScreen({ navigation }: any) {
 
   const [phase, setPhase] = useState<Phase>('deciding');
   const [shown, setShown] = useState<Step[]>([]);
-  const [left, setLeft] = useState(QUIET_WINDOW_SECONDS);
+  const [left, setLeft] = useState(CONFIRM_WINDOW_SECONDS);
   const [note, setNote] = useState<string | null>(null);
   const [hotelId, setHotelId] = useState('h1');
   const [cabId, setCabId] = useState('c1');
@@ -45,7 +45,7 @@ export default function RecoveryScreen({ navigation }: any) {
     let i = 0;
     const run = () => {
       if (i >= DECIDE_STEPS.length) {
-        setLeft(QUIET_WINDOW_SECONDS);
+        setLeft(CONFIRM_WINDOW_SECONDS);
         setPhase('waiting');
         return;
       }
@@ -58,7 +58,7 @@ export default function RecoveryScreen({ navigation }: any) {
     return () => clearTimeout(timer.current);
   }, [world]);
 
-  /* ── phase 2: the member's 90 seconds, in real seconds ────────────── */
+  /* ── phase 2: the member's window, in real seconds ────────────────── */
   const owedNow = (pick?.fare ?? 0) + (hotel?.extra ?? 0) + (cab?.extra ?? 0);
 
   useEffect(() => {
@@ -220,7 +220,7 @@ export default function RecoveryScreen({ navigation }: any) {
           </Text>
         </View>
         <Text style={s.phaseNote}>
-          Machine time only. The 90 seconds you get to object is yours, and is not counted here.
+          Machine time only. The window you get to object is yours, and is not counted here.
         </Text>
 
         <View style={s.tl}>
@@ -254,7 +254,7 @@ export default function RecoveryScreen({ navigation }: any) {
                 style={[
                   s.barFill,
                   {
-                    width: `${(left / QUIET_WINDOW_SECONDS) * 100}%`,
+                    width: `${(left / CONFIRM_WINDOW_SECONDS) * 100}%`,
                     backgroundColor: phase === 'choosing' ? C.warn : C.iris,
                   },
                 ]}

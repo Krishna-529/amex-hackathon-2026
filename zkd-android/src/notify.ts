@@ -2,7 +2,7 @@
  * Real Android notifications — a dedicated high-importance channel so the
  * cancellation arrives as a heads-up banner with sound and vibration, plus
  * action buttons that map to the three things a member can do inside the
- * 90-second window.
+ * consent window.
  */
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
@@ -62,7 +62,7 @@ export async function notifyCancelled(flight: string, dep: string, autopilot: bo
     content: {
       title: `${flight} has been cancelled`,
       body: autopilot
-        ? `Due to depart ${dep}. We're rebooking you now — 90 seconds to stop us.`
+        ? `Due to depart ${dep}. We're rebooking you now — tap to stop us.`
         : `Due to depart ${dep}. We need your go-ahead before we book anything.`,
       categoryIdentifier: CATEGORY,
       color: '#d9615a',

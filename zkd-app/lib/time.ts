@@ -54,4 +54,21 @@ export const durLabel = (m: number) =>
 export const secs = (n: number) =>
   `${(n < 1 ? n.toFixed(2) : n.toFixed(1)).replace(/\.0$/, '')}s`;
 
-export const money = (n: number) => (n ? `₹${n.toLocaleString('en-IN')}` : '₹0');
+/**
+ * Currency defaults to INR because the demo trip is Indian, but it is a
+ * parameter rather than an assumption — once a route leaves India the fare comes
+ * back in the supplier's own currency and printing a rupee sign on it would be a
+ * lie.
+ */
+export const money = (n: number, currency = 'INR') => {
+  if (!n) return currency === 'INR' ? '₹0' : `${currency} 0`;
+  try {
+    return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-GB', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(n);
+  } catch {
+    return `${currency} ${n.toLocaleString()}`;
+  }
+};

@@ -6,10 +6,10 @@ Four documents. Read them in order; each assumes the one before it.
 
 | # | Document | Answers |
 |---|---|---|
-| 1 | [Prediction model](01-prediction-model.md) | How we calculate the probability, what the features are, how it is trained and validated, and what it is honestly not |
-| 2 | [Data sources & APIs](02-data-sources-and-apis.md) | Every API behind every signal — provider, latency, cost, and whether we have it today |
-| 3 | [Action policy](03-action-policy.md) | What we *do* at each probability, the consent window, the policy gate, the saga, and every halt condition |
-| 4 | [Infrastructure & cost](04-infrastructure-and-cost.md) | Why there is no GPU on the critical path, scale sizing, and running cost |
+| 1 | [Prediction model](design/01-prediction-model.md) | How we calculate the probability, what the features are, how it is trained and validated, and what it is honestly not |
+| 2 | [Data sources & APIs](design/02-data-sources-and-apis.md) | Every API behind every signal — provider, latency, cost, and whether we have it today |
+| 3 | [Action policy](design/03-action-policy.md) | What we *do* at each probability, the consent window, the policy gate, the saga, and every halt condition |
+| 4 | [Infrastructure & cost](design/04-infrastructure-and-cost.md) | Why there is no GPU on the critical path, scale sizing, and running cost |
 
 ---
 
@@ -26,12 +26,12 @@ consult a probability. A false positive costs an API call; a false negative cost
 Of the ~11 seconds, **95% is waiting on airline, hotel and payment APIs.** The thinking —
 min-cost allocation, three negotiation rounds and the policy evaluation — is ~0.6 s combined,
 because negotiation iterates a candidate set already held in memory and issues zero new supplier
-calls. There is **no GPU on the critical path**; the risk model is gradient-boosted trees on
-tabular features, batch-scored on CPU. Supplier rate limits are the ceiling, not compute.
+calls. There is **no GPU on the critical path** — the disruption forecast is bought from a vendor,
+not trained or scored by us. Supplier rate limits are the ceiling, not compute.
 
 **3. Nothing irreversible happens before the member has had their say.**
 Everything left of ACT is free: no hold, no spend, nothing that could be charged. The member gets
-a real **90 seconds**, and what silence means depends on the permission they granted when they
+a real window sized to how long the fare is actually guaranteed for, and what silence means depends on the permission they granted when they
 activated the card — Autopilot proceeds, Ask-me-first stops. A flight they reject can never be
 re-proposed, and that exclusion is enforced as a **policy input**, not a prompt instruction,
 because a rule that lives only in a prompt is a preference rather than a control.
@@ -45,7 +45,7 @@ because a rule that lives only in a prompt is a preference rather than a control
 | `zkd-app/` | Next.js web app — `/flights`, `/flights/[id]`, `/history`, `/profile`, `/settings`, `/recovery/[id]` |
 | `zkd-android/` | Expo / React Native Android app with native notification channels |
 | `iropssim.py` | Monte Carlo behind every `sim`-tier number. Fixed seed: `python3 iropssim.py \| diff - iropssim-output.json` must be empty |
-| `zkd_*_agent_v2.0.md` | The four agent specifications — Supervisor, Flight, Hotel, Ground |
+| `agent-specs/current/zkd_*_agent_v2.0.md` | The four agent specifications — Supervisor, Flight, Hotel, Ground |
 
 ---
 

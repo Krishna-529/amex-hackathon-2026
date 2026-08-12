@@ -142,7 +142,8 @@ hard on, and it is a partnership conversation rather than an engineering one.
 
 Stated plainly:
 
-- **No trained risk model.** The prototype ships a transparent weighted sum; the GBDT is Phase 1.
+- **No model of our own to run.** The forecast is bought from Lumo, so there is nothing to train or
+  score — the cost moves from compute to a per-call vendor fee, and remains off the critical path.
 - **No live supplier integration.** Duffel and LiteAPI sandboxes are the intended proving ground.
 - **No real payment rail.** Amex vPayment is mocked behind a contract test.
 - **API failure is not modelled** in the simulation — rate limits, timeouts, circuit breakers.

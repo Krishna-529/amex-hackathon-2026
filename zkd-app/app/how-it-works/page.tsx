@@ -1,26 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { FACTORS } from '@/lib/risk';
-import { WARM_TOTAL, DECIDE_TOTAL, ACT_TOTAL, PREAUTH_THRESHOLD, QUIET_WINDOW_SECONDS } from '@/lib/recovery';
+import { WARM_TOTAL, DECIDE_TOTAL, ACT_TOTAL } from '@/lib/recovery';
+import { WINDOW_FLOOR_SECONDS, WINDOW_CEILING_SECONDS } from '@/lib/confirmWindow';
 import { secs } from '@/lib/time';
 
 const BANDS = [
-  { p: '0–24%', cls: 'low', t: 'Watch only', tag: 'silent',
-    d: 'We re-score the flight every 10 minutes and do nothing else. Your phone stays quiet.' },
-  { p: '25–54%', cls: 'mid', t: 'Start preparing', tag: 'still silent',
-    d: 'We assemble your trip, run one search covering everyone on the route, and price the alternatives. Nothing is held and nothing is spent — you are not told, because there is nothing to act on yet.' },
-  { p: '55–79%', cls: 'high', t: 'Prepare harder', tag: 'still silent',
+  { p: 'Below', cls: 'low', t: 'Watch only', tag: 'silent',
+    d: 'We re-check the forecast and do nothing else. Your phone stays quiet.' },
+  { p: 'Prepare', cls: 'mid', t: 'Start preparing', tag: 'still silent',
+    d: 'We assemble your trip, run one search covering everyone on the route, and price the alternatives across every supplier we can reach. Nothing is held and nothing is spent — you are not told, because there is nothing to act on yet.' },
+  { p: 'Hold gate', cls: 'high', t: 'Prepare harder', tag: 'still silent',
     d: 'Everything above, plus we evaluate whether holding a seat is actually worth it, and pre-compute the policy verdict on every candidate so the decision is already made.' },
-  { p: `${PREAUTH_THRESHOLD}%+`, cls: 'act', t: 'Come and ask you', tag: 'we notify',
+  { p: 'Ask early', cls: 'act', t: 'Come and ask you', tag: 'we notify',
     d: 'Now it is likely enough to be worth your attention. We show you the whole plan and the exact cost, and ask what you would want if it happens — while you still have hours to think.' },
   { p: 'Cancelled', cls: 'act', t: 'Act', tag: 'we notify',
-    d: 'The airline files it. If you pre-authorised, we execute immediately. If not, you get 90 seconds.' },
+    d: 'The airline files it. If you pre-authorised, we execute immediately. If not, you get a window sized to how long the fare is actually guaranteed for.' },
 ];
 
 export default function HowItWorksPage() {
-  const total = FACTORS.reduce((a, f) => a + f.w, 0);
-
   return (
     <div className="skeleton">
       <div className="page-h">
@@ -35,7 +33,7 @@ export default function HowItWorksPage() {
         <p style={{ margin: 0, fontSize: 15, lineHeight: 1.7, color: 'var(--mist)' }}>
           <b style={{ color: 'var(--text)' }}>The prediction does not decide whether you get rebooked.</b>{' '}
           A cancellation is a fact the airline files — we do not need to guess it to act on it. The
-          model exists to buy <b style={{ color: 'var(--text)' }}>time</b>: when it flags a flight, we
+          forecast exists to buy <b style={{ color: 'var(--text)' }}>time</b>: when it flags a flight, we
           do {secs(WARM_TOTAL)} of work in advance, so that when the cancellation lands we need about{' '}
           {secs(DECIDE_TOTAL + ACT_TOTAL)} instead of {secs(WARM_TOTAL + DECIDE_TOTAL + ACT_TOTAL)}.
         </p>
@@ -52,35 +50,37 @@ export default function HowItWorksPage() {
           <span className="v ok">no</span>
         </div>
         <p className="why">
-          That is why an imperfect model is safe to run. Your safety does not rest on the
+          That is why an imperfect forecast is safe to run. Your safety does not rest on the
           prediction — it rests on the fact that nothing irreversible happens until the airline
           actually cancels and you have had your say.
         </p>
       </div>
 
-      <div className="sect">What goes into the number</div>
+      <div className="sect">Where the number comes from</div>
       <div className="g panel" style={{ marginBottom: 16 }}>
-        <h3>Five signals, weighted</h3>
-        {FACTORS.map((f) => (
-          <div className="wt" key={f.id}>
-            <span className="nm">{f.name}</span>
-            <span className="bar"><i style={{ width: `${(f.w / 34) * 100}%` }} /></span>
-            <span className="pc">{f.w}%</span>
-          </div>
-        ))}
-        <p className="why">
-          Each signal is scored 0–1 for how bad it currently is, multiplied by its weight, and the
-          five are added up. Weather dominates because in Indian domestic aviation it is the single
-          largest cause of cancellation. Your aircraft&apos;s inbound flight is second because a late
-          inbound on a tight turn is how a cancellation is <em>made</em>, not merely forecast.
+        <h3>We buy the forecast rather than building one</h3>
+        <p style={{ margin: 0, color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.65 }}>
+          Predicting flight disruption is its own industry, trained on far more history than we
+          could gather. So the probability on your flight comes from a specialist disruption
+          forecaster, which reads weather, air-traffic flow, airport congestion and each
+          airline&apos;s own record. What we add is the part nobody else does: actually fixing it.
         </p>
-        <div className="kv" style={{ marginTop: 6 }}>
-          <span className="k">Weights add up to</span><span className="v">{total}%</span>
+        <div className="kv" style={{ marginTop: 16 }}>
+          <span className="k">Forecast</span>
+          <span className="v">bought, not built</span>
         </div>
         <div className="kv">
-          <span className="k">Shown on every flight as</span>
-          <span className="v">the five bars under &ldquo;what&apos;s driving it&rdquo;</span>
+          <span className="k">What it decides</span>
+          <span className="v">when we start preparing</span>
         </div>
+        <div className="kv">
+          <span className="k">What it never decides</span>
+          <span className="v ok">whether we spend your money</span>
+        </div>
+        <p className="why">
+          Until the forecast has been checked against what actually happened on our own routes, it
+          is advisory. It can move work earlier. It cannot authorise anything.
+        </p>
       </div>
 
       <div className="sect">What we do at each level</div>
@@ -93,36 +93,75 @@ export default function HowItWorksPage() {
       ))}
 
       <div className="g panel" style={{ marginTop: 16 }}>
-        <h3>Why we stay quiet below {PREAUTH_THRESHOLD}%</h3>
+        <h3>Those levels are not fixed numbers</h3>
         <p style={{ margin: 0, color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.65 }}>
-          A probability is not something you can act on. An app that pings you every time a flight
-          looks 60% shaky gets muted — and a muted app cannot help you at all. So below{' '}
-          {PREAUTH_THRESHOLD}% we do the work silently. Above it, the question changes from
-          <em> &ldquo;your flight is cancelled&rdquo;</em> to <em>&ldquo;what would you like if it
-          is?&rdquo;</em> — and that is worth asking, because you have hours to answer instead of{' '}
-          {QUIET_WINDOW_SECONDS} seconds.
+          The same 60% means different things on different flights. If there are three seats left on
+          the whole route and you depart in an hour, waiting for more certainty costs you the seat —
+          so we act earlier. If there are forty seats and you fly tomorrow, there is nothing to gain
+          by hurrying. The thresholds move with how much is left to move you onto, how close
+          departure is, whether a late arrival breaks something that matters, and how confident the
+          forecast is in itself.
+        </p>
+        <p className="why">
+          Every flight shows you its own thresholds, and what they were calculated from.
+        </p>
+      </div>
+
+      <div className="sect">How long you get to answer</div>
+      <div className="g panel" style={{ marginBottom: 16 }}>
+        <h3>The window is the airline&apos;s promise, not our guess</h3>
+        <p style={{ margin: 0, color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.65 }}>
+          When a supplier quotes a fare, it guarantees that price until a stated moment. Your window
+          to decide is that guarantee, minus the seconds we need to actually book inside it. That is
+          why it changes from one disruption to the next — and why we can defend its length instead
+          of having picked it.
+        </p>
+        <div className="kv" style={{ marginTop: 16 }}>
+          <span className="k">Shortest window we will ask in</span>
+          <span className="v">{Math.round(WINDOW_FLOOR_SECONDS / 60)} minutes</span>
+        </div>
+        <div className="kv">
+          <span className="k">Longest</span>
+          <span className="v">{Math.round(WINDOW_CEILING_SECONDS / 60)} minutes</span>
+        </div>
+        <div className="kv">
+          <span className="k">If there is less time than the floor</span>
+          <span className="v">we do not ask — your standing permission decides</span>
+        </div>
+        <p className="why">
+          Asking someone to answer in seconds is not really asking. Below the floor the honest thing
+          is to act on the permission you already gave, and tell you afterwards.
+        </p>
+      </div>
+
+      <div className="g panel" style={{ marginBottom: 16 }}>
+        <h3>And the seat can still go while you think</h3>
+        <p style={{ margin: 0, color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.65 }}>
+          It can. We do not solve that by rushing you. The moment you confirm — and not before — we
+          re-check that exact seat with the airline. If it has been sold, we move you to the next
+          option that keeps your trip together rather than failing and handing the problem back.
+          What you agreed to was getting where you were going, not one particular seat number.
         </p>
       </div>
 
       <div className="sect">Being honest about it</div>
       <div className="g panel">
-        <h3>What this model is not</h3>
+        <h3>What this is not</h3>
         <div className="kv">
-          <span className="k">Trained on historical data</span>
-          <span className="v warn">not yet — this is a transparent weighted model</span>
+          <span className="k">Checked against our own outcomes</span>
+          <span className="v warn">not yet — the forecast is advisory until it is</span>
         </div>
         <div className="kv">
           <span className="k">Predicting diversions or turn-backs</span>
-          <span className="v warn">no — cancellations only</span>
+          <span className="v warn">no — cancellations, reschedules and delays only</span>
         </div>
         <div className="kv">
           <span className="k">Accounting for one closure cancelling a whole airport</span>
           <span className="v warn">approximated, not modelled properly</span>
         </div>
         <p className="why">
-          The production model is gradient-boosted trees over the same five families, calibrated so
-          that flights we call 70% cancel about 70% of the time. Until it has enough history to be
-          trained honestly, we show the transparent version — and say so.
+          We would rather show you a forecast we did not build, and say plainly that we have not yet
+          proved it on our own routes, than show you a number we made up and call it a model.
         </p>
         <p style={{ margin: '16px 0 0' }}>
           <Link href="/flights" className="back" style={{ margin: 0 }}>← Back to my flights</Link>

@@ -58,9 +58,8 @@ body{
   background:rgba(8,9,17,.55);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
   border-bottom:1px solid var(--edge)}
 .site-in{max-width:1160px;margin:0 auto;padding:15px 32px;display:flex;align-items:center;gap:14px}
-.logo{width:30px;height:30px;border-radius:10px;flex:none;position:relative;
-  background:var(--iris)}
-.logo::after{content:'';position:absolute;inset:9px;border-radius:4px;background:#080910}
+.logo{width:30px;height:30px;border-radius:10px;flex:none;display:flex}
+.logo svg{width:100%;height:100%;border-radius:10px}
 .site .nm{font-weight:600;font-size:16px;letter-spacing:-.015em}
 .site .sp{flex:1}
 .site nav{display:flex;gap:6px}
@@ -215,7 +214,7 @@ body{
 .plan p{margin:0;font-size:13.5px;color:var(--mist);line-height:1.65}
 
 
-/* ══════════════ the 90-second quiet window ══════════════ */
+/* ══════════════ the consent window ══════════════ */
 .gate{border:1px solid rgba(47,127,240,.34);background:rgba(47,127,240,.07);
   border-radius:16px;padding:18px;margin-top:16px}
 .gate.paused{border-color:rgba(211,160,63,.4);background:rgba(211,160,63,.07)}

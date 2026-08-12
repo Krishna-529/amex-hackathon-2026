@@ -6,12 +6,12 @@ import { useWorld } from '@/components/WorldProvider';
 import RouteLine from '@/components/Route';
 import Pill from '@/components/Pill';
 import HistoryTable from '@/components/HistoryTable';
-import { risk, BAND_LABEL, BAND_SAY, GLOW } from '@/lib/risk';
-import { PREAUTH_THRESHOLD } from '@/lib/recovery';
+import { BAND_SAY, BAND_TONE, GLOW } from '@/lib/thresholds';
 import { agoLabel } from '@/lib/time';
 
 export default function FlightsPage() {
-  const { world, disrupted, setDisrupted, consent, settled, chosen, preAuth, prepared } = useWorld();
+  const { world, disrupted, setDisrupted, consent, settled, chosen, preAuth, prepared, live, refreshForecast } =
+    useWorld();
   const [hovered, setHovered] = useState('u1');
 
   // The early ask has to come BEFORE the cancellation, or it is pointless.
@@ -23,14 +23,36 @@ export default function FlightsPage() {
     return () => clearTimeout(t);
   }, [world, disrupted, prepared, setDisrupted]);
 
+  // Every watched leg gets a forecast, because the early-ask banner has to know
+  // whether the next flight has crossed its own threshold before the member
+  // opens anything.
+  useEffect(() => {
+    if (!world) return;
+    for (const f of world.upcoming) {
+      if (!f.watched || !f.bookedDepartureAt) continue;
+      refreshForecast(f.id, {
+        flightIata: f.code.replace(/\s+/g, ''),
+        from: f.from,
+        to: f.to,
+        date: new Date(f.bookedDepartureAt).toISOString().slice(0, 10),
+        minutesToDeparture: Math.max(0, Math.round((f.bookedDepartureAt - world.now.getTime()) / 60_000)),
+        hasHardConstraint: Boolean(f.hasHardConstraint),
+      });
+    }
+  }, [world]);
+
   if (!world) return <div className="page-h"><h1>Your flights</h1></div>;
 
   const { upcoming, past, alts, detected } = world;
   const active = upcoming.find((f) => f.id === hovered) ?? upcoming[0];
   const gone = active.id === 'u1' && disrupted;
-  const r = risk(active.signals!);
   const pick = alts.find((a) => a.id === chosen)!;
-  const riskOfNext = risk(upcoming[0].signals!);
+
+  const activeForecast = live.forecast[active.id]?.data;
+  const nextForecast = live.forecast[upcoming[0].id]?.data;
+  const activeTone = activeForecast ? BAND_TONE[activeForecast.band] : 'low';
+  // The ask fires on the flight's OWN adapted threshold, not a fixed 80.
+  const asksEarly = nextForecast ? nextForecast.pct >= nextForecast.thresholds.preAuthorise : false;
 
   return (
     <div className="skeleton">
@@ -46,19 +68,19 @@ export default function FlightsPage() {
         </p>
       </div>
       {/* Before anything breaks: if we are confident enough, ask early. This is
-          the whole point — consent collected with hours to spare, not 90 seconds. */}
-      {!disrupted && riskOfNext.pct >= PREAUTH_THRESHOLD && (
+          the whole point — consent collected with hours to spare, not under pressure. */}
+      {!disrupted && asksEarly && (
         <Link href={`/prepare/${upcoming[0].id}`} className="g alert warn" style={{ display: 'flex' }}>
           <span className="ic">!</span>
           <span className="tx">
             <span className="tt">
               {preAuth
                 ? "You've told us what to do if AI 2803 cancels"
-                : `AI 2803 looks like it will cancel — ${riskOfNext.pct}%`}
+                : `AI 2803 looks like it will cancel — ${nextForecast!.pct}%`}
             </span>
             <span className="bd">
               {preAuth
-                ? 'We act the second it happens. No 90-second window needed.'
+                ? 'We act the second it happens. No decision window needed at all.'
                 : "It hasn't been cancelled. Tell us now what you'd want, while you have time to think."}
             </span>
           </span>
@@ -128,7 +150,16 @@ export default function FlightsPage() {
           })}
         </div>
 
-        <div className="pred" style={{ ['--glow' as string]: gone ? GLOW.high : GLOW[r.band] }}>
+        <div
+          className="pred"
+          style={{
+            ['--glow' as string]: gone
+              ? GLOW['hold-gate']
+              : activeForecast
+                ? GLOW[activeForecast.band]
+                : GLOW.watch,
+          }}
+        >
           <div key={active.id + String(gone)} className="fade">
             <div className="eyebrow">{active.from} → {active.to}</div>
             {gone ? (
@@ -144,9 +175,15 @@ export default function FlightsPage() {
               </>
             ) : (
               <>
-                <div className={`n ${r.band}`}>{r.pct}%</div>
+                <div className={`n ${activeTone}`}>
+                  {activeForecast ? `${activeForecast.pct}%` : '—'}
+                </div>
                 <div className="lb">chance of cancellation</div>
-                <div className="say">{BAND_SAY[r.band]}</div>
+                <div className="say">
+                  {activeForecast
+                    ? BAND_SAY[activeForecast.band]
+                    : 'Checking this flight against the disruption forecast.'}
+                </div>
                 <div className="go">View details →</div>
               </>
             )}

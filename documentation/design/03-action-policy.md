@@ -11,11 +11,12 @@ figure traces to the latency budget in §4.
 
 | Phase | Trigger | What happens | Reversible? |
 |---|---|---|---|
-| **WATCH** | Delay-ratio crossing, or a carrier signal | Deduplicate at the edge; classify the disruption | Yes — the phone stays silent |
-| **WARM** | `P(cancel) ≥ 25%` | Assemble trip context; **one** coordinator reshop for the whole route group; build and price a candidate portfolio | Yes — no hold, no spend |
-| **ASK** | A plan exists | Notify with the plan and the price; open the **90-second window** | Yes |
+| **WATCH** | A carrier signal or forecast crossing | Deduplicate at the edge; **classify the disruption** (cancellation / reschedule / delay-cascade / diversion) | Yes — the phone stays silent |
+| **WARM** | Forecast crosses the flight's own `prepare` threshold | Assemble trip context; **one** coordinator reshop for the whole route group; build and price a candidate portfolio across every supplier | Yes — no hold, no spend |
+| **ASK** | A plan exists | Notify with the plan and the price; open the **derived window** (§3) | Yes |
 | **WAIT** | — | Evaluate the hold gate: hold speculatively, or keep candidates warm | Yes — an unconfirmed hold expires free |
-| **ACT** | Consent (explicit or by silence) | Allocate → policy gate → payment → saga | **No. This is the boundary.** |
+| **RE-CHECK** | Member confirms, or the window closes | Re-validate the chosen offer with its supplier; cascade to the next candidate if it is gone | Yes — this is the last reversible step |
+| **ACT** | Consent (explicit or by silence) **and** a re-validated offer | Allocate → policy gate → payment → saga | **No. This is the boundary.** |
 | **VERIFY** | Original disposed | Re-check every onward segment | — |
 | **CLAIM** | Booking settled | Claim duty of care from the carrier; settle only the uncovered remainder | — |
 
@@ -26,30 +27,50 @@ not depend on the model being right.
 
 ## 2. Probability → action
 
-| P(cancel) | What runs | Member sees | Cost if wrong |
+The bands are **not fixed percentages**. Each flight carries its own thresholds, computed from how
+much inventory is left on the route, how close departure is, whether a hard onward constraint
+exists, and how confident the forecast is in itself (`lib/thresholds.ts`, and `design/01` §4).
+
+| Band | What runs | Member sees | Cost if wrong |
 |---|---|---|---|
-| < 25% | Monitor, re-score every 10 min | A green figure in the app | Nothing |
-| 25–55% | WARM: context, coordinator reshop, priced candidates | An amber figure | ~102 supplier calls |
-| 55–80% | WARM + hold gate evaluation + pre-computed policy verdicts | A red figure, and *"we have backup seats identified"* | Above, plus possible hold churn |
-| **≥ 80%** | **Pre-authorise** — present the whole plan and the exact amount, and collect a conditional instruction | A notification asking what they'd want **if** it cancels | Nothing. The instruction expires unused if the flight operates. |
-| Cancellation filed | ACT | **The notification** | — |
+| Below `prepare` | Monitor only | A green figure in the app | Nothing |
+| `prepare` | WARM: context, coordinator reshop, priced candidates across all suppliers | An amber figure | ~102 supplier calls |
+| `holdGate` | WARM + hold gate evaluation + pre-computed policy verdicts | A red figure, and *"we have backup seats identified"* | Above, plus possible hold churn |
+| `preAuthorise` | **Pre-authorise** — present the whole plan and the exact amount, collect a conditional instruction | A notification asking what they'd want **if** it cancels | Nothing. The instruction expires unused if the flight operates. |
+| Carrier acts | ACT | **The notification** | — |
 
-**Only a disruption and the 80% crossing notify.** Below that, a member cannot act on a forecast,
-and a product that alerts at 60% gets muted. At 80% the question changes from *"your flight is
-cancelled"* to *"what would you like if it is?"* — which they have hours, not ninety seconds, to answer.
+**Only a disruption and the ask-early crossing notify.** Below that, a member cannot act on a
+forecast, and a product that alerts at 60% gets muted. At the threshold the question changes from
+*"your flight is cancelled"* to *"what would you like if it is?"* — which they have hours to answer.
 
-### 2.1 What a pre-authorisation changes
+Every threshold evaluation is written to the decision ledger **with its inputs**. An adaptive
+threshold that cannot be reconstructed after the fact is not auditable.
+
+### 2.1 Not every disruption needs a rebooking
+
+| Kind | Rebook? | Re-time hotel & transfers? | Consent needed? |
+|---|---|---|---|
+| Cancellation | Yes | Yes | Yes, if it costs the member |
+| Reschedule, connection survives | **No** | Yes | **No** — nothing is being spent |
+| Reschedule, connection breaks | Yes | Yes | Yes, if it costs |
+| Delay cascade, connection survives | No | Yes | No |
+| Diversion | Yes | Yes | Yes |
+
+A schedule move that still makes the onward connection wakes Pipeline 3 alone. Opening a consent
+window for a free hotel re-timing would be asking permission to spend nothing.
+
+### 2.2 What a pre-authorisation changes
 
 | | No pre-auth | Pre-authorised |
 |---|---|---|
-| On cancellation | Notify → 90 s window → act | **Act immediately** |
+| On cancellation | Notify → window → act | **Act immediately** |
 | Human in the critical path | Yes | **No** |
-| Member's thinking time | 90 s | Hours |
+| Member's thinking time | Minutes, under pressure | Hours, calm |
 
 It is **conditional and specific**: it fires only if the flight cancels, and only for the plan shown.
 If any part of that plan is unavailable when the moment comes, the authorisation **does not carry
 over** and we fall back to asking. Substituting silently would break the promise the whole system
-rests on. Declining, or simply not answering, costs nothing — it is the 90-second window as before.
+rests on. Declining, or simply not answering, costs nothing — it falls back to the window.
 
 ---
 
@@ -59,9 +80,60 @@ Captured **once, at card activation** — not as an in-app toggle. Two settings:
 
 | Setting | On a disruption | If they do not answer |
 |---|---|---|
-| **Autopilot** | Present the plan, open 90 s | **Proceed and book.** That is the permission granted. |
-| **Ask me first** — recovery is free | Present the plan, open 90 s | **Book it anyway.** There is no spend to consult about, and stranding them is the worse outcome. |
-| **Ask me first** — recovery costs them | Present the plan, open 90 s | **Stop.** Nothing booked, nothing charged, held seats retained. |
+| **Autopilot** | Present the plan, open the window | **Proceed and book.** That is the permission granted. |
+| **Ask me first** — recovery is free | Present the plan, open the window | **Book it anyway.** There is no spend to consult about, and stranding them is the worse outcome. |
+| **Ask me first** — recovery costs them | Present the plan, open the window | **Stop.** Nothing booked, nothing charged, held seats retained. |
+
+### 3.1 How long the window is, and why
+
+The previous specification said 90 seconds and never derived it. It was indefensible in both
+directions: too short for a person to read a plan and decide, and unrelated to how long the offer
+being decided on actually survives.
+
+The window is now **the supplier's own guarantee, minus the time we need to act inside it**:
+
+```
+window = clamp( (offer.expires_at − now) − exec_budget(11 s) − network_margin(20 s),
+                FLOOR, min(CEILING, time_to_departure − checkin_cutoff) )
+```
+
+| Bound | Value | Why |
+|---|---|---|
+| `offer.expires_at` | From the supplier | A quoted fare is guaranteed until a stated moment. Past it we are offering a price we cannot fill. |
+| `FLOOR` | 2 min | Below this the ask is theatre — a push must arrive, be noticed and be answered. **Assumption, to be replaced by measured push-to-first-interaction latency.** |
+| `CEILING` | 20 min | The offer's expiry is the supplier's promise, not the market's. |
+| `checkin_cutoff` | 45 min domestic / 60 international | A window that outlives check-in on the replacement is useless. |
+
+Observed behaviour (`lib/confirmWindow.ts`, verified against live Duffel offers):
+
+| Situation | Window | Bound by |
+|---|---|---|
+| Offer expires in 6 min | 5.5 min | offer expiry |
+| Offer expires in 3 h, departure in 8 h | 20 min | ceiling |
+| International, departure in 70 min | 9.5 min | check-in |
+| Offer expires in 40 s | **no window** | floor — consent tier decides alone |
+
+**Below the floor we do not ask.** Autopilot acts; ask-me-first acts if the recovery is free and
+escalates if it costs. Asking someone to answer in seconds is not really asking.
+
+### 3.2 The seat can still be sold while they think
+
+It can — and the answer is not to rush them.
+
+**At the moment of confirm, and not before, we re-check that exact offer with the supplier.** If it
+has been sold we do not fail and we do not stop: the next ranked candidate from the portfolio takes
+its place. What the member consented to was the outcome — getting to Delhi tonight with their
+connection intact — not one specific seat.
+
+| Re-check result | What happens |
+|---|---|
+| `available` | Book it, at the price shown |
+| `price-changed` | Surface the new price before spending |
+| `gone` | Cascade to the next bookable candidate |
+| `unknown` | **Treated as not bookable.** A source we could not verify is one we cannot promise. |
+
+This is what makes a longer, humane window safe. Verified end to end against live Duffel
+inventory: a sold offer cascades to the next flight rather than erroring.
 
 **Consent gates spending, not care.** This is the principle the table encodes. Asking permission
 exists to protect a member's money — so when the fix costs them nothing, silence should not leave
@@ -115,8 +187,10 @@ negotiation rounds, and the policy evaluation — is ~0.6 s combined, because ne
 candidate set already in memory and issues no new supplier calls. That is the only reason three
 rounds cost 0.6 s instead of 100.
 
-The 90-second consent window sits **between** the decision and the execution and is *not* counted
-in either figure. It is the member's time, not the machine's.
+The consent window sits **between** the decision and the execution and is *not* counted in either
+figure. It is the member's time, not the machine's. The one machine cost that does land inside the
+critical path is the re-validation call before ticketing — one supplier round trip, and worth it,
+because the alternative is spending on a seat that is already sold.
 
 ---
 

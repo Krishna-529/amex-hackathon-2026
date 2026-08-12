@@ -56,7 +56,7 @@ export default function ProfileScreen() {
         <KV k="Mobile" v={PROFILE.contact.phone} />
         <Why>
           These go on the booking itself. It is how the carrier sends your boarding pass — and how we
-          reach you inside the 90 seconds before we act.
+          reach you inside the window before we act.
         </Why>
       </Glass>
 
@@ -144,7 +144,7 @@ export default function ProfileScreen() {
         </View>
         <Why>
           {consent === 'autopilot'
-            ? 'We rebook inside your policy without waking you. You still get 90 seconds to stop us before anything is paid for.'
+            ? 'We rebook inside your policy without waking you. You still get a window to stop us before anything is paid for.'
             : 'We do all the work then stop and wait for your go-ahead. If you do not answer, we hold rather than book.'}
         </Why>
       </Glass>

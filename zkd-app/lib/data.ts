@@ -1,5 +1,4 @@
 import { mins, days, hhmm, ddMon, dayLabel, agoLabel, durLabel } from './time';
-import type { Signals } from './risk';
 
 export type Flight = {
   id: string;
@@ -14,7 +13,18 @@ export type Flight = {
   terminal?: string;
   seat?: string;
   pnr?: string;
-  signals?: Signals;
+  /**
+   * Epoch ms the member actually booked. A reschedule is only visible as a diff
+   * against this — the carrier's own "delay" resets to zero once it moves the
+   * schedule, so the booked time is the only fixed point we have.
+   */
+  bookedDepartureAt?: number;
+  /** minutes of slack before the onward leg is missed; null when there is none */
+  connectionSlackMinutes?: number | null;
+  /** the trip breaks if this leg arrives late — a board meeting, an onward flight */
+  hasHardConstraint?: boolean;
+  /** whether this leg is watched at all — past flights are not */
+  watched?: boolean;
 };
 
 export type PastFlight = Flight & {
@@ -26,11 +36,12 @@ export type PastFlight = Flight & {
 
 export type HotelOpt = {
   id: string; name: string; area: string; checkin: string;
-  rate: number; extra: number; ok: boolean; why: string; walk: string;
+  rate: number; extra: number; currency: string;
+  ok: boolean; why: string; walk: string;
 };
 
 export type CabOpt = {
-  id: string; kind: string; seats: number; extra: number;
+  id: string; kind: string; seats: number; extra: number; currency: string;
   ok: boolean; why: string;
 };
 
@@ -45,6 +56,9 @@ export type Alt = {
   cabin: string;
   seats: number;
   fare: number;
+  /** never assume one country's money */
+  currency: string;
+  international?: boolean;
   ok: boolean;
   why: string;
 };
@@ -65,30 +79,35 @@ export function buildWorld(now: Date) {
     terminal: string;
     seat: string;
     pnr: string;
-    signals: Signals;
+    connectionSlackMinutes: number | null;
+    hasHardConstraint: boolean;
   }): Flight => ({
     ...o,
     dep: hhmm(o._dep),
     arr: hhmm(mins(o._dep, o._mins)),
     dur: durLabel(o._mins),
     date: dayLabel(o._dep, now),
+    bookedDepartureAt: o._dep.getTime(),
+    watched: true,
   });
 
   const upcoming: Flight[] = [
+    // The Chennai leg feeds the London connection: 380 min between departures,
+    // 160 in the air, so 220 minutes of slack before the onward leg is missed.
     mk({
       id: 'u1', code: 'AI 2803', from: 'MAA', to: 'DEL', _dep: dep1, _mins: 160,
       aircraft: 'A320neo', terminal: 'T1', seat: '14C', pnr: 'QK7R2M',
-      signals: { weather: 0.96, rotation: 0.92, congestion: 0.78, record: 0.68, slot: 0.40 },
+      connectionSlackMinutes: 220, hasHardConstraint: true,
     }),
     mk({
       id: 'u2', code: 'AI 2201', from: 'DEL', to: 'LHR', _dep: mins(dep1, 380), _mins: 555,
       aircraft: 'B787-9', terminal: 'T3', seat: '22A', pnr: 'QK7R2M',
-      signals: { weather: 0.22, rotation: 0.18, congestion: 0.35, record: 0.12, slot: 0.4 },
+      connectionSlackMinutes: null, hasHardConstraint: true,
     }),
     mk({
       id: 'u3', code: '6E 5192', from: 'BOM', to: 'DEL', _dep: days(mins(dep1, -60), 17), _mins: 135,
       aircraft: 'A320', terminal: 'T2', seat: '8F', pnr: 'LP4XZ1',
-      signals: { weather: 0.3, rotation: 0.24, congestion: 0.44, record: 0.2, slot: 0.1 },
+      connectionSlackMinutes: null, hasHardConstraint: false,
     }),
   ];
 
@@ -134,7 +153,7 @@ export function buildWorld(now: Date) {
   const rollsOver = (d: Date) => d.getDate() !== dep1.getDate();
   const mkAlt = (o: {
     id: string; _dep: Date; code: string; cabin: string; seats: number; fare: number;
-    ok: boolean; why: string;
+    currency: string; ok: boolean; why: string;
   }): Alt => ({
     ...o,
     dep: hhmm(o._dep) + (rollsOver(o._dep) ? ' +1' : ''),
@@ -143,25 +162,29 @@ export function buildWorld(now: Date) {
 
   const alts: Alt[] = [
     mkAlt({ id: 'a1', _dep: mins(dep1, 180), code: 'AI 415', cabin: 'Economy', seats: 3, fare: 0,
+      currency: 'INR',
       ok: true, why: 'Same carrier, economy, still connects to your London leg' }),
     mkAlt({ id: 'a2', _dep: mins(dep1, 360), code: 'UK 820', cabin: 'Business', seats: 6, fare: 41200,
+      currency: 'INR',
       ok: false, why: 'Business exceeds your entitled cabin' }),
     mkAlt({ id: 'a3', _dep: mins(dep1, 540), code: 'SG 423', cabin: 'Economy', seats: 5, fare: 0,
+      currency: 'INR',
       ok: true, why: 'Different carrier, lands after your London departure — the connection would break' }),
     mkAlt({ id: 'a4', _dep: mins(dep1, 900), code: 'AI 973', cabin: 'Economy', seats: 9, fare: 0,
+      currency: 'INR',
       ok: false, why: 'Departs past your travel window' }),
   ];
 
   /* the hotel has to move with the flight — it is the same decision */
   const hotels: HotelOpt[] = [
     { id: 'h1', name: 'Andaz Delhi Aerocity', area: 'Aerocity · 8 min from T3',
-      checkin: '16:30', rate: 0, extra: 0, ok: true, walk: 'Your existing booking, re-timed',
+      checkin: '16:30', rate: 0, extra: 0, currency: 'INR', ok: true, walk: 'Your existing booking, re-timed',
       why: 'Same property, same rate — we only moved the check-in time' },
     { id: 'h2', name: 'Roseate House', area: 'Aerocity · 10 min from T3',
-      checkin: '17:00', rate: 0, extra: 2400, ok: true, walk: 'New booking',
+      checkin: '17:00', rate: 0, extra: 2400, currency: 'INR', ok: true, walk: 'New booking',
       why: 'Airline-covered up to your entitlement; ₹2,400 over' },
     { id: 'h3', name: 'The Leela Palace', area: 'Chanakyapuri · 40 min from T3',
-      checkin: '17:00', rate: 0, extra: 14800, ok: false, walk: 'New booking',
+      checkin: '17:00', rate: 0, extra: 14800, currency: 'INR', ok: false, walk: 'New booking',
       why: 'Beyond the duty-of-care rate the airline will reimburse' },
   ];
 
@@ -173,11 +196,11 @@ export function buildWorld(now: Date) {
   ];
 
   const cabs: CabOpt[] = [
-    { id: 'c1', kind: 'Sedan', seats: 3, extra: 0, ok: true,
+    { id: 'c1', kind: 'Sedan', seats: 3, extra: 0, currency: 'INR', ok: true,
       why: 'Within the transfer allowance the airline reimburses' },
-    { id: 'c2', kind: 'SUV', seats: 6, extra: 900, ok: true,
+    { id: 'c2', kind: 'SUV', seats: 6, extra: 900, currency: 'INR', ok: true,
       why: 'More boot space for your London bags · ₹900 over the allowance' },
-    { id: 'c3', kind: 'Chauffeured luxury', seats: 3, extra: 6200, ok: false,
+    { id: 'c3', kind: 'Chauffeured luxury', seats: 3, extra: 6200, currency: 'INR', ok: false,
       why: 'Beyond the transfer allowance the airline will reimburse' },
   ];
 
@@ -186,32 +209,12 @@ export function buildWorld(now: Date) {
 
 export type World = ReturnType<typeof buildWorld>;
 
-/** Everything an airline needs to issue a ticket in your name — and nothing more. */
-export const PROFILE = {
-  legalName: 'PRIYA RAMESH SUNDARAM',
-  displayName: 'Priya S.',
-  dob: '14 Mar 1988',
-  gender: 'Female',
-  nationality: 'Indian',
-  passport: { number: 'Z••••••21', expiry: 'Sep 2031', issued: 'India' },
-  contact: { email: 'p.sundaram@•••••.com', phone: '+91 ••••• 4471' },
-  loyalty: [
-    { airline: 'Air India · Maharaja Club', number: 'AI••••8802', tier: 'Gold' },
-    { airline: 'IndiGo · 6E Rewards', number: '6E••••1173', tier: '—' },
-  ],
-  prefs: [
-    { k: 'Seat', v: 'Aisle, forward cabin' },
-    { k: 'Meal', v: 'Vegetarian (AVML)' },
-    { k: 'Cabin entitlement', v: 'Economy' },
-    { k: 'Per-transaction cap', v: '₹25,000' },
-  ],
-  payment: { card: 'Amex Platinum ••••  ••••  ••••  1008', method: 'Single-use virtual card per booking' },
-  never: [
-    'We never store your CVV or full card number',
-    'We never share your passport with anyone but the operating airline',
-    'We never hold payment credentials the agent can reuse',
-  ],
-};
+/**
+ * The member's identity, preferences and payment used to be a constant here.
+ * They now come from MyCa (server/myca.ts), which is the card's own system of
+ * record — keeping a second copy here would drift from the card, and we would
+ * end up ranking flights against entitlements the member no longer has.
+ */
 
 export function routeRecord(past: PastFlight[], from: string, to: string) {
   const rows = past.filter((p) => p.from === from && p.to === to);

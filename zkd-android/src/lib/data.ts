@@ -1,5 +1,4 @@
 import { mins, days, hhmm, ddMon, dayLabel, agoLabel, durLabel } from './time';
-import type { Signals } from './risk';
 
 export type Flight = {
   id: string;
@@ -14,7 +13,8 @@ export type Flight = {
   terminal?: string;
   seat?: string;
   pnr?: string;
-  signals?: Signals;
+  /** whether this leg is watched at all — past flights are not */
+  watched?: boolean;
 };
 
 export type PastFlight = Flight & {
@@ -65,8 +65,8 @@ export function buildWorld(now: Date) {
     terminal: string;
     seat: string;
     pnr: string;
-    signals: Signals;
   }): Flight => ({
+    watched: true,
     ...o,
     dep: hhmm(o._dep),
     arr: hhmm(mins(o._dep, o._mins)),
@@ -78,17 +78,14 @@ export function buildWorld(now: Date) {
     mk({
       id: 'u1', code: 'AI 2803', from: 'MAA', to: 'DEL', _dep: dep1, _mins: 160,
       aircraft: 'A320neo', terminal: 'T1', seat: '14C', pnr: 'QK7R2M',
-      signals: { weather: 0.96, rotation: 0.92, congestion: 0.78, record: 0.68, slot: 0.40 },
     }),
     mk({
       id: 'u2', code: 'AI 2201', from: 'DEL', to: 'LHR', _dep: mins(dep1, 380), _mins: 555,
       aircraft: 'B787-9', terminal: 'T3', seat: '22A', pnr: 'QK7R2M',
-      signals: { weather: 0.22, rotation: 0.18, congestion: 0.35, record: 0.12, slot: 0.4 },
     }),
     mk({
       id: 'u3', code: '6E 5192', from: 'BOM', to: 'DEL', _dep: days(mins(dep1, -60), 17), _mins: 135,
       aircraft: 'A320', terminal: 'T2', seat: '8F', pnr: 'LP4XZ1',
-      signals: { weather: 0.3, rotation: 0.24, congestion: 0.44, record: 0.2, slot: 0.1 },
     }),
   ];
 
@@ -186,7 +183,14 @@ export function buildWorld(now: Date) {
 
 export type World = ReturnType<typeof buildWorld>;
 
-/** Everything an airline needs to issue a ticket in your name — and nothing more. */
+/**
+ * What MyCa returns for this member.
+ *
+ * The web app reads this from the card at recovery time and keeps no copy
+ * (zkd-app/server/myca.ts). This build has no backend, so it carries the same
+ * mock inline — the concierge is still not the system of record, it simply has
+ * no network here to ask.
+ */
 export const PROFILE = {
   legalName: 'PRIYA RAMESH SUNDARAM',
   displayName: 'Priya S.',

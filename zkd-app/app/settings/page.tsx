@@ -10,7 +10,7 @@ const CHOICES = [
     title: 'Fix it and tell me after',
     sub: 'Autopilot',
     body:
-      'We rebook your flight, hotel and car inside your policy without waking you. You still get 90 seconds to stop us before anything is paid for, and we can never spend beyond the plan we showed you.',
+      'We rebook your flight, hotel and car inside your policy without waking you. You still get a window to stop us before anything is paid for — as long as the fare is guaranteed for, so you are never asked to decide in seconds. We can never spend beyond the plan we showed you.',
     best: 'Most members choose this. It is the only setting that works while you are in the air or asleep.',
   },
   {

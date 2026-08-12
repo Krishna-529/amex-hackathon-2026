@@ -3,14 +3,14 @@ title ZKD Sites - Team ZKD
 rem Resolve relative to THIS script, never to one machine's Desktop. The previous
 rem version did `cd /d "C:\Users\HPW\Desktop\Amex GOAT\zkd-sites"` and then
 rem `npm run dev`, so it worked on exactly one laptop - and the zkd-sites\ path it
-rem pointed at is empty in a fresh clone. The sibling launcher (ZKD Website\Start
+rem pointed at is empty in a fresh clone. The sibling launcher (zkd-website\Start
 rem Website.cmd) already used %~dp0 correctly; this now matches it.
-cd /d "%~dp0..\ZKD Website"
+cd /d "%~dp0..\zkd-website"
 
 if not exist "serve.js" (
   echo.
-  echo   ERROR: cannot find "ZKD Website\serve.js" next to this script.
-  echo   Expected layout:  ^<repo^>\ZKD Sites\  and  ^<repo^>\ZKD Website\
+  echo   ERROR: cannot find "zkd-website\serve.js" next to this script.
+  echo   Expected layout:  ^<repo^>\zkd-launcher\  and  ^<repo^>\zkd-website\
   echo.
   pause
   exit /b 1

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { C, mono, tone } from '../theme';
-import { risk, BAND_SAY } from '../lib/risk';
+import { forecastFor, BAND_SAY, BAND_TONE } from '../lib/forecast';
 import { agoLabel } from '../lib/time';
 import { OUTCOME, type PastFlight } from '../lib/data';
 import { useWorld } from '../world';
@@ -102,7 +102,7 @@ export default function FlightsScreen({ navigation }: any) {
       <Glass>
         {upcoming.map((f, i) => {
           const cancelled = f.id === 'u1' && disrupted;
-          const r = risk(f.signals!);
+          const fc = forecastFor(f.code);
           return (
             <TouchableOpacity
               key={f.id}
@@ -135,7 +135,9 @@ export default function FlightsScreen({ navigation }: any) {
                     ? settled === 'booked'
                       ? `We rebooked you on ${pick.code} at ${pick.dep} and moved tonight's hotel — you paid nothing.`
                       : 'We have alternatives ready and are waiting on the go-ahead.'
-                    : BAND_SAY[r.band]}
+                    : fc
+                      ? BAND_SAY[fc.band]
+                      : ''}
                 </Text>
               </View>
               <View style={s.pred}>
@@ -146,7 +148,9 @@ export default function FlightsScreen({ navigation }: any) {
                   </>
                 ) : (
                   <>
-                    <Text style={[s.predN, { color: tone(r.band) }]}>{r.pct}%</Text>
+                    <Text style={[s.predN, { color: tone(fc ? BAND_TONE[fc.band] : 'low') }]}>
+                      {fc ? `${fc.pct}%` : '—'}
+                    </Text>
                     <Text style={s.predLb}>cancel risk</Text>
                   </>
                 )}

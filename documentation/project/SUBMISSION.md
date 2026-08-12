@@ -76,7 +76,7 @@ ceiling, not compute.
 **3. Nothing irreversible happens before the member has had their say.**
 Everything before ACT is free — no hold, no spend. Above 80% we ask *in advance*,
 while there are hours to think; if answered, a cancellation needs no window at all.
-Otherwise the member gets a real 90 seconds. And consent gates *spending*, not
+Otherwise the member gets a real window, sized to how long the fare is guaranteed. And consent gates *spending*, not
 care: if the fix costs nothing, silence books it rather than leaving someone at an
 airport overnight.
 
@@ -84,8 +84,10 @@ airport overnight.
 
 ## Known limitations, stated plainly
 
-- **No trained model yet.** The prototype ships a transparent weighted sum; the
-  production design is gradient-boosted trees, calibrated. Accuracy is not claimed.
+- **No commercial forecast key yet.** The disruption forecast is bought from Lumo rather than
+  built; without a key it runs on a labelled mock. It is advisory until back-tested against
+  outcomes on our own routes. Accuracy is not claimed, and the vendor's claims are not repeated
+  as ours.
 - **No live supplier integration.** Duffel and LiteAPI sandboxes are the intended
   proving ground; the prototype calls nothing.
 - **Payment is mocked.** Amex vPayment sits behind a contract test.

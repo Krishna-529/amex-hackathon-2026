@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { C, mono, tone } from '../theme';
-import { risk, bandOf, BAND_LABEL, BAND_SAY } from '../lib/risk';
+import { forecastFor, BAND_LABEL, BAND_SAY, BAND_TONE } from '../lib/forecast';
 import { OUTCOME, routeRecord, type PastFlight } from '../lib/data';
 import { money } from '../lib/time';
 import { useWorld } from '../world';
@@ -28,7 +28,7 @@ export default function FlightDetailScreen({ route, navigation }: any) {
     );
   }
 
-  const isPast = !('signals' in f) || !f.signals;
+  const isPast = !('watched' in f) || !f.watched;
   const rec = routeRecord(world.past, f.from, f.to);
 
   const head = (
@@ -95,38 +95,30 @@ export default function FlightDetailScreen({ route, navigation }: any) {
     );
   }
 
-  const r = risk(f.signals!);
+  const fc = forecastFor(f.code);
+  if (!fc) return <Page>{head}</Page>;
+  const t = BAND_TONE[fc.band];
 
   return (
     <Page>
       {head}
 
       <Glass style={s.gauge}>
-        <Text style={[s.big, { color: tone(r.band) }]}>{r.pct}%</Text>
+        <Text style={[s.big, { color: tone(t) }]}>{fc.pct}%</Text>
         <Text style={s.cap}>cancel risk</Text>
-        <Text style={[s.band, { color: tone(r.band) }]}>{BAND_LABEL[r.band]}</Text>
-        <Text style={s.say}>{BAND_SAY[r.band]}</Text>
+        <Text style={[s.band, { color: tone(t) }]}>{BAND_LABEL[fc.band]}</Text>
+        <Text style={s.say}>{BAND_SAY[fc.band]}</Text>
       </Glass>
 
       <Glass style={{ padding: 18, marginBottom: 14 }}>
-        <Eyebrow>What&apos;s driving it</Eyebrow>
-        {r.parts.map((p) => (
-          <View key={p.id} style={s.fac}>
-            <View style={s.fh}>
-              <Text style={s.fn}>{p.name}</Text>
-              <Text style={s.fv}>+{p.pts}</Text>
-            </View>
-            <View style={s.track}>
-              <View
-                style={[
-                  s.fill,
-                  { width: `${Math.round(p.v * 100)}%`, backgroundColor: tone(bandOf(p.v)) },
-                ]}
-              />
-            </View>
-            <Text style={s.note}>{p.note}</Text>
-          </View>
-        ))}
+        <Eyebrow>Where this number comes from</Eyebrow>
+        <KV first k="Forecast source" v={fc.source === 'lumo' ? 'Lumo — live' : 'Lumo — mocked, no key yet'} />
+        <KV k="We ask you in advance at" v={`${fc.askEarlyAt}%`} />
+        <Text style={s.note}>
+          We buy this forecast rather than building one, and that threshold moves with how many seats
+          are left on the route and how close departure is. Until it has been checked against what
+          actually happened, it decides when we start preparing — never whether we spend your money.
+        </Text>
       </Glass>
 
       <Glass style={{ padding: 18, marginBottom: 14 }}>

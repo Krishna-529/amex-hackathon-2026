@@ -215,7 +215,7 @@ export default function Design() {
             ]}
           />
 
-          <Mermaid chart={ARCH} caption={<><b>Sub-agents propose. Only the executor acts — and only after the policy gate and the consent gate both pass.</b> The two gates are not the same thing: policy is a synchronous decision about whether an action is permissible at all; consent is a <em>wait</em> — the 90-second quiet window under tier A, an explicit approval under tier B.</>} />
+          <Mermaid chart={ARCH} caption={<><b>Sub-agents propose. Only the executor acts — and only after the policy gate and the consent gate both pass.</b> The two gates are not the same thing: policy is a synchronous decision about whether an action is permissible at all; consent is a <em>wait</em> — a quiet window under tier A, sized from the supplier's own offer expiry rather than a fixed number, and an explicit approval under tier B.</>} />
 
           <div className="math" style={{ marginTop: '1.2rem' }}>{TRIPSTATE}</div>
           <p className="dim" style={{ fontSize: '.86rem', marginTop: '.7rem', maxWidth: 'var(--measure)' }}>
@@ -274,6 +274,12 @@ export default function Design() {
               ceiling. That is now illegal: the baseline and the candidate would be two live bookings
               for the same passenger. So negotiation runs <b>first</b>, over the pre-fetched candidate
               set, in memory, at zero supplier calls and in milliseconds. Then we book <b>once</b>.
+            </p>
+            <p>
+              Which is also why the member&rsquo;s window can be minutes rather than seconds. We do not
+              outrun the market by rushing them — at the moment they confirm, and not before, we
+              re-check that exact offer with the supplier and cascade to the next candidate if it has
+              been sold. Consent was to the outcome, not to one seat.
             </p>
             <p>
               The safety property survives because the exposure window is milliseconds rather than
@@ -361,7 +367,9 @@ export default function Design() {
                 <tr><td><b>Air + hotel · Duffel + LiteAPI</b></td><td style={{ color: 'var(--c1)' }}>FREE sandbox</td><td>Real book <em>and</em> cancel round trip. Key in about a minute. This is what makes the rollback demo real.</td></tr>
                 <tr><td><b>Amadeus Self-Service</b></td><td style={{ color: 'var(--c4)' }}>DEAD — 17 Jul 2026</td><td>Portal decommissioned. Build on Sabre, abstract the supplier so no single GDS is load-bearing.</td></tr>
                 <tr><td>Agentic GDS · Sabre Dev Studio</td><td style={{ color: 'var(--c3)' }}>Free, self-serve</td><td>Onboarding is our top ask — it is also what lets us measure real <ProofLink id="churn-governance" plain>hold conversion</ProofLink>.</td></tr>
-                <tr><td>Predictive · Lumo</td><td style={{ color: 'var(--c3)' }}>Commercial · mocked</td><td>Advisory only until back-tested. Precision <em>is</em> hold conversion, so we do not hold speculatively until it is measured.</td></tr>
+                <tr><td><b>Predictive · Lumo</b></td><td style={{ color: 'var(--c3)' }}>Commercial · mocked</td><td>Integrated behind an adapter shaped to the real API; every response is labelled <code>lumo</code> or <code>mock</code>. Advisory only until back-tested — precision <em>is</em> hold conversion, so we do not hold speculatively until it is measured.</td></tr>
+                <tr><td>Third GDS · Travelport</td><td style={{ color: 'var(--c3)' }}>Commercial · synthetic</td><td>Behind the same supplier interface as Duffel and Sabre, flagged non-live so it is never presented as bookable. One GDS does not carry enough inventory to recover a trip from.</td></tr>
+                <tr><td>Preferences · Amex MyCa</td><td style={{ color: 'var(--c3)' }}>Select devs · mocked</td><td>Entitlement, cabin and spend cap are read at recovery time and never copied — a local copy drifts from the card.</td></tr>
                 <tr><td>Payments · Amex ACE + vPayment</td><td style={{ color: 'var(--c3)' }}>Select devs · mocked</td><td>Contract test behind the mock; real credential path swaps in on access.</td></tr>
                 <tr><td>Messaging · FCM v1</td><td style={{ color: 'var(--c1)' }}>Open</td><td>Hybrid notification + data payload at <code>apns-priority: 10</code>, because iOS throttles data-only pushes.</td></tr>
               </tbody>
