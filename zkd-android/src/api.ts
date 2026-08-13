@@ -33,6 +33,13 @@ export type FlightForecast = {
 export type Alt = {
   id: string; code: string; dep: string; arr: string; cabin: string;
   seats: number; fare: number; currency: string; expiresAt: number | null;
+  /** 'carrier-protected' is owed to the whole party under DGCA/EU261; 'market'
+   *  is bought and constrained by how many can actually fit */
+  kind?: 'carrier-protected' | 'market';
+  /** whether this seats the whole party — undefined on older cached responses */
+  fitsParty?: boolean;
+  /** total for the whole party; falls back to `fare` when a single traveller */
+  partyFare?: number;
   ok: boolean; why: string;
 };
 export type HotelOpt = {
@@ -54,14 +61,19 @@ export type FlightSummary = {
   aircraft?: string; terminal?: string;
   /** undefined until the server's first forecast refresh lands */
   forecast?: FlightForecast;
+  /** tickets, not PNRs — a single booking can cover a party */
   passengerCount: number;
   disruptionPhase: 'none' | 'DECIDING' | 'READY';
-  booking?: { id: string; seat: string; pnr: string; cabin: string };
+  booking?: {
+    id: string; seat: string; pnr: string; cabin: string;
+    partySize?: number;
+    travellers?: { id: string; displayName: string; type: string; seat: string }[];
+  };
 };
 
 export type FlightDetail = FlightSummary & {
   candidates: { alts: Alt[]; hotels: HotelOpt[]; cabs: CabOpt[]; cabLegs: CabLeg[] };
-  bookings: { id: string; passengerId: string; passengerName: string; seat: string; pnr: string }[];
+  bookings: { id: string; passengerId: string; passengerName: string; seat: string; pnr: string; partySize?: number }[];
 };
 
 export type PassengerScheduleResponse = {
@@ -119,9 +131,14 @@ export type ResolveAction =
   | { kind: 'swap-hotel'; hotelId: string }
   | { kind: 'swap-cab'; cabId: string };
 
+// `credentials: 'include'` is explicit rather than assumed: React Native's
+// fetch runs over the platform's native HTTP stack (OkHttp on Android,
+// NSURLSession on iOS), which does keep a cookie jar by default, but the web
+// fetch spec's default is 'same-origin' — being explicit here means this
+// keeps working even if that default assumption ever changes upstream.
 async function getJSON<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}${path}`);
+    const res = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include' });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -134,6 +151,7 @@ async function postJSON<T>(path: string, body: unknown): Promise<T | null> {
     const res = await fetch(`${API_BASE_URL}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(body),
     });
     if (!res.ok) return null;
@@ -142,6 +160,40 @@ async function postJSON<T>(path: string, body: unknown): Promise<T | null> {
     return null;
   }
 }
+
+export type MeResponse = { id: string; displayName: string; consent: Consent };
+
+/** Empty on failure — same "not signed in" shape whether the network failed
+ *  or the credentials were wrong, so the login screen shows one honest error. */
+export async function login(email: string, password: string): Promise<MeResponse | { error: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email, password }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) return { error: json?.error ?? 'Something went wrong signing you in.' };
+    return json as MeResponse;
+  } catch {
+    return { error: 'Could not reach the server. Check your connection and try again.' };
+  }
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await fetch(`${API_BASE_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+  } catch {
+    // best-effort — the app clears local state regardless
+  }
+}
+
+export const fetchMe = () => getJSON<MeResponse>('/api/auth/me');
+
+// None of these carry a passenger id any more — the session cookie set by
+// login() IS the passenger, on every one of these requests, exactly as the
+// web app's server/auth/guard.ts enforces it.
 
 export const fetchSchedule = (passengerId: string) =>
   getJSON<PassengerScheduleResponse>(`/api/passengers/${passengerId}/schedule`);
@@ -152,17 +204,18 @@ export const fetchFlightDetail = (flightId: string) =>
 export const fetchPassenger = (passengerId: string) =>
   getJSON<Passenger>(`/api/passengers/${passengerId}`);
 
-export const fetchPreAuth = (flightId: string, passengerId: string) =>
-  getJSON<PreAuthResponse>(`/api/flights/${flightId}/preauth?passengerId=${encodeURIComponent(passengerId)}`);
+export const fetchPreAuth = (flightId: string) =>
+  getJSON<PreAuthResponse>(`/api/flights/${flightId}/preauth`);
 
-export const fetchRecovery = (flightId: string, passengerId: string) =>
-  getJSON<RecoveryView>(`/api/disruptions/${flightId}?passengerId=${encodeURIComponent(passengerId)}`);
+export const fetchRecovery = (flightId: string) =>
+  getJSON<RecoveryView>(`/api/disruptions/${flightId}`);
 
 export async function setConsentRemote(passengerId: string, consent: Consent): Promise<void> {
   try {
     await fetch(`${API_BASE_URL}/api/passengers/${passengerId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ consent }),
     });
   } catch {
@@ -170,5 +223,5 @@ export async function setConsentRemote(passengerId: string, consent: Consent): P
   }
 }
 
-export const resolveTask = (flightId: string, passengerId: string, action: ResolveAction) =>
-  postJSON<RecoveryView>(`/api/disruptions/${flightId}/consent`, { passengerId, action });
+export const resolveTask = (flightId: string, action: ResolveAction) =>
+  postJSON<RecoveryView>(`/api/disruptions/${flightId}/consent`, { action });

@@ -1,9 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { usePoll } from '@/lib/usePoll';
-import { hhmm } from '@/lib/time';
+import { hhmm, money } from '@/lib/time';
 import type { FlightSummary, DisruptionOpsView } from '@/lib/apiTypes';
 
 type PassengerRow = { id: string; displayName: string; consent: string };
@@ -64,8 +63,8 @@ export default function OpsPage() {
         <p>
           Not part of the member experience — stands in for a live status feed. A demo can&apos;t wait
           for a real airline to actually cancel a flight, so this triggers the same detection entry
-          point a production poller would call. Everything below is a plain viewer of the shared backend
-          state, same as any member device.
+          point a production poller would call. This console has no account of its own and no way to
+          view or act as a member — everything below is state, not a member&apos;s screen.
         </p>
       </div>
 
@@ -166,19 +165,21 @@ export default function OpsPage() {
             </h3>
             <table className="tbl" style={{ marginTop: 8 }}>
               <thead>
-                <tr><th>Passenger</th><th>Phase</th><th>Seconds left</th><th className="ar">Resolution</th></tr>
+                <tr>
+                  <th>Passenger</th><th>Party</th><th>Phase</th><th>Seconds left</th>
+                  <th>Chosen</th><th>Owed</th><th className="ar">Resolution</th>
+                </tr>
               </thead>
               <tbody>
                 {d.tasks.map((t) => (
                   <tr key={t.passengerId}>
                     <td>{t.passengerName}</td>
+                    <td>{t.partySize}</td>
                     <td>{t.phase}</td>
                     <td>{t.phase === 'waiting' ? t.secondsLeft : '—'}</td>
-                    <td className="ar">
-                      {t.resolution ? (
-                        <Link href={`/recovery/${d.flightId}?as=${t.passengerId}`}>{t.resolution.kind} →</Link>
-                      ) : '—'}
-                    </td>
+                    <td>{t.chosenAltCode ?? '—'}</td>
+                    <td>{t.owedNow ? money(t.owedNow) : 'no cost'}</td>
+                    <td className="ar">{t.resolution ? t.resolution.kind : '—'}</td>
                   </tr>
                 ))}
               </tbody>

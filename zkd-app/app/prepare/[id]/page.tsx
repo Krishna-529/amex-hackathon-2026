@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useWorld } from '@/components/WorldProvider';
 import { usePoll } from '@/lib/usePoll';
 import { money } from '@/lib/time';
+import { roomsFor, vehiclesFor } from '@/lib/partyCost';
 import type { FlightDetail, PreAuthResponse } from '@/lib/apiTypes';
 
 export default function PreparePage({ params }: { params: Promise<{ id: string }> }) {
@@ -13,8 +14,10 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
   const router = useRouter();
   const { passengerId, schedule } = useWorld();
 
-  const { data: detail } = usePoll<FlightDetail>(`/api/flights/${id}`, 5000);
-  const { data: preAuth } = usePoll<PreAuthResponse>(`/api/flights/${id}/preauth?passengerId=${passengerId}`, 8000);
+  const { data: detail } = usePoll<FlightDetail>(passengerId ? `/api/flights/${id}` : null, 5000);
+  // The passenger id no longer needs to travel in the URL — the session on
+  // this request IS the passenger, on both this GET and the preauth POST below.
+  const { data: preAuth } = usePoll<PreAuthResponse>(passengerId ? `/api/flights/${id}/preauth` : null, 8000);
 
   const [altId, setAltId] = useState<string | null>(null);
   const [hotelId, setHotelId] = useState<string | null>(null);
@@ -36,14 +39,21 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
   if (!alt || !hotel || !cab) return <div className="page-h"><h1>Getting ahead of it</h1></div>;
 
   const fc = detail.forecast;
-  const hotelCost = hotel.extra || hotel.rate;
-  const owed = alt.fare + hotelCost + cab.extra;
+  const partySize = detail.booking?.partySize ?? 1;
+  const rooms = roomsFor(partySize);
+  const vehicles = vehiclesFor(partySize, cab.seats);
+  const hotelUnit = hotel.extra || hotel.rate;
+  const hotelCost = hotelUnit * rooms;
+  const cabCost = cab.extra * vehicles;
+  const owed = alt.partyFare + hotelCost + cabCost;
 
   const authorise = () => {
+    // passengerId is not sent — the server reads it from the session, the
+    // same way the recovery engine does.
     fetch(`/api/flights/${id}/preauth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passengerId, altId, hotelId, cabId }),
+      body: JSON.stringify({ altId, hotelId, cabId }),
     }).then(() => router.push('/flights'));
   };
 
@@ -98,27 +108,38 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
           <div className="g panel">
             <h3>If it does cancel, here is the plan</h3>
 
+            {partySize > 1 && (
+              <div className="kv" style={{ marginBottom: 4 }}>
+                <span className="k">Party</span>
+                <span className="v">{partySize} travellers · {rooms} room{rooms === 1 ? '' : 's'} · {vehicles} cab{vehicles === 1 ? '' : 's'}</span>
+              </div>
+            )}
+
             <div className="plan-grp">
               <div className="lbl">Flight</div>
               <div className="line-item">
                 <span className="ic">✈</span>
                 <span className="l">
                   <span className="t1">{alt.code} · {alt.dep}</span>
-                  <span className="t2">arrives {alt.arr} · {alt.cabin}</span>
+                  <span className="t2">
+                    arrives {alt.arr} · {alt.cabin}
+                    {partySize > 1 && ` · ${partySize} seats`}
+                    {alt.kind === 'carrier-protected' && ' · owed by the airline'}
+                  </span>
                 </span>
-                <span className={`r ${alt.fare ? '' : 'free'}`}>
-                  {alt.fare ? money(alt.fare) : 'no cost'}
+                <span className={`r ${alt.partyFare ? '' : 'free'}`}>
+                  {alt.partyFare ? money(alt.partyFare) : 'no cost'}
                 </span>
               </div>
             </div>
 
             <div className="plan-grp">
-              <div className="lbl">Room tonight</div>
+              <div className="lbl">Room{rooms > 1 ? 's' : ''} tonight</div>
               <div className="line-item">
                 <span className="ic">BED</span>
                 <span className="l">
                   <span className="t1">{hotel.name}</span>
-                  <span className="t2">{hotel.area} · check-in {hotel.checkin}</span>
+                  <span className="t2">{hotel.area} · check-in {hotel.checkin}{rooms > 1 && ` · ${rooms} rooms`}</span>
                 </span>
                 <span className={`r ${hotelCost ? '' : 'free'}`}>
                   {hotelCost ? money(hotelCost) : 'airline pays'}
@@ -127,7 +148,7 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
             </div>
 
             <div className="plan-grp">
-              <div className="lbl">Cab · {cab.kind}</div>
+              <div className="lbl">{vehicles > 1 ? `${vehicles} × ${cab.kind}` : `Cab · ${cab.kind}`}</div>
               {detail.candidates.cabLegs.map((l) => (
                 <div className="line-item" key={l.id}>
                   <span className="ic">CAB</span>
@@ -135,8 +156,8 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
                     <span className="t1">{l.from} → {l.to}</span>
                     <span className="t2">{cab.kind} · pickup {l.pickup}</span>
                   </span>
-                  <span className={`r ${cab.extra ? '' : 'free'}`}>
-                    {cab.extra ? money(cab.extra / 2) : 'airline pays'}
+                  <span className={`r ${cabCost ? '' : 'free'}`}>
+                    {cabCost ? money(cabCost / 2) : 'airline pays'}
                   </span>
                 </div>
               ))}
@@ -164,8 +185,8 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
                         <span className="mt">{a.ok ? `arrives ${a.arr} · ${a.cabin}` : a.why}</span>
                       </span>
                       <span className="r">
-                        <span className={`pr ${a.ok && !a.fare ? 'free' : ''}`}>
-                          {a.ok ? (a.fare ? money(a.fare) : 'no cost to you') : 'not bookable'}
+                        <span className={`pr ${a.ok && !a.partyFare ? 'free' : ''}`}>
+                          {a.ok ? (a.partyFare ? money(a.partyFare) : 'no cost to you') : 'not bookable'}
                         </span>
                       </span>
                     </button>
@@ -241,10 +262,10 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
           <div className="g panel">
             <h3>Why we are asking now</h3>
             <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
-              If you answer now, a cancellation needs no 90-second window at all — we already have your
-              decision and act the second the airline files it. You get hours to think instead of a
-              minute and a half, and we get to skip the only part of the recovery that has to wait for
-              a human.
+              If you answer now, a cancellation needs no decision window at all — we already have your
+              decision and act the second the airline files it. You get hours to think instead of the
+              few minutes a live fare guarantee would give you, and we get to skip the only part of
+              the recovery that has to wait for a human.
             </p>
             <button className="cta" onClick={authorise} style={{ width: '100%' }}>
               Yes — do this if it cancels

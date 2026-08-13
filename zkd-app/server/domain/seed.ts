@@ -1,24 +1,17 @@
 /**
  * Runs once at module load (imported once from store.ts's first consumer).
- * Small, hand-controllable dataset — 5 flights, 5 passengers — but nothing
+ * Small, hand-controllable dataset — 5 flights, 5 card members — but nothing
  * about the architecture depends on staying this size: anything the /ops
  * panel creates through the API behaves identically to what's seeded here.
  */
 import * as store from './store';
-import type { Passenger, Flight, PastFlight } from './types';
+import { hashPassword } from '../auth/passwords';
+import { DEMO_ACCOUNTS } from '@/lib/demoAccounts';
+import type { Passenger, Flight, PastFlight, Traveller } from './types';
 
 const now = Date.now();
 const MIN = 60_000;
 const iso = (offsetMin: number) => new Date(now + offsetMin * MIN).toISOString();
-/**
- * Seeded candidates stand in for supplier inventory, so they carry an offer
- * expiry the same way they carry a fare — both are mock. The member's decision
- * window is derived from this exactly as it would be from a real Duffel
- * `expires_at`; without one the window would always fall back to its ceiling
- * and the mechanism would never be visible in the demo.
- */
-const expiresIn = (minutes: number) => now + minutes * MIN;
-
 const hhmm = (offsetMin: number) => {
   const d = new Date(now + offsetMin * MIN);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -30,9 +23,22 @@ export function ensureSeeded() {
   if (seeded) return;
   seeded = true;
   seedPassengers();
+  seedCredentials();
   seedFlights();
   seedBookingsAndItineraries();
   seedPastFlights();
+}
+
+/**
+ * One password per card member, hashed here at seed time from the plaintext
+ * list in lib/demoAccounts.ts (kept client-safe so the login page can display
+ * it too — see that file for why plaintext-at-seed-time is fine for a Map
+ * that dies on restart and is not a template for real provisioning).
+ */
+function seedCredentials() {
+  for (const c of DEMO_ACCOUNTS) {
+    store.createCredential({ passengerId: c.passengerId, email: c.email, passwordHash: hashPassword(c.password) });
+  }
 }
 
 function seedPassengers() {
@@ -66,12 +72,10 @@ function seedFlights() {
       // Feeds the London leg 380 min later; 160 in the air leaves 220 of slack.
       connectionSlackMinutes: 220, hasHardConstraint: true,
       candidates: {
-        alts: [
-          { id: 'a1', code: 'AI 415', dep: hhmm(168 + 180), arr: hhmm(168 + 340), cabin: 'Economy', seats: 3, fare: 0, currency: 'INR', expiresAt: expiresIn(14), ok: true, why: 'Same carrier, economy, still connects to your London leg' },
-          { id: 'a2', code: 'UK 820', dep: hhmm(168 + 360), arr: hhmm(168 + 520), cabin: 'Business', seats: 6, fare: 41200, currency: 'INR', expiresAt: expiresIn(9), ok: false, why: 'Business exceeds your entitled cabin' },
-          { id: 'a3', code: 'SG 423', dep: hhmm(168 + 540), arr: hhmm(168 + 700), cabin: 'Economy', seats: 5, fare: 0, currency: 'INR', expiresAt: expiresIn(22), ok: true, why: 'Different carrier, lands after your London departure — the connection would break' },
-          { id: 'a4', code: 'AI 973', dep: hhmm(168 + 900), arr: hhmm(168 + 1060), cabin: 'Economy', seats: 9, fare: 0, currency: 'INR', expiresAt: expiresIn(31), ok: false, why: 'Departs past your travel window' },
-        ],
+        // Alternatives are no longer seeded — server/engine/altsCache.ts fetches
+        // them live from Duffel/Sabre/Travelport the first time this flight is
+        // viewed, and caches them here exactly like the forecast is cached.
+        alts: [],
         hotels: [
           { id: 'h1', name: 'Andaz Delhi Aerocity', area: 'Aerocity · 8 min from T3', checkin: '16:30', rate: 0, extra: 0, currency: 'INR', ok: true, walk: 'Your existing booking, re-timed', why: 'Same property, same rate — we only moved the check-in time' },
           { id: 'h2', name: 'Roseate House', area: 'Aerocity · 10 min from T3', checkin: '17:00', rate: 0, extra: 2400, currency: 'INR', ok: true, walk: 'New booking', why: 'Airline-covered up to your entitlement; ₹2,400 over' },
@@ -101,20 +105,27 @@ function seedFlights() {
       candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
     },
     {
-      // Multi-passenger case: three bookings on one flight.
+      // Party case: Arjun's party of 6 and Rohan's party of 2 on the same
+      // flight, each with their own PNR and their own recovery task. The 3-seat
+      // market alt fits Rohan's party and does not fit Arjun's — that mismatch
+      // is the reason two classes of alternative exist at all (see
+      // server/domain/altsForParty.ts).
       id: 'f-multi', code: 'AI 401', from: 'DEL', to: 'BLR', depISO: iso(300), durationMin: 170,
       aircraft: 'A321neo', terminal: 'T3',
       connectionSlackMinutes: null, hasHardConstraint: false,
       candidates: {
-        alts: [
-          { id: 'ma1', code: 'AI 505', dep: hhmm(300 + 90), arr: hhmm(300 + 260), cabin: 'Economy', seats: 12, fare: 0, currency: 'INR', expiresAt: expiresIn(17), ok: true, why: 'Same carrier, next available departure' },
-          { id: 'ma2', code: '6E 6031', dep: hhmm(300 + 150), arr: hhmm(300 + 320), cabin: 'Economy', seats: 8, fare: 0, currency: 'INR', expiresAt: expiresIn(26), ok: true, why: 'Different carrier, still within your travel window' },
-        ],
+        // Same as u1 — fetched live, not seeded. This flight is the party-size
+        // test case (Arjun's 6 vs Rohan's 2 sharing one flight), which now
+        // depends on however many seats real supplier inventory actually
+        // returns for DEL→BLR, not a hand-picked seat count.
+        alts: [],
         hotels: [
           { id: 'mh1', name: 'Ibis Bengaluru Airport', area: 'Airport area · 12 min', checkin: '18:00', rate: 0, extra: 0, currency: 'INR', ok: true, walk: 'New booking', why: 'Within the duty-of-care rate' },
+          { id: 'mh2', name: 'Trinity Hometel', area: 'Airport area · 15 min', checkin: '18:00', rate: 0, extra: 2400, currency: 'INR', ok: true, walk: 'New booking', why: 'Airline-covered up to your entitlement; ₹2,400 over per room' },
         ],
         cabs: [
           { id: 'mc1', kind: 'Sedan', seats: 3, extra: 0, currency: 'INR', ok: true, why: 'Within the transfer allowance the airline reimburses' },
+          { id: 'mc2', kind: 'SUV', seats: 6, extra: 900, currency: 'INR', ok: true, why: 'One vehicle for the whole party · ₹900 over the allowance' },
         ],
         cabLegs: [
           { id: 'ml1', from: 'BLR T2', to: 'Ibis Bengaluru Airport', pickup: hhmm(300 + 280), note: 'Re-timed around new arrival' },
@@ -131,16 +142,77 @@ function seedFlights() {
   flights.forEach(store.createFlight);
 }
 
+/** A companion traveller who is not a card member — a full passenger-style
+ *  record because an airline will not reissue a ticket without one, but with
+ *  no `passengerId` and therefore no login. */
+function companion(o: Pick<Traveller, 'displayName' | 'legalName' | 'dob' | 'gender' | 'type'>): Omit<Traveller, 'id'> {
+  return {
+    passengerId: null,
+    nationality: 'Indian',
+    passport: { number: 'Z••••••••', expiry: '—', issued: 'India' },
+    contact: { email: '—', phone: '—' },
+    loyalty: [],
+    ...o,
+  };
+}
+
+/** The card member's own traveller record, mirroring their Passenger entry. */
+function cardMemberTraveller(passengerId: string): Omit<Traveller, 'id'> {
+  const p = store.getPassenger(passengerId)!;
+  return {
+    passengerId,
+    displayName: p.displayName, legalName: p.legalName, dob: p.dob, gender: p.gender,
+    nationality: p.nationality, passport: p.passport, contact: p.contact,
+    type: 'adult', loyalty: p.loyalty,
+  };
+}
+
 function seedBookingsAndItineraries() {
   const b1 = store.createBooking({ flightId: 'u1', passengerId: 'p-priya', seat: '14C', pnr: 'QK7R2M', cabin: 'Economy' });
   const b2 = store.createBooking({ flightId: 'u2', passengerId: 'p-priya', seat: '22A', pnr: 'QK7R2M', cabin: 'Economy' });
   store.createItinerary('p-priya', [b1.id, b2.id]); // MAA→DEL→LHR, the layover/connection case
   store.createBooking({ flightId: 'u3', passengerId: 'p-priya', seat: '8F', pnr: 'LP4XZ1', cabin: 'Economy' });
 
-  // Multi-passenger case: three independent bookings on the same flight.
-  store.createBooking({ flightId: 'f-multi', passengerId: 'p-arjun', seat: '12A', pnr: 'MX9F2K', cabin: 'Economy' });
-  store.createBooking({ flightId: 'f-multi', passengerId: 'p-fatima', seat: '12B', pnr: 'MX9F2K', cabin: 'Economy' });
-  store.createBooking({ flightId: 'f-multi', passengerId: 'p-rohan', seat: '14C', pnr: 'RT4H8P', cabin: 'Economy' });
+  // Arjun's party of 6 — himself, his spouse, two children, two grandparents.
+  const arjun = store.createTraveller(cardMemberTraveller('p-arjun'));
+  const spouse = store.createTraveller(companion({ displayName: 'Meera M.', legalName: 'MEERA MEHTA', dob: '11 Sep 1992', gender: 'Female', type: 'adult' }));
+  const child1 = store.createTraveller(companion({ displayName: 'Aarav M.', legalName: 'AARAV MEHTA', dob: '04 Apr 2016', gender: 'Male', type: 'child' }));
+  const child2 = store.createTraveller(companion({ displayName: 'Diya M.', legalName: 'DIYA MEHTA', dob: '19 Jan 2019', gender: 'Female', type: 'child' }));
+  const grandpa = store.createTraveller(companion({ displayName: 'Suresh M.', legalName: 'SURESH MEHTA', dob: '02 Feb 1958', gender: 'Male', type: 'adult' }));
+  const grandma = store.createTraveller(companion({ displayName: 'Lakshmi M.', legalName: 'LAKSHMI MEHTA', dob: '17 May 1960', gender: 'Female', type: 'adult' }));
+  const arjunTravellerIds = [arjun.id, spouse.id, child1.id, child2.id, grandpa.id, grandma.id];
+  store.createBooking({
+    flightId: 'f-multi', passengerId: 'p-arjun', seat: '12A', pnr: 'MX9F2K', cabin: 'Economy',
+    travellerIds: arjunTravellerIds,
+    seats: [
+      { travellerId: arjun.id, seat: '12A' }, { travellerId: spouse.id, seat: '12B' },
+      { travellerId: child1.id, seat: '12C' }, { travellerId: child2.id, seat: '12D' },
+      { travellerId: grandpa.id, seat: '12E' }, { travellerId: grandma.id, seat: '12F' },
+    ],
+  });
+
+  // Rohan's party of 2 — himself and a partner. Same flight, independent PNR,
+  // independent recovery task: the 3-seat market alt fits this party even
+  // though it does not fit Arjun's.
+  const rohan = store.createTraveller(cardMemberTraveller('p-rohan'));
+  const partner = store.createTraveller(companion({ displayName: 'Kabir N.', legalName: 'KABIR NAIR', dob: '23 Aug 1987', gender: 'Male', type: 'adult' }));
+  store.createBooking({
+    flightId: 'f-multi', passengerId: 'p-rohan', seat: '14C', pnr: 'RT4H8P', cabin: 'Economy',
+    travellerIds: [rohan.id, partner.id],
+    seats: [{ travellerId: rohan.id, seat: '14C' }, { travellerId: partner.id, seat: '14D' }],
+  });
+
+  // Fatima's party of 3. Previously shared Arjun's PNR on f-multi — two card
+  // members cannot own one PNR under this model, so she moves to her own
+  // flight and her own booking.
+  const fatima = store.createTraveller(cardMemberTraveller('p-fatima'));
+  const friend1 = store.createTraveller(companion({ displayName: 'Zoya S.', legalName: 'ZOYA SHEIKH', dob: '05 Jun 1993', gender: 'Female', type: 'adult' }));
+  const friend2 = store.createTraveller(companion({ displayName: 'Imran S.', legalName: 'IMRAN SHEIKH', dob: '14 Oct 1990', gender: 'Male', type: 'adult' }));
+  store.createBooking({
+    flightId: 'f-depth', passengerId: 'p-fatima', seat: '9A', pnr: 'FS3K9L', cabin: 'Economy',
+    travellerIds: [fatima.id, friend1.id, friend2.id],
+    seats: [{ travellerId: fatima.id, seat: '9A' }, { travellerId: friend1.id, seat: '9B' }, { travellerId: friend2.id, seat: '9C' }],
+  });
 
   store.createBooking({ flightId: 'f-depth', passengerId: 'p-ananya', seat: '6D', pnr: 'AZ2N7Q', cabin: 'Economy' });
 }

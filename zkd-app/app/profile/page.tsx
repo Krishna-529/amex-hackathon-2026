@@ -8,7 +8,7 @@ import type { Passenger } from '@/server/domain/types';
 
 export default function ProfilePage() {
   const { passengerId, schedule } = useWorld();
-  const { data: passenger } = usePoll<Passenger>(`/api/passengers/${passengerId}`, 8000);
+  const { data: passenger } = usePoll<Passenger>(passengerId ? `/api/passengers/${passengerId}` : null, 8000);
   if (!schedule || !passenger) return <div className="page-h"><h1>Your details</h1></div>;
 
   return (
@@ -53,7 +53,7 @@ export default function ProfilePage() {
             <div className="kv"><span className="k">Mobile</span><span className="v">{passenger.contact.phone}</span></div>
             <p className="why">
               These go on the booking itself. It is how the carrier sends your boarding pass — and how we
-              reach you inside the 90 seconds before we act.
+              reach you inside the window before we act.
             </p>
           </div>
 
@@ -84,6 +84,8 @@ export default function ProfilePage() {
                 <div className="bk-m">
                   {f.disruptionPhase !== 'none' ? (
                     <>Disrupted — <Link href={`/recovery/${f.id}`} style={{ color: 'var(--iris)' }}>view recovery</Link></>
+                  ) : f.booking && f.booking.partySize > 1 ? (
+                    <>{hhmm(new Date(f.depISO))} · {f.booking.partySize} travellers · {f.terminal}</>
                   ) : (
                     <>{hhmm(new Date(f.depISO))} · seat {f.booking?.seat} · {f.terminal}</>
                   )}
@@ -91,6 +93,27 @@ export default function ProfilePage() {
               </div>
             ))}
           </div>
+
+          {schedule.upcoming.some((f) => f.booking && f.booking.partySize > 1) && (
+            <div className="g panel" style={{ marginBottom: 16 }}>
+              <h3>Who travels with you</h3>
+              {schedule.upcoming.filter((f) => f.booking && f.booking.partySize > 1).map((f) => (
+                <div key={f.id} style={{ marginBottom: 10 }}>
+                  <div className="kv"><span className="k">{f.code} · {f.from} → {f.to}</span><span className="v">{f.booking!.partySize} travellers</span></div>
+                  {f.booking!.travellers.map((t) => (
+                    <div className="kv" key={t.id}>
+                      <span className="k">{t.displayName}{t.type !== 'adult' ? ` · ${t.type}` : ''}</span>
+                      <span className="v">seat {t.seat}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <p className="why">
+                Names and seats only. We never show a companion&apos;s passport or contact details here —
+                the airline holds those, not us.
+              </p>
+            </div>
+          )}
 
           <div className="g panel" style={{ marginBottom: 16 }}>
             <h3>How you like to fly</h3>

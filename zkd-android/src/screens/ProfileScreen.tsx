@@ -9,8 +9,8 @@ import type { Passenger } from '../api';
 import { Eyebrow, Glass, KV, Page, PageHead, Sect, Why } from '../ui';
 
 export default function ProfileScreen({ navigation }: any) {
-  const { passengerId, schedule, setConsent } = useWorld();
-  const passenger = usePoll<Passenger>(`${API_BASE_URL}/api/passengers/${passengerId}`, 8000);
+  const { passengerId, schedule, setConsent, signOut } = useWorld();
+  const passenger = usePoll<Passenger>(passengerId ? `${API_BASE_URL}/api/passengers/${passengerId}` : null, 8000);
 
   if (!schedule || !passenger) {
     return (
@@ -57,7 +57,7 @@ export default function ProfileScreen({ navigation }: any) {
         <KV k="Mobile" v={passenger.contact.phone} />
         <Why>
           These go on the booking itself. It is how the carrier sends your boarding pass — and how we
-          reach you inside the 90 seconds before we act.
+          reach you inside the window before we act.
         </Why>
       </Glass>
 
@@ -90,6 +90,8 @@ export default function ProfileScreen({ navigation }: any) {
                 <Text style={{ color: C.iris }} onPress={() => navigation.navigate('Recovery', { id: f.id })}>
                   Disrupted — view recovery →
                 </Text>
+              ) : f.booking && (f.booking.partySize ?? 1) > 1 ? (
+                `${hhmm(new Date(f.depISO))} · ${f.booking.partySize} travellers · ${f.terminal ?? ''}`
               ) : (
                 `${hhmm(new Date(f.depISO))} · seat ${f.booking?.seat ?? '—'} · ${f.terminal ?? ''}`
               )}
@@ -120,7 +122,7 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
         <Why>
           {passenger.consent === 'autopilot'
-            ? 'We rebook inside your policy without waking you. You still get 90 seconds to stop us before anything is paid for.'
+            ? 'We rebook inside your policy without waking you. You still get a window to stop us before anything is paid for.'
             : 'We do all the work then stop and wait for your go-ahead. If you do not answer, we hold rather than book.'}
         </Why>
       </Glass>
@@ -135,12 +137,16 @@ export default function ProfileScreen({ navigation }: any) {
         </Why>
       </Glass>
 
-      <Glass style={[s.card, { borderColor: 'rgba(75,171,124,.3)', marginBottom: 0 }]}>
+      <Glass style={[s.card, { borderColor: 'rgba(75,171,124,.3)' }]}>
         <Eyebrow color={C.safe}>What we never hold</Eyebrow>
         <KV first k="We never store your CVV or full card number" v="✓" ok />
         <KV k="We never share your passport with anyone but the operating airline" v="✓" ok />
         <KV k="We never hold payment credentials the agent can reuse" v="✓" ok />
       </Glass>
+
+      <TouchableOpacity onPress={signOut} style={s.signOut} activeOpacity={0.8}>
+        <Text style={s.signOutTxt}>Sign out</Text>
+      </TouchableOpacity>
     </Page>
   );
 }
@@ -192,4 +198,10 @@ const s = StyleSheet.create({
   segBtn: { flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: 'center' },
   segOn: { backgroundColor: C.iris },
   segTxt: { color: C.mist, fontSize: 12.5, fontWeight: '600' },
+
+  signOut: {
+    marginTop: 16, paddingVertical: 13, borderRadius: 14, alignItems: 'center',
+    borderWidth: 1, borderColor: C.edge, backgroundColor: C.glass,
+  },
+  signOutTxt: { color: C.mist, fontSize: 13.5, fontWeight: '600' },
 });

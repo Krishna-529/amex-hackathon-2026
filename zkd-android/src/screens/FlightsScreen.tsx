@@ -19,12 +19,14 @@ export default function FlightsScreen({ navigation }: any) {
   const next = upcoming[0];
   const nextDisrupted = !!next && next.disruptionPhase !== 'none';
 
+  // No passenger id in the URL any more — the session on the request scopes
+  // both of these, the same way it does on the web app.
   const nextRecovery = usePoll<RecoveryView>(
-    nextDisrupted ? `${API_BASE_URL}/api/disruptions/${next!.id}?passengerId=${passengerId}` : null,
+    nextDisrupted && passengerId ? `${API_BASE_URL}/api/disruptions/${next!.id}` : null,
     2000,
   );
   const preAuth = usePoll<PreAuthResponse>(
-    next && !nextDisrupted ? `${API_BASE_URL}/api/flights/${next.id}/preauth?passengerId=${passengerId}` : null,
+    next && !nextDisrupted && passengerId ? `${API_BASE_URL}/api/flights/${next.id}/preauth` : null,
     6000,
   );
 

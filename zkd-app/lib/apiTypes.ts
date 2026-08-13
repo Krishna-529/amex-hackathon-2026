@@ -1,7 +1,9 @@
 import type {
   Alt, HotelOpt, CabOpt, CabLeg, Consent, PastFlight, DisruptionResolution, RecoveryTaskPhase,
-  FlightForecast,
+  FlightForecast, TravellerType,
 } from '@/server/domain/types';
+import type { PartyAlt } from '@/server/domain/altsForParty';
+import type { PartyCost } from '@/server/domain/pricing';
 import type { RecoveryView } from '@/server/engine/simulation';
 import type { Classification } from './disruptionKind';
 import type { CareItem } from './entitlement';
@@ -61,25 +63,36 @@ export type CareResponse = {
 };
 
 // --- Domain API (server-authoritative multi-flight/multi-passenger model) ---
-export type { DisruptionResolution, RecoveryView, FlightForecast, Offer, SupplierId, SupplierStatus };
+export type {
+  DisruptionResolution, RecoveryView, FlightForecast, Offer, SupplierId, SupplierStatus,
+  PartyAlt, PartyCost,
+};
 
 export type FlightSummary = {
   id: string; code: string; from: string; to: string; depISO: string; durationMin: number;
   aircraft?: string; terminal?: string;
   /** undefined until the first forecast refresh lands */
   forecast?: FlightForecast;
+  /** tickets, not PNRs — a single booking can cover a party */
   passengerCount: number;
   disruptionPhase: 'none' | 'DECIDING' | 'READY';
-  /** present only when the list was filtered by ?passengerId= */
-  booking?: { id: string; seat: string; pnr: string; cabin: string };
+  /** present only for the signed-in viewer's own booking on this flight */
+  booking?: {
+    id: string; seat: string; pnr: string; cabin: string; partySize: number;
+    /** names and seats only — companion passports are never sent to the client */
+    travellers: { id: string; displayName: string; type: TravellerType; seat: string }[];
+  };
 };
 
 export type FlightDetail = FlightSummary & {
-  candidates: { alts: Alt[]; hotels: HotelOpt[]; cabs: CabOpt[]; cabLegs: CabLeg[] };
+  /** alts are projected through altsForParty for the VIEWER's own party size —
+   *  no party-fit logic reaches the client at all */
+  candidates: { alts: PartyAlt[]; hotels: HotelOpt[]; cabs: CabOpt[]; cabLegs: CabLeg[] };
   connectionSlackMinutes: number | null;
   hasHardConstraint: boolean;
   rescheduledToISO?: string;
-  bookings: { id: string; passengerId: string; passengerName: string; seat: string; pnr: string }[];
+  /** the viewer's own row only, never a co-passenger's */
+  bookings: { id: string; passengerId: string; passengerName: string; seat: string; pnr: string; partySize: number }[];
 };
 
 export type PassengerScheduleResponse = {
@@ -88,13 +101,15 @@ export type PassengerScheduleResponse = {
   past: PastFlight[];
 };
 
-export type PreAuthRequest = { passengerId: string; altId: string; hotelId: string; cabId: string };
+/** passengerId comes from the session, never the body — see server/auth/guard.ts */
+export type PreAuthRequest = { altId: string; hotelId: string; cabId: string };
 export type PreAuthResponse = {
   flightId: string; passengerId: string; altId: string; hotelId: string; cabId: string; owed: number; grantedAt: number;
 } | null;
 
 export type DisruptionOpsTask = {
   passengerId: string; passengerName: string; phase: RecoveryTaskPhase; secondsLeft: number;
+  partySize: number; chosenAltCode: string | null; owedNow: number;
   resolution: DisruptionResolution | null;
 };
 export type DisruptionOpsView = {

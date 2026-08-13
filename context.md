@@ -53,6 +53,8 @@ thresholds carry `deck` until primary CAR text is re-retrieved.
 
 ## Known limitations (stated in docs)
 
+- No self-serve booking: flight/hotel/cab/cruise origination and PNR creation are not built —
+  every PNR is seeded, standing in for a booking made elsewhere. Cruise is not modelled at all.
 - No commercial Lumo key; forecast is mocked and labelled as such, and not yet back-tested
 - Sabre cert returns no inventory, so multi-source rests on Duffel plus synthetic Travelport
 - Payment mocked

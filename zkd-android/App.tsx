@@ -7,8 +7,9 @@ import * as Notifications from 'expo-notifications';
 
 import { C } from './src/theme';
 import { Mesh, TopBar } from './src/ui';
-import { WorldProvider } from './src/world';
+import { WorldProvider, useWorld } from './src/world';
 import { setupNotifications } from './src/notify';
+import LoginScreen from './src/screens/LoginScreen';
 import FlightsScreen from './src/screens/FlightsScreen';
 import FlightDetailScreen from './src/screens/FlightDetailScreen';
 import RecoveryScreen from './src/screens/RecoveryScreen';
@@ -49,47 +50,67 @@ export default function App() {
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
         <Mesh />
         <WorldProvider>
-          <NavigationContainer ref={nav} theme={navTheme}>
-            <Stack.Navigator
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: 'transparent' },
-                animation: 'slide_from_right',
-              }}
-            >
-              <Stack.Screen name="Flights">
-                {(props) => (
-                  <Screen {...props} first>
-                    <FlightsScreen {...props} />
-                  </Screen>
-                )}
-              </Stack.Screen>
-              <Stack.Screen name="FlightDetail">
-                {(props) => (
-                  <Screen {...props}>
-                    <FlightDetailScreen {...props} />
-                  </Screen>
-                )}
-              </Stack.Screen>
-              <Stack.Screen name="Recovery">
-                {(props) => (
-                  <Screen {...props}>
-                    <RecoveryScreen {...props} />
-                  </Screen>
-                )}
-              </Stack.Screen>
-              <Stack.Screen name="Profile">
-                {(props) => (
-                  <Screen {...props}>
-                    <ProfileScreen {...props} />
-                  </Screen>
-                )}
-              </Stack.Screen>
-            </Stack.Navigator>
-          </NavigationContainer>
+          <Root navRef={nav} />
         </WorldProvider>
       </View>
     </SafeAreaProvider>
+  );
+}
+
+/**
+ * Swaps the entire screen set on sign-in/sign-out — the standard React
+ * Navigation auth pattern. There is no identity switcher any more (unlike the
+ * old DEFAULT_PASSENGER_ID build): signed out shows only Login; signed in
+ * shows only the member screens, scoped to whoever the session says they are.
+ */
+function Root({ navRef }: { navRef: React.RefObject<NavigationContainerRef<any>> }) {
+  const { status } = useWorld();
+
+  return (
+    <NavigationContainer ref={navRef} theme={navTheme}>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: 'transparent' },
+          animation: 'slide_from_right',
+        }}
+      >
+        {status !== 'authenticated' ? (
+          <Stack.Screen name="Login" component={LoginScreen} />
+        ) : (
+          <>
+            <Stack.Screen name="Flights">
+              {(props) => (
+                <Screen {...props} first>
+                  <FlightsScreen {...props} />
+                </Screen>
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="FlightDetail">
+              {(props) => (
+                <Screen {...props}>
+                  <FlightDetailScreen {...props} />
+                </Screen>
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="Recovery">
+              {(props) => (
+                <Screen {...props}>
+                  <RecoveryScreen {...props} />
+                </Screen>
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="Profile">
+              {(props) => (
+                <Screen {...props}>
+                  <ProfileScreen {...props} />
+                </Screen>
+              )}
+            </Stack.Screen>
+          </>
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 

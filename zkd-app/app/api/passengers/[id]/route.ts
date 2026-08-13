@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as store from '@/server/domain/store';
-import { ensureSeeded } from '@/server/domain/seed';
+import { requireSelf } from '@/server/auth/guard';
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  ensureSeeded();
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const p = store.getPassenger(id);
-  if (!p) return NextResponse.json({ error: 'not found' }, { status: 404 });
-  return NextResponse.json(p);
+  const g = requireSelf(req, id);
+  if ('response' in g) return g.response;
+  return NextResponse.json(g.passenger);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  ensureSeeded();
   const { id } = await params;
+  const g = requireSelf(req, id);
+  if ('response' in g) return g.response;
   const body = (await req.json()) as { consent: 'autopilot' | 'ask' };
-  const p = store.updateConsent(id, body.consent);
-  if (!p) return NextResponse.json({ error: 'not found' }, { status: 404 });
+  const p = store.updateConsent(id, body.consent)!;
   return NextResponse.json({ id: p.id, displayName: p.displayName, consent: p.consent });
 }

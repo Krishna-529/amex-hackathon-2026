@@ -18,10 +18,11 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
   // The server is the only thing deciding anything here — this page polls
   // three read-only views and renders whatever they say. Actions below just
   // POST an intent; the next poll picks up the result, same as any other
-  // viewer watching this flight would.
-  const { data: view } = usePoll<RecoveryView>(`/api/disruptions/${id}?passengerId=${passengerId}`, 1500);
-  const { data: detail } = usePoll<FlightDetail>(`/api/flights/${id}`, 5000);
-  const { data: preAuth } = usePoll<PreAuthResponse>(`/api/flights/${id}/preauth?passengerId=${passengerId}`, 10000);
+  // viewer watching this flight would. None of these carry a passenger id any
+  // more — the session on the request IS the passenger.
+  const { data: view } = usePoll<RecoveryView>(passengerId ? `/api/disruptions/${id}` : null, 1500);
+  const { data: detail } = usePoll<FlightDetail>(passengerId ? `/api/flights/${id}` : null, 5000);
+  const { data: preAuth } = usePoll<PreAuthResponse>(passengerId ? `/api/flights/${id}/preauth` : null, 10000);
 
   const f = schedule?.upcoming.find((x) => x.id === id);
   const booking = f?.booking;
@@ -30,7 +31,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
     fetch(`/api/disruptions/${id}/consent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passengerId, action }),
+      body: JSON.stringify({ action }),
     }).catch(() => {});
   };
 
@@ -41,7 +42,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
   const alt = detail.candidates.alts.find((a) => a.id === view.chosenAltId);
   const hotel = detail.candidates.hotels.find((h) => h.id === view.chosenHotelId) ?? detail.candidates.hotels[0];
   const cab = detail.candidates.cabs.find((c) => c.id === view.chosenCabId) ?? detail.candidates.cabs[0];
-  const hotelCost = hotel ? hotel.extra || hotel.rate : 0;
+  const partySize = view.partySize;
   const bookable = detail.candidates.alts.filter((a) => a.ok && !view.rejectedAltIds.includes(a.id));
   const elapsed = view.shown.reduce((a, s) => a + s.d, 0);
   const consent = schedule.passenger.consent;
@@ -96,7 +97,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
             <p className="phase-note">
               {preAuth
                 ? 'You authorised this beforehand, so there was no waiting on a human at all — this is the entire recovery.'
-                : 'Machine time only. The 90 seconds you get to object is yours, and is not counted here.'}
+                : 'Machine time only. The window you get to object is yours, and is not counted here.'}
             </p>
 
             <div className="tl">
@@ -133,36 +134,50 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                     <>
                       <p>Here is the whole plan — the flight, the room and both cab legs.{waitingNote}</p>
 
+                      {partySize > 1 && (
+                        <div className="kv" style={{ marginBottom: 4 }}>
+                          <span className="k">Party</span>
+                          <span className="v">{partySize} travellers · {view.cost.rooms} room{view.cost.rooms === 1 ? '' : 's'} · {view.cost.vehicles} cab{view.cost.vehicles === 1 ? '' : 's'}</span>
+                        </div>
+                      )}
+
                       <div className="plan-grp">
                         <div className="lbl">Flight</div>
                         <div className="line-item">
                           <span className="ic">✈</span>
                           <span className="l">
                             <span className="t1">{alt.code} · {alt.dep}</span>
-                            <span className="t2">arrives {alt.arr} · {alt.cabin} · seat {booking.seat}</span>
+                            <span className="t2">
+                              arrives {alt.arr} · {alt.cabin} ·{' '}
+                              {partySize > 1 ? `${partySize} seats` : `seat ${booking.seat}`}
+                              {alt.kind === 'carrier-protected' && ' · owed by the airline'}
+                            </span>
                           </span>
-                          <span className={`r ${alt.fare ? '' : 'free'}`}>
-                            {alt.fare ? money(alt.fare) : 'no cost'}
+                          <span className={`r ${alt.partyFare ? '' : 'free'}`}>
+                            {alt.partyFare ? money(alt.partyFare) : 'no cost'}
                           </span>
                         </div>
                       </div>
 
                       <div className="plan-grp">
-                        <div className="lbl">Room tonight</div>
+                        <div className="lbl">Room{view.cost.rooms > 1 ? 's' : ''} tonight</div>
                         <div className="line-item">
                           <span className="ic">BED</span>
                           <span className="l">
                             <span className="t1">{hotel.name}</span>
-                            <span className="t2">{hotel.area} · check-in {hotel.checkin} · {hotel.walk}</span>
+                            <span className="t2">
+                              {hotel.area} · check-in {hotel.checkin} · {hotel.walk}
+                              {view.cost.rooms > 1 && ` · ${view.cost.rooms} rooms`}
+                            </span>
                           </span>
-                          <span className={`r ${hotelCost ? '' : 'free'}`}>
-                            {hotelCost ? money(hotelCost) : 'airline pays'}
+                          <span className={`r ${view.cost.hotel ? '' : 'free'}`}>
+                            {view.cost.hotel ? money(view.cost.hotel) : 'airline pays'}
                           </span>
                         </div>
                       </div>
 
                       <div className="plan-grp">
-                        <div className="lbl">Cab · {cab.kind}</div>
+                        <div className="lbl">{view.cost.vehicles > 1 ? `${view.cost.vehicles} × ${cab.kind}` : `Cab · ${cab.kind}`}</div>
                         {detail.candidates.cabLegs.map((l) => (
                           <div className="line-item" key={l.id}>
                             <span className="ic">CAB</span>
@@ -170,8 +185,8 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                               <span className="t1">{l.from} → {l.to}</span>
                               <span className="t2">{cab.kind} · pickup {l.pickup} · {l.note}</span>
                             </span>
-                            <span className={`r ${cab.extra ? '' : 'free'}`}>
-                              {cab.extra ? money(cab.extra / 2) : 'airline pays'}
+                            <span className={`r ${view.cost.cab ? '' : 'free'}`}>
+                              {view.cost.cab ? money(view.cost.cab / 2) : 'airline pays'}
                             </span>
                           </div>
                         ))}
@@ -214,8 +229,8 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                                 {a.id === view.chosenAltId && <span className="rec">✓ we picked this</span>}
                               </span>
                               <span className="r">
-                                <span className={`pr ${usable && !a.fare ? 'free' : ''}`}>
-                                  {excluded ? 'excluded' : a.ok ? (a.fare ? money(a.fare) : 'no cost to you') : 'not bookable'}
+                                <span className={`pr ${usable && !a.partyFare ? 'free' : ''}`}>
+                                  {excluded ? 'excluded' : a.ok ? (a.partyFare ? money(a.partyFare) : 'no cost to you') : 'not bookable'}
                                 </span>
                               </span>
                             </button>
@@ -341,22 +356,25 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
 
               <div className="g panel">
                 <h3>What it cost you</h3>
+                {partySize > 1 && (
+                  <div className="kv"><span className="k">Party</span><span className="v">{partySize} travellers</span></div>
+                )}
                 <div className="kv">
-                  <span className="k">Flight fare difference</span>
-                  <span className={`v ${alt.fare ? 'warn' : 'ok'}`}>
-                    {alt.fare ? money(alt.fare) : 'airline pays'}
+                  <span className="k">Flight fare difference{partySize > 1 ? ` · ${partySize} tickets` : ''}</span>
+                  <span className={`v ${view.cost.fare ? 'warn' : 'ok'}`}>
+                    {view.cost.fare ? money(view.cost.fare) : 'airline pays'}
                   </span>
                 </div>
                 <div className="kv">
-                  <span className="k">Room · {hotel.name}</span>
-                  <span className={`v ${hotelCost ? 'warn' : 'ok'}`}>
-                    {hotelCost ? `${money(hotelCost)} over the allowance` : 'airline pays'}
+                  <span className="k">Room · {hotel.name}{view.cost.rooms > 1 ? ` · ${view.cost.rooms} rooms` : ''}</span>
+                  <span className={`v ${view.cost.hotel ? 'warn' : 'ok'}`}>
+                    {view.cost.hotel ? `${money(view.cost.hotel)} over the allowance` : 'airline pays'}
                   </span>
                 </div>
                 <div className="kv">
-                  <span className="k">Cab · {cab.kind}, both legs</span>
-                  <span className={`v ${cab.extra ? 'warn' : 'ok'}`}>
-                    {cab.extra ? `${money(cab.extra)} over the allowance` : 'airline pays'}
+                  <span className="k">Cab · {cab.kind}, both legs{view.cost.vehicles > 1 ? ` · ${view.cost.vehicles} vehicles` : ''}</span>
+                  <span className={`v ${view.cost.cab ? 'warn' : 'ok'}`}>
+                    {view.cost.cab ? `${money(view.cost.cab)} over the allowance` : 'airline pays'}
                   </span>
                 </div>
                 <div className="kv total">

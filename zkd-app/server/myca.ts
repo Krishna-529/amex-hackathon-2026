@@ -29,6 +29,16 @@ export type TravelPreferences = {
   avoidRedEye: boolean;
 };
 
+/**
+ * The mock cap, exported on its own so callers that need it synchronously
+ * (server/engine/simulation.ts runs inside setTimeout-driven state
+ * transitions, not request handlers, so it cannot await a profile fetch) can
+ * use the same number `mockProfile()` does, rather than a second hardcoded
+ * copy. Acceptable while there is one MyCa profile for every member (mock
+ * only, no MYCA_API_KEY) — a per-member cap would need this threaded async.
+ */
+export const DEFAULT_PER_TRANSACTION_CAP = { amount: 25000, currency: 'INR' };
+
 export type PaymentInstrument = {
   /** display only — never a PAN, and never anything the agent could reuse */
   display: string;
@@ -102,7 +112,7 @@ function mockProfile(): MycaProfile {
       meal: 'Vegetarian (AVML)',
       cabinEntitlement: 'Economy',
       preferredCarriers: ['AI', '6E'],
-      perTransactionCap: { amount: 25000, currency: 'INR' },
+      perTransactionCap: DEFAULT_PER_TRANSACTION_CAP,
       avoidRedEye: true,
     },
     payment: {

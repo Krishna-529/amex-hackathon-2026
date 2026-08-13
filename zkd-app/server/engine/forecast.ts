@@ -19,6 +19,18 @@ import { thresholdsFor, bandFor, BAND_TONE } from '@/lib/thresholds';
 import * as store from '../domain/store';
 import type { Flight, FlightForecast } from '../domain/types';
 
+/**
+ * The forecast is cached once per Flight and shared by every viewer, so
+ * "seats available" has to mean seats that can seat the LARGEST party on the
+ * flight — the most constrained booking, not the average one. A party of 6
+ * sharing a flight with solo travellers must not see the same scarcity number
+ * a solo traveller would.
+ */
+export function maxPartyOnFlight(flightId: string): number {
+  const bookings = store.getBookingsForFlight(flightId);
+  return bookings.reduce((max, b) => Math.max(max, store.partySize(b)), 1);
+}
+
 /** How long a cached forecast is considered current. */
 const TTL_MS = 10 * 60 * 1000;
 
@@ -58,18 +70,24 @@ async function compute(flightId: string): Promise<FlightForecast | null> {
   const f = forecasts[0];
   if (!f) return null;
 
-  // Seats we can actually see across every supplier — the scarcity input. Falls
-  // back to the seeded candidates when no supplier returned anything, so the
-  // threshold never treats a dead sandbox as a sold-out route.
+  // Seats we can actually see across every supplier, filtered to offers that
+  // can seat the largest party on this flight — a 3-seat option is not
+  // "available" to a party of 6. Falls back to the seeded candidates when no
+  // supplier returned anything, so the threshold never treats a dead sandbox
+  // as a sold-out route.
+  const partySize = maxPartyOnFlight(flightId);
   const seatsAvailable = inventory.offers.length
-    ? seatsAcross(inventory.offers)
-    : flight.candidates.alts.filter((a) => a.ok).reduce((n, a) => n + a.seats, 0);
+    ? seatsAcross(inventory.offers.filter((o) => o.seatsRemaining >= partySize))
+    : flight.candidates.alts
+        .filter((a) => a.ok && (a.kind === 'carrier-protected' || a.seats >= partySize))
+        .reduce((n, a) => n + a.seats, 0);
 
   const thresholds = thresholdsFor({
     seatsAvailable,
     minutesToDeparture: Math.max(0, Math.round((departsAt - Date.now()) / 60_000)),
     hasHardConstraint: flight.hasHardConstraint,
     confidence: f.confidence,
+    partySize,
   });
 
   const pct = Math.round(f.cancelProbability * 100);

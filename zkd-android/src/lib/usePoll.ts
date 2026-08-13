@@ -9,7 +9,9 @@ export function usePoll<T>(url: string | null, intervalMs: number): T | null {
     if (!url) return;
     let cancelled = false;
     const tick = () => {
-      fetch(url)
+      // credentials: 'include' — explicit rather than assumed, see the same
+      // comment in src/api.ts's getJSON/postJSON for why.
+      fetch(url, { credentials: 'include' })
         .then((r) => (r.ok ? (r.json() as Promise<T>) : Promise.reject(r.status)))
         .then((json) => { if (!cancelled) setData(json); })
         .catch(() => {});

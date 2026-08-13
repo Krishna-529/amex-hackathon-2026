@@ -40,3 +40,7 @@ desktop.ini
 out/
 *.tsbuildinfo
 next-env.d.ts
+
+# --- Local working docs (personal tracking, not a submission deliverable —
+# unlike assets/data/round2-api-requirements.xlsx, which IS tracked) ---
+known-limitations.xlsx

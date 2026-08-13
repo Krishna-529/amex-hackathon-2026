@@ -7,7 +7,7 @@
  */
 import type {
   Passenger, Flight, Booking, Itinerary, PreAuthRecord, PastFlight,
-  DisruptionEvent, RecoveryTask,
+  DisruptionEvent, RecoveryTask, Credential, Traveller, SeatAssignment,
 } from './types';
 
 export const flights = new Map<string, Flight>();
@@ -18,10 +18,13 @@ export const preAuths = new Map<string, PreAuthRecord>();          // key: `${fl
 export const pastFlights = new Map<string, PastFlight[]>();        // key: passengerId
 export const disruptionEvents = new Map<string, DisruptionEvent>(); // key: flightId — one active event per flight
 export const recoveryTasks = new Map<string, RecoveryTask>();      // key: `${flightId}:${passengerId}`
+export const credentials = new Map<string, Credential>();          // key: email.toLowerCase()
+export const travellers = new Map<string, Traveller>();
 
 let bookingSeq = 0;
 let itinerarySeq = 0;
 let taskSeq = 0;
+let travellerSeq = 0;
 
 /**
  * Risk is still a standing prediction on every upcoming flight, but it is no
@@ -59,9 +62,73 @@ export function updateConsent(passengerId: string, consent: Passenger['consent']
   return p;
 }
 
-export function createBooking(b: Omit<Booking, 'id'>): Booking {
+export function createCredential(c: Credential) {
+  const key = c.email.toLowerCase();
+  if (credentials.has(key)) return; // no-op on duplicate email — a seed-time invariant, not a runtime path
+  credentials.set(key, c);
+}
+
+export function findCredentialByEmail(email: string): Credential | undefined {
+  return credentials.get(email.toLowerCase());
+}
+
+export function getCredentialForPassenger(id: string): Credential | undefined {
+  return [...credentials.values()].find((c) => c.passengerId === id);
+}
+
+export function createTraveller(t: Omit<Traveller, 'id'>): Traveller {
+  travellerSeq += 1;
+  const traveller: Traveller = { ...t, id: `tr${travellerSeq}` };
+  travellers.set(traveller.id, traveller);
+  return traveller;
+}
+
+export function getTraveller(id: string): Traveller | undefined {
+  return travellers.get(id);
+}
+
+export function getTravellersForBooking(b: Booking): Traveller[] {
+  return b.travellerIds.map((id) => travellers.get(id)).filter((t): t is Traveller => Boolean(t));
+}
+
+/** Derived, never stored — so it can never drift from the traveller list itself. */
+export function partySize(b: Booking): number {
+  return b.travellerIds.length || 1;
+}
+
+/**
+ * Back-fills a solo party when the caller (e.g. the /ops flight-creation form)
+ * supplies no travellers: one Traveller synthesised from the passenger's own
+ * record, so every Booking has a real party of at least one without every
+ * construction site having to remember to build it.
+ */
+export function createBooking(b: Omit<Booking, 'id' | 'travellerIds' | 'seats'> & {
+  travellerIds?: string[];
+  seats?: SeatAssignment[];
+}): Booking {
   bookingSeq += 1;
-  const booking: Booking = { ...b, id: `bk${bookingSeq}` };
+  let travellerIds = b.travellerIds;
+  let seats = b.seats;
+
+  if (!travellerIds || travellerIds.length === 0) {
+    const p = passengers.get(b.passengerId);
+    const solo = createTraveller({
+      passengerId: b.passengerId,
+      displayName: p?.displayName ?? b.passengerId,
+      legalName: p?.legalName ?? p?.displayName ?? b.passengerId,
+      dob: p?.dob ?? '—',
+      gender: p?.gender ?? '—',
+      nationality: p?.nationality ?? 'Indian',
+      passport: p?.passport ?? { number: '—', expiry: '—', issued: '—' },
+      contact: p?.contact ?? { email: '—', phone: '—' },
+      type: 'adult',
+      loyalty: p?.loyalty ?? [],
+    });
+    travellerIds = [solo.id];
+    seats = [{ travellerId: solo.id, seat: b.seat }];
+  }
+
+  const booking: Booking = { ...b, id: `bk${bookingSeq}`, travellerIds, seats: seats ?? [] };
   bookings.set(booking.id, booking);
   return booking;
 }

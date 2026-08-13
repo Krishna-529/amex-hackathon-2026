@@ -1,18 +1,17 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import * as store from '@/server/domain/store';
-import { ensureSeeded } from '@/server/domain/seed';
 import { toFlightSummary } from '@/server/domain/views';
+import { requireSelf } from '@/server/auth/guard';
 import type { PassengerScheduleResponse } from '@/lib/apiTypes';
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  ensureSeeded();
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const passenger = store.getPassenger(id);
-  if (!passenger) return NextResponse.json({ error: 'not found' }, { status: 404 });
+  const g = requireSelf(req, id);
+  if ('response' in g) return g.response;
 
   const schedule = store.getScheduleForPassenger(id);
   const body: PassengerScheduleResponse = {
-    passenger: { id: passenger.id, displayName: passenger.displayName, consent: passenger.consent },
+    passenger: { id: g.passenger.id, displayName: g.passenger.displayName, consent: g.passenger.consent },
     upcoming: schedule.map(({ flight }) => toFlightSummary(flight, id)),
     past: store.getPastFlights(id),
   };

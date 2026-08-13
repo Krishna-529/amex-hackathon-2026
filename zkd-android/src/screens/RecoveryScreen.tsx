@@ -21,15 +21,17 @@ export default function RecoveryScreen({ route, navigation }: any) {
   const { passengerId, schedule } = useWorld();
   const told = useRef(false);
 
-  const view = usePoll<RecoveryView>(`${API_BASE_URL}/api/disruptions/${id}?passengerId=${passengerId}`, 1500);
-  const detail = usePoll<FlightDetail>(`${API_BASE_URL}/api/flights/${id}`, 5000);
-  const preAuth = usePoll<PreAuthResponse>(`${API_BASE_URL}/api/flights/${id}/preauth?passengerId=${passengerId}`, 10000);
+  // No passenger id in any of these URLs — the session on the request scopes
+  // all three, the same way it does on the web app.
+  const view = usePoll<RecoveryView>(passengerId ? `${API_BASE_URL}/api/disruptions/${id}` : null, 1500);
+  const detail = usePoll<FlightDetail>(passengerId ? `${API_BASE_URL}/api/flights/${id}` : null, 5000);
+  const preAuth = usePoll<PreAuthResponse>(passengerId ? `${API_BASE_URL}/api/flights/${id}/preauth` : null, 10000);
 
   const f = schedule?.upcoming.find((x) => x.id === id);
   const booking = f?.booking;
 
-  const act = (action: Parameters<typeof resolveTask>[2]) => {
-    resolveTask(id, passengerId, action);
+  const act = (action: Parameters<typeof resolveTask>[1]) => {
+    resolveTask(id, action);
   };
 
   useEffect(() => {
@@ -113,7 +115,7 @@ export default function RecoveryScreen({ route, navigation }: any) {
         <Text style={s.phaseNote}>
           {preAuth
             ? 'You authorised this beforehand, so there was no waiting on a human at all — this is the entire recovery.'
-            : 'Machine time only. The 90 seconds you get to object is yours, and is not counted here.'}
+            : 'Machine time only. The window you get to object is yours, and is not counted here.'}
         </Text>
 
         <View style={s.tl}>

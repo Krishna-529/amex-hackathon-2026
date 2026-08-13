@@ -8,6 +8,16 @@
 
 export type Consent = 'autopilot' | 'ask';
 
+/**
+ * A card member's login. Kept separate from `Passenger` rather than as a field
+ * on it: `GET /api/passengers/[id]` returns the whole Passenger object over the
+ * wire, so a passwordHash field there is one un-audited response away from
+ * leaking. Keyed by email (lowercased) in the store, since a Passenger's
+ * `contact.email` is masked display data and the wrong thing to authenticate
+ * against.
+ */
+export type Credential = { passengerId: string; email: string; passwordHash: string };
+
 /** UI tone, kept to three so the existing colour classes still apply. */
 export type Band = 'low' | 'mid' | 'high';
 
@@ -46,6 +56,16 @@ export type Passenger = {
   payment: { card: string; method: string };
 };
 
+/**
+ * 'carrier-protected' is the involuntary re-accommodation the operating
+ * carrier owes under DGCA CAR Section 3 Series M Part IV and EU261 Art. 8.
+ * Both attach PER TICKET, so it covers every traveller on the PNR whatever
+ * the open market has left — it is owed, not bought, and never expires the
+ * way a fare quote does. 'market' is inventory we actually buy, which is why
+ * it is the only kind seat-constrained by what a party can fit into.
+ */
+export type AltKind = 'carrier-protected' | 'market';
+
 export type Alt = {
   id: string;
   code: string;
@@ -62,6 +82,9 @@ export type Alt = {
   /** which inventory source it came from, so it can be re-checked before spend */
   supplier?: string;
   supplierOfferId?: string;
+  kind: AltKind;
+  /** POLICY only — cabin entitlement, per-transaction cap. Party-independent.
+   *  See server/domain/altsForParty.ts for the party-aware `ok` shown to a member. */
   ok: boolean;
   why: string;
 };
@@ -95,6 +118,9 @@ export type Flight = {
   hasHardConstraint: boolean;
   /** fetched from the forecaster, cached here; undefined until the first refresh */
   forecast?: FlightForecast;
+  /** epoch ms `candidates.alts` was last refreshed from real supplier inventory;
+   *  undefined until the first fetch (server/engine/altsCache.ts) */
+  altsAsOf?: number;
   candidates: {
     alts: Alt[];
     hotels: HotelOpt[];
@@ -103,13 +129,52 @@ export type Flight = {
   };
 };
 
+export type TravellerType = 'adult' | 'child' | 'infant';
+
+/**
+ * A person on a ticket. The card member is also a Traveller; only the card
+ * member additionally has a Credential and the authority to consent to spend.
+ * Companions get a full record because an airline will not reissue a ticket
+ * without one — not because they have an account.
+ *
+ * Entities referenced by id, not inlined on Booking: the same person (e.g. the
+ * card member) can appear on more than one Booking within one itinerary, and a
+ * Booking is polled every 4-5s — an inline array would duplicate full passport
+ * records on every poll and let the copies drift the first time either is edited.
+ */
+export type Traveller = {
+  id: string;
+  /** set only when this traveller is also a card member with a login */
+  passengerId: string | null;
+  displayName: string;
+  legalName: string;
+  dob: string;
+  gender: string;
+  nationality: string;
+  passport: { number: string; expiry: string; issued: string };
+  contact: { email: string; phone: string };
+  type: TravellerType;
+  loyalty: { airline: string; number: string; tier: string }[];
+};
+
+export type SeatAssignment = { travellerId: string; seat: string };
+
 export type Booking = {
   id: string;
   flightId: string;
+  /** the CARD MEMBER who owns this PNR — who is asked, who consents, who pays.
+   *  Meaning unchanged from before parties existed; it is no longer "the only
+   *  person flying". */
   passengerId: string;
+  /** the card member's own seat, kept because every member-facing surface
+   *  shows exactly this; the party's seats live in `seats`. */
   seat: string;
   pnr: string;
   cabin: string;
+  /** cardholder first. Party size is `travellerIds.length` — never stored
+   *  separately, so it can never drift from the list itself. */
+  travellerIds: string[];
+  seats: SeatAssignment[];
   itineraryId?: string;
   legIndex?: number;       // position within that itinerary, 0-based
 };
@@ -163,6 +228,9 @@ export type RecoveryTask = {
   bookingId: string;
   passengerId: string;
   phase: RecoveryTaskPhase;
+  /** how many travellers this PNR covers — derived once at task creation from
+   *  the Booking, since the Booking itself is the source of truth throughout. */
+  partySize: number;
   /** derived from the chosen offer's expiry, not a fixed constant. 0 when there
    *  was too little time to ask at all and consent tier decided alone. */
   windowExpiresAt: number;

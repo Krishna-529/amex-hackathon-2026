@@ -25,15 +25,17 @@ export default function FlightsPage() {
 
   // On-demand polling only when there's actually something to watch — no
   // client-side disruption timer any more (that's operator-triggered now).
+  // The passenger id no longer travels in the URL — every one of these is
+  // scoped to the signed-in session on the server.
   const { data: nextRecovery } = usePoll<RecoveryView>(
-    nextDisrupted ? `/api/disruptions/${next!.id}?passengerId=${passengerId}` : null, 2000,
+    nextDisrupted && passengerId ? `/api/disruptions/${next!.id}` : null, 2000,
   );
   const { data: preAuth } = usePoll<PreAuthResponse>(
-    next && !nextDisrupted ? `/api/flights/${next.id}/preauth?passengerId=${passengerId}` : null, 5000,
+    next && !nextDisrupted && passengerId ? `/api/flights/${next.id}/preauth` : null, 5000,
   );
   const sameAsNext = active?.id === next?.id;
   const { data: activeRecoveryOther } = usePoll<RecoveryView>(
-    activeDisrupted && !sameAsNext ? `/api/disruptions/${active!.id}?passengerId=${passengerId}` : null, 2000,
+    activeDisrupted && !sameAsNext && passengerId ? `/api/disruptions/${active!.id}` : null, 2000,
   );
   const activeRecovery = sameAsNext ? nextRecovery : activeRecoveryOther;
 
@@ -125,6 +127,9 @@ export default function FlightsPage() {
                   <div className="meta">
                     <span className="code">{f.code}</span>
                     {i === 0 && <span className="tag next">Next</span>}
+                    {f.booking && f.booking.partySize > 1 && (
+                      <span className="tag">{f.booking.partySize} travellers</span>
+                    )}
                     {cancelled && (
                       <span className="tag" style={{ color: 'var(--risk)', borderColor: 'rgba(217,97,90,.4)' }}>
                         Cancelled

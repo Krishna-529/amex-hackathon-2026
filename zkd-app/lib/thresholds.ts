@@ -12,7 +12,8 @@
  */
 
 export type ThresholdInputs = {
-  /** alternative seats found across all suppliers for this route */
+  /** alternative seats found across all suppliers for this route, already
+   *  filtered to options that can seat the relevant party — see `partySize` */
   seatsAvailable: number;
   /** minutes from now until the disrupted flight was due to depart */
   minutesToDeparture: number;
@@ -20,6 +21,11 @@ export type ThresholdInputs = {
   hasHardConstraint: boolean;
   /** the forecast's own confidence, 0-1 */
   confidence: number;
+  /** provenance only — thresholdsFor does not read this. The party
+   *  `seatsAvailable` was filtered against; 1 unless a larger PNR exists on
+   *  this flight. Kept here so the decision ledger can explain a low
+   *  `seatsAvailable` that would otherwise look unexplained. */
+  partySize?: number;
 };
 
 export type Thresholds = {

@@ -88,8 +88,12 @@ airport overnight.
   built; without a key it runs on a labelled mock. It is advisory until back-tested against
   outcomes on our own routes. Accuracy is not claimed, and the vendor's claims are not repeated
   as ours.
-- **No live supplier integration.** Duffel and LiteAPI sandboxes are the intended
-  proving ground; the prototype calls nothing.
+- **No self-serve booking.** The member cannot book a flight, hotel, cab or cruise
+  *through* the product — every PNR in the system is seeded, standing in for a
+  booking made elsewhere (a travel agent, an airline site, a card concierge desk).
+  The product only detects and recovers a disruption on a booking that already
+  exists; it never originates one or issues the first PNR. Cruise is not modelled
+  as a bookable product at all, on the initial booking side or the recovery side.
 - **Payment is mocked.** Amex vPayment sits behind a contract test.
 - **API failure is not modelled** — rate limits, timeouts, circuit breakers. Given
   supplier limits are the binding constraint, this is the most significant gap.

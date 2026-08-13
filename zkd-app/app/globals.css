@@ -71,9 +71,9 @@ body{
 .who i{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-style:normal;
   font-size:11.5px;font-weight:600;color:#fff;
   background:rgba(47,127,240,.9)}
-.passenger-switcher{background:var(--glass);border:1px solid var(--edge);color:var(--mist);
+.hdr-btn{background:var(--glass);border:1px solid var(--edge);color:var(--mist);
   font-size:12.5px;padding:6px 10px;border-radius:99px;cursor:pointer;margin-right:4px}
-.passenger-switcher:hover{color:var(--text);background:var(--glass-2)}
+.hdr-btn:hover{color:var(--text);background:var(--glass-2)}
 
 /* ── /ops operator console ────────────────────────────────────────── */
 .ops-form input{background:var(--glass);border:1px solid var(--edge);color:var(--text);

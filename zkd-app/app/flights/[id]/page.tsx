@@ -190,7 +190,17 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
           <div className="g panel" style={{ marginBottom: 16 }}>
             <h3>Your booking</h3>
             <div className="kv"><span className="k">Terminal</span><span className="v">{f.terminal}</span></div>
-            <div className="kv"><span className="k">Seat</span><span className="v">{f.booking?.seat}</span></div>
+            {f.booking && f.booking.partySize > 1 ? (
+              <>
+                <div className="kv"><span className="k">Travellers</span><span className="v">{f.booking.partySize}</span></div>
+                <div className="kv">
+                  <span className="k">Seats</span>
+                  <span className="v">{f.booking.travellers.map((t) => t.seat).join(', ')}</span>
+                </div>
+              </>
+            ) : (
+              <div className="kv"><span className="k">Seat</span><span className="v">{f.booking?.seat}</span></div>
+            )}
             <div className="kv"><span className="k">Reference</span><span className="v">{f.booking?.pnr}</span></div>
             <div className="kv">
               <span className="k">You&apos;ve flown this route</span>
@@ -201,13 +211,14 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
           <div className="g panel">
             <h3>If this one goes</h3>
             <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
-              We&apos;re already holding {usableAlts.length} alternatives that fit your policy and protect
-              your onward connection.
+              We&apos;re already holding {usableAlts.length} alternative{usableAlts.length === 1 ? '' : 's'} that
+              {f.booking && f.booking.partySize > 1 ? ` seat all ${f.booking.partySize} of you and` : ''} fit your
+              policy and protect your onward connection.
             </p>
             {usableAlts.map((a) => (
               <div className="kv" key={a.id}>
                 <span className="k">{a.code} · {a.dep}</span>
-                <span className={`v ${a.fare ? '' : 'ok'}`}>{a.fare ? money(a.fare) : 'no cost to you'}</span>
+                <span className={`v ${a.partyFare ? '' : 'ok'}`}>{a.partyFare ? money(a.partyFare) : 'no cost to you'}</span>
               </div>
             ))}
           </div>

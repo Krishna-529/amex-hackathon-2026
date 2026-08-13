@@ -5,13 +5,11 @@ import { toFlightSummary } from '@/server/domain/views';
 import { refreshForecast } from '@/server/engine/forecast';
 import type { Flight } from '@/server/domain/types';
 
-export async function GET(req: NextRequest) {
+// Deliberately open, per the operator model: /ops has no account of its own,
+// and this is the global flight list it needs. It returns no member PII —
+// toFlightSummary() without a passengerId omits the `booking` field entirely.
+export async function GET() {
   ensureSeeded();
-  const passengerId = req.nextUrl.searchParams.get('passengerId');
-  if (passengerId) {
-    const schedule = store.getScheduleForPassenger(passengerId);
-    return NextResponse.json(schedule.map(({ flight }) => toFlightSummary(flight, passengerId)));
-  }
   return NextResponse.json(store.listFlights().map((f) => toFlightSummary(f)));
 }
 
