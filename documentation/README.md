@@ -37,6 +37,7 @@ The LangGraph agent specifications: design documents and runtime prompts in one 
 | Document | What it is |
 |---|---|
 | [`SUBMISSION.md`](project/SUBMISSION.md) | What was submitted, what runs, and what is honestly not built |
+| [`DEPLOYMENT.md`](project/DEPLOYMENT.md) | How to deploy `zkd-app`, and why a serverless host breaks the engine |
 
 ---
 
