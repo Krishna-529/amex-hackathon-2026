@@ -8,8 +8,28 @@
 
 export type Consent = 'autopilot' | 'ask';
 
-export type Signals = { weather: number; rotation: number; congestion: number; record: number; slot: number };
+/** UI tone, kept to three so the existing colour classes still apply. */
 export type Band = 'low' | 'mid' | 'high';
+
+/**
+ * The disruption forecast for a flight.
+ *
+ * We buy this rather than computing it — there is no local model here to feed,
+ * which is why there are no weather/rotation/congestion "signals" on a Flight
+ * any more. `thresholds` travels with the probability because a probability
+ * without the bar it is judged against cannot be turned into a decision, and
+ * that bar moves per flight (see lib/thresholds.ts).
+ */
+export type FlightForecast = {
+  pct: number;
+  band: import('@/lib/thresholds').Band;
+  tone: Band;
+  connectionRisk: number | null;
+  confidence: number;
+  source: 'lumo' | 'mock';
+  thresholds: import('@/lib/thresholds').Thresholds;
+  asOf: number;
+};
 
 export type Passenger = {
   id: string;
@@ -34,16 +54,26 @@ export type Alt = {
   cabin: string;
   seats: number;
   fare: number;
+  /** never assume one country's money */
+  currency: string;
+  /** epoch ms the supplier stops honouring this price; null when unknown.
+   *  This is what the member's decision window is derived from. */
+  expiresAt: number | null;
+  /** which inventory source it came from, so it can be re-checked before spend */
+  supplier?: string;
+  supplierOfferId?: string;
   ok: boolean;
   why: string;
 };
 
 export type HotelOpt = {
   id: string; name: string; area: string; checkin: string;
-  rate: number; extra: number; ok: boolean; why: string; walk: string;
+  rate: number; extra: number; currency: string; ok: boolean; why: string; walk: string;
 };
 
-export type CabOpt = { id: string; kind: string; seats: number; extra: number; ok: boolean; why: string };
+export type CabOpt = {
+  id: string; kind: string; seats: number; extra: number; currency: string; ok: boolean; why: string;
+};
 
 export type CabLeg = { id: string; from: string; to: string; pickup: string; note: string };
 
@@ -56,9 +86,15 @@ export type Flight = {
   durationMin: number;
   aircraft?: string;
   terminal?: string;
-  signals: Signals;        // mock baseline; live/[id] merges real weather/OpenSky signals on top when read
-  riskPct?: number;        // computed once by the engine, cached here
-  riskBand?: Band;
+  /** true once the carrier moves the flight — the booked time above stays put so
+   *  a reschedule stays visible as the diff between the two */
+  rescheduledToISO?: string;
+  /** minutes of slack before the onward leg is missed; null when there is none */
+  connectionSlackMinutes: number | null;
+  /** a late arrival breaks something that matters — an onward leg, a commitment */
+  hasHardConstraint: boolean;
+  /** fetched from the forecaster, cached here; undefined until the first refresh */
+  forecast?: FlightForecast;
   candidates: {
     alts: Alt[];
     hotels: HotelOpt[];
@@ -114,6 +150,8 @@ export type DisruptionEvent = {
 
 export type DisruptionResolution =
   | { kind: 'autopilot' | 'approved'; at: number; altId: string; hotelId: string; cabId: string }
+  /** the flight moved but still works: no new ticket, only downstream bookings re-timed */
+  | { kind: 're-timed'; at: number; hotelId: string; cabId: string; shiftMinutes: number }
   | { kind: 'handed-over'; at: number };
 
 export type RecoveryTaskPhase = 'waiting' | 'choosing' | 'acting' | 'booked' | 'handed';
@@ -125,7 +163,11 @@ export type RecoveryTask = {
   bookingId: string;
   passengerId: string;
   phase: RecoveryTaskPhase;
+  /** derived from the chosen offer's expiry, not a fixed constant. 0 when there
+   *  was too little time to ask at all and consent tier decided alone. */
   windowExpiresAt: number;
+  /** what bounded the window, so the UI can say why it is that long */
+  windowBoundBy: 'offer-expiry' | 'check-in' | 'ceiling' | 'floor';
   chosenAltId: string;
   chosenHotelId: string;
   chosenCabId: string;

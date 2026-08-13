@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { C, tone, mono } from '../theme';
-import { BAND_SAY } from '../lib/risk';
+import { BAND_SAY } from '../lib/forecast';
 import { agoLabel, hhmm, mins, durLabel, dayLabel } from '../lib/time';
 import { OUTCOME } from '../lib/outcome';
-import { PREAUTH_THRESHOLD } from '../lib/recovery';
 import { useWorld } from '../world';
 import { usePoll } from '../lib/usePoll';
 import { API_BASE_URL } from '../config';
@@ -51,7 +50,7 @@ export default function FlightsScreen({ navigation }: any) {
         is the permission you set when you activated your card.
       </PageHead>
 
-      {!nextDisrupted && (next.riskPct ?? 0) >= PREAUTH_THRESHOLD && (
+      {!nextDisrupted && next.forecast && next.forecast.pct >= next.forecast.thresholds.preAuthorise && (
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => navigation.navigate('FlightDetail', { id: next.id })}
@@ -64,11 +63,11 @@ export default function FlightsScreen({ navigation }: any) {
             <Text style={s.alertT}>
               {preAuth
                 ? `You've told us what to do if ${next.code} cancels`
-                : `${next.code} looks like it will cancel — ${next.riskPct}%`}
+                : `${next.code} looks like it will cancel — ${next.forecast?.pct ?? 0}%`}
             </Text>
             <Text style={s.alertB}>
               {preAuth
-                ? 'We act the second it happens. No 90-second window needed.'
+                ? 'We act the second it happens. No decision window needed at all.'
                 : "It hasn't been cancelled. Tell us now what you'd want, while you have time to think."}
             </Text>
           </View>
@@ -143,7 +142,11 @@ export default function FlightsScreen({ navigation }: any) {
                 </View>
                 <RouteLine from={f.from} to={f.to} dep={hhmm(dep)} arr={hhmm(arr)} dur={durLabel(f.durationMin)} />
                 <Text style={s.say}>
-                  {cancelled ? 'Cancelled — tap to see the recovery.' : BAND_SAY[f.riskBand ?? 'low']}
+                  {cancelled
+                    ? 'Cancelled — tap to see the recovery.'
+                    : f.forecast
+                      ? BAND_SAY[f.forecast.band]
+                      : 'Checking this flight against the disruption forecast.'}
                 </Text>
               </View>
               <View style={s.pred}>
@@ -154,7 +157,9 @@ export default function FlightsScreen({ navigation }: any) {
                   </>
                 ) : (
                   <>
-                    <Text style={[s.predN, { color: tone(f.riskBand ?? 'low') }]}>{f.riskPct ?? 0}%</Text>
+                    <Text style={[s.predN, { color: tone(f.forecast?.tone ?? 'low') }]}>
+                      {f.forecast ? `${f.forecast.pct}%` : '—'}
+                    </Text>
                     <Text style={s.predLb}>cancel risk</Text>
                   </>
                 )}

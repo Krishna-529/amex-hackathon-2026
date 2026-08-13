@@ -5,7 +5,7 @@ import { use } from 'react';
 import { useWorld } from '@/components/WorldProvider';
 import { usePoll } from '@/lib/usePoll';
 import {
-  WARM_STEPS, WARM_TOTAL, DECIDE_TOTAL, ACT_TOTAL, MACHINE_TOTAL, QUIET_WINDOW_SECONDS,
+  WARM_STEPS, WARM_TOTAL, DECIDE_TOTAL, ACT_TOTAL, MACHINE_TOTAL,
 } from '@/lib/recovery';
 import { secs, money, agoLabel, hhmm } from '@/lib/time';
 import type { RecoveryView, FlightDetail, PreAuthResponse } from '@/lib/apiTypes';
@@ -126,7 +126,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                     <span className="cd">{view.secondsLeft}s</span>
                   </div>
                   <div className="bar">
-                    <i style={{ width: `${(view.secondsLeft / QUIET_WINDOW_SECONDS) * 100}%` }} />
+                    <i style={{ width: `${Math.min(100, (view.secondsLeft / Math.max(1, view.windowSeconds)) * 100)}%` }} />
                   </div>
 
                   {view.phase === 'waiting' && alt && hotel && cab ? (

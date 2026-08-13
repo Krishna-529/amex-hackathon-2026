@@ -109,6 +109,6 @@ export function windowRationale(w: ConfirmWindow): string {
     case 'check-in':
       return `You have ${length} — after that, check-in closes on the replacement flight.`;
     default:
-      return `You have ${length} to decide.`;
+      return `You have ${length}. The fare is held longer than that, but a seat nobody has paid for is not really yours, so we do not promise more.`;
   }
 }

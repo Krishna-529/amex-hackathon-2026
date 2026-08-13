@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { C, mono, tone } from '../theme';
-import { risk, bandOf, BAND_LABEL, BAND_SAY } from '../lib/risk';
+import { BAND_LABEL, BAND_SAY } from '../lib/forecast';
 import { OUTCOME } from '../lib/outcome';
 import { money, hhmm, mins, durLabel, dayLabel } from '../lib/time';
 import { useWorld } from '../world';
@@ -125,7 +125,7 @@ export default function FlightDetailScreen({ route, navigation }: any) {
     );
   }
 
-  const r = risk(detail.signals);
+  const fc = detail.forecast;
   const usableAlts = detail.candidates.alts.filter((a) => a.ok);
 
   return (
@@ -133,29 +133,28 @@ export default function FlightDetailScreen({ route, navigation }: any) {
       {head}
 
       <Glass style={s.gauge}>
-        <Text style={[s.big, { color: tone(r.band) }]}>{r.pct}%</Text>
+        <Text style={[s.big, { color: tone(fc?.tone ?? 'low') }]}>{fc ? `${fc.pct}%` : '—'}</Text>
         <Text style={s.cap}>cancel risk</Text>
-        <Text style={[s.band, { color: tone(r.band) }]}>{BAND_LABEL[r.band]}</Text>
-        <Text style={s.say}>{BAND_SAY[r.band]}</Text>
+        {fc ? <Text style={[s.band, { color: tone(fc.tone) }]}>{BAND_LABEL[fc.band]}</Text> : null}
+        <Text style={s.say}>
+          {fc ? BAND_SAY[fc.band] : 'Checking this flight against the disruption forecast.'}
+        </Text>
       </Glass>
 
-      <Glass style={{ padding: 18, marginBottom: 14 }}>
-        <Eyebrow>What&apos;s driving it</Eyebrow>
-        {r.parts.map((p) => (
-          <View key={p.id} style={s.fac}>
-            <View style={s.fh}>
-              <Text style={s.fn}>{p.name}</Text>
-              <Text style={s.fv}>+{p.pts}</Text>
-            </View>
-            <View style={s.track}>
-              <View
-                style={[s.fill, { width: `${Math.round(p.v * 100)}%`, backgroundColor: tone(bandOf(p.v)) }]}
-              />
-            </View>
-            <Text style={s.note}>{p.note}</Text>
-          </View>
-        ))}
-      </Glass>
+      {fc ? (
+        <Glass style={{ padding: 18, marginBottom: 14 }}>
+          <Eyebrow>Where this number comes from</Eyebrow>
+          <KV first k="Forecast source" v={fc.source === 'lumo' ? 'Lumo — live' : 'Lumo — mocked, no key yet'} />
+          <KV k="Confidence" v={`${Math.round(fc.confidence * 100)}%`} />
+          <KV k="We ask you in advance at" v={`${fc.thresholds.preAuthorise}%`} />
+          <KV k="Seats left across every source" v={String(fc.thresholds.inputs.seatsAvailable)} />
+          <Text style={s.note}>
+            We buy this forecast rather than building one, and that threshold moves with how many
+            seats are left and how close departure is. Until it has been checked against what
+            actually happened, it decides when we start preparing — never whether we spend your money.
+          </Text>
+        </Glass>
+      ) : null}
 
       <Glass style={{ padding: 18, marginBottom: 14 }}>
         <Eyebrow>Your booking</Eyebrow>

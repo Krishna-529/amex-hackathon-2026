@@ -8,18 +8,38 @@
 import { API_BASE_URL } from './config';
 
 export type Consent = 'autopilot' | 'ask';
+/** UI tone. The forecast's own band is finer-grained; this is what colours things. */
 export type Band = 'low' | 'mid' | 'high';
-export type Signals = { weather: number; rotation: number; congestion: number; record: number; slot: number };
+
+/**
+ * The disruption forecast, exactly as the server sends it. There are no local
+ * "signals" any more — the probability is bought from a vendor, and the phone is
+ * a viewer of that number rather than a second place it gets computed.
+ */
+export type FlightForecast = {
+  pct: number;
+  band: 'watch' | 'prepare' | 'hold-gate' | 'pre-authorise';
+  tone: Band;
+  connectionRisk: number | null;
+  confidence: number;
+  source: 'lumo' | 'mock';
+  thresholds: {
+    prepare: number; holdGate: number; preAuthorise: number;
+    inputs: { seatsAvailable: number; minutesToDeparture: number; hasHardConstraint: boolean; confidence: number };
+  };
+  asOf: number;
+};
 
 export type Alt = {
   id: string; code: string; dep: string; arr: string; cabin: string;
-  seats: number; fare: number; ok: boolean; why: string;
+  seats: number; fare: number; currency: string; expiresAt: number | null;
+  ok: boolean; why: string;
 };
 export type HotelOpt = {
   id: string; name: string; area: string; checkin: string;
-  rate: number; extra: number; ok: boolean; why: string; walk: string;
+  rate: number; extra: number; currency: string; ok: boolean; why: string; walk: string;
 };
-export type CabOpt = { id: string; kind: string; seats: number; extra: number; ok: boolean; why: string };
+export type CabOpt = { id: string; kind: string; seats: number; extra: number; currency: string; ok: boolean; why: string };
 export type CabLeg = { id: string; from: string; to: string; pickup: string; note: string };
 
 export type PastFlight = {
@@ -32,14 +52,14 @@ export type PastFlight = {
 export type FlightSummary = {
   id: string; code: string; from: string; to: string; depISO: string; durationMin: number;
   aircraft?: string; terminal?: string;
-  riskPct?: number; riskBand?: Band;
+  /** undefined until the server's first forecast refresh lands */
+  forecast?: FlightForecast;
   passengerCount: number;
   disruptionPhase: 'none' | 'DECIDING' | 'READY';
   booking?: { id: string; seat: string; pnr: string; cabin: string };
 };
 
 export type FlightDetail = FlightSummary & {
-  signals: Signals;
   candidates: { alts: Alt[]; hotels: HotelOpt[]; cabs: CabOpt[]; cabLegs: CabLeg[] };
   bookings: { id: string; passengerId: string; passengerName: string; seat: string; pnr: string }[];
 };
@@ -77,6 +97,10 @@ export type RecoveryView = {
   phase: 'deciding' | 'waiting' | 'choosing' | 'acting' | 'booked' | 'handed';
   shown: Step[];
   secondsLeft: number;
+  /** total window length, so a progress bar has a denominator */
+  windowSeconds: number;
+  /** what bounded it — the supplier's offer expiry, check-in, or the ceiling */
+  windowBoundBy: 'offer-expiry' | 'check-in' | 'ceiling' | 'floor';
   chosenAltId: string;
   chosenHotelId: string;
   chosenCabId: string;

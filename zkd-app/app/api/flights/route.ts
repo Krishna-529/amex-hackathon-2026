@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as store from '@/server/domain/store';
 import { ensureSeeded } from '@/server/domain/seed';
 import { toFlightSummary } from '@/server/domain/views';
+import { refreshForecast } from '@/server/engine/forecast';
 import type { Flight } from '@/server/domain/types';
 
 export async function GET(req: NextRequest) {
@@ -17,7 +18,8 @@ export async function GET(req: NextRequest) {
 type CreateFlightRequest = {
   code: string; from: string; to: string; depISO: string; durationMin: number;
   aircraft?: string; terminal?: string;
-  signals?: { weather: number; rotation: number; congestion: number; record: number; slot: number };
+  connectionSlackMinutes?: number | null;
+  hasHardConstraint?: boolean;
   passengerIds?: string[];
 };
 
@@ -28,10 +30,14 @@ export async function POST(req: NextRequest) {
   const flight: Flight = {
     id, code: body.code, from: body.from, to: body.to, depISO: body.depISO, durationMin: body.durationMin,
     aircraft: body.aircraft, terminal: body.terminal,
-    signals: body.signals ?? { weather: 0.4, rotation: 0.35, congestion: 0.4, record: 0.2, slot: 0.3 },
+    connectionSlackMinutes: body.connectionSlackMinutes ?? null,
+    hasHardConstraint: body.hasHardConstraint ?? false,
     candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
   };
   store.createFlight(flight);
+  // A flight created through the API is watched exactly like a seeded one — the
+  // forecast is fetched on first read rather than being supplied by the caller.
+  void refreshForecast(id).catch(() => {});
 
   for (const passengerId of body.passengerIds ?? []) {
     store.createBooking({

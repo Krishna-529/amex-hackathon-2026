@@ -33,7 +33,7 @@ This file has TWO parts and they are not interchangeable:
 
 Grounding sources (the ONLY permitted sources of fact):
   · ZKD-Concierge-Pitch-India.pptx  (10 slides, Round 1 submission)
-  · ZKD-Architecture-Validation-Plan.md  (13 findings + confirmed corrections)
+  · documentation/architecture/validation-plan.md  (13 findings + confirmed corrections)
 
 Sibling files:
   · zkd_supervisor_negotiator_agent_v1.0.md   ← commands this agent

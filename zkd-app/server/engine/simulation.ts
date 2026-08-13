@@ -18,8 +18,11 @@
  * survive between invocations. Not solved here — acceptable for a prototype.
  */
 import {
-  DECIDE_STEPS, ACT_STEPS, DECIDE_TOTAL, QUIET_WINDOW_SECONDS, PLAY, FLOOR,
+  DECIDE_STEPS, ACT_STEPS, DECIDE_TOTAL, PLAY, FLOOR,
 } from '@/lib/recovery';
+import { confirmWindow, windowRationale } from '@/lib/confirmWindow';
+import { isInternational } from '../airportDirectory';
+import { revalidateOffer, type Offer } from '../suppliers';
 import { money } from '@/lib/time';
 import * as store from '../domain/store';
 import { ensureSeeded } from '../domain/seed';
@@ -43,6 +46,10 @@ export type RecoveryView = {
   phase: 'deciding' | 'waiting' | 'choosing' | 'acting' | 'booked' | 'handed';
   shown: Step[];
   secondsLeft: number;
+  /** how long the window was in total, so a progress bar has a denominator */
+  windowSeconds: number;
+  /** what bounded it — offer expiry, check-in, or the ceiling */
+  windowBoundBy: RecoveryTask['windowBoundBy'];
   chosenAltId: string;
   chosenHotelId: string;
   chosenCabId: string;
@@ -118,6 +125,7 @@ function createTaskForBooking(event: DisruptionEvent, flight: Flight, booking: B
     passengerId: passenger.id,
     phase: 'waiting',
     windowExpiresAt: 0,
+    windowBoundBy: 'floor',
     chosenAltId: '',
     chosenHotelId: '',
     chosenCabId: '',
@@ -144,9 +152,33 @@ function createTaskForBooking(event: DisruptionEvent, flight: Flight, booking: B
   task.chosenAltId = flight.candidates.alts.find((a) => a.ok)?.id ?? flight.candidates.alts[0]?.id ?? '';
   task.chosenHotelId = flight.candidates.hotels[0]?.id ?? '';
   task.chosenCabId = flight.candidates.cabs[0]?.id ?? '';
-  task.windowExpiresAt = Date.now() + QUIET_WINDOW_SECONDS * 1000;
+
+  // How long they get is not a constant. It is the supplier's own guarantee on
+  // the fare we are about to show them, minus the time we need to book inside
+  // it — so it can be defended rather than merely chosen.
+  const chosen = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
+  const win = confirmWindow({
+    offerExpiresAt: chosen?.expiresAt ?? null,
+    departureAt: new Date(flight.depISO).getTime(),
+    international: isInternational(flight.from, flight.to),
+  });
+  task.windowBoundBy = win.boundBy;
+
+  if (!win.askable) {
+    // Too little time for a push to arrive, be noticed and be answered. Asking
+    // would be theatre, so consent tier decides alone — the same rule that
+    // applies when a real window runs out unanswered.
+    task.windowExpiresAt = 0;
+    task.note = 'There was too little time left to ask, so your standing permission decided this one.';
+    store.setRecoveryTask(task);
+    settleExpired(flight.id, passenger.id);
+    return;
+  }
+
+  task.windowExpiresAt = win.expiresAt;
+  task.note = windowRationale(win);
   store.setRecoveryTask(task);
-  setTimeout(() => settleExpired(flight.id, passenger.id), QUIET_WINDOW_SECONDS * 1000);
+  setTimeout(() => settleExpired(flight.id, passenger.id), win.seconds * 1000);
 }
 
 /** The window ran out with nobody having acted — resolves it on schedule regardless of whether anyone is watching. */
@@ -177,10 +209,16 @@ function settleExpired(flightId: string, passengerId: string) {
 function finalizeResolution(task: RecoveryTask, resolution: DisruptionResolution) {
   if (task.resolution) { store.setRecoveryTask(task); return; } // first wins
   task.resolution = resolution;
+
   if (resolution.kind === 'handed-over') {
     task.phase = 'handed';
-  } else {
-    task.chosenAltId = resolution.altId;
+    store.setRecoveryTask(task);
+    return;
+  }
+
+  // A reschedule the connection survives keeps the original ticket — only the
+  // hotel and transfers move. No new seat, and nothing to consent to.
+  if (resolution.kind === 're-timed') {
     task.chosenHotelId = resolution.hotelId;
     task.chosenCabId = resolution.cabId;
     task.phase = 'acting';
@@ -188,7 +226,13 @@ function finalizeResolution(task: RecoveryTask, resolution: DisruptionResolution
     scheduleAct(task.flightId, task.passengerId);
     return;
   }
+
+  task.chosenAltId = resolution.altId;
+  task.chosenHotelId = resolution.hotelId;
+  task.chosenCabId = resolution.cabId;
+  task.phase = 'acting';
   store.setRecoveryTask(task);
+  scheduleAct(task.flightId, task.passengerId);
 }
 
 function renderActStepBody(raw: Step, task: RecoveryTask, flight: Flight, booking: Booking): string {
@@ -243,8 +287,59 @@ function scheduleAct(flightId: string, passengerId: string) {
   run();
 }
 
+/**
+ * The last check before anything is spent.
+ *
+ * The member may have spent minutes on this screen and inventory does not wait
+ * for them. Rather than shortening the window until nobody can answer it, we
+ * confirm the seat is still there at the moment of spend — and if it is gone we
+ * move to the next candidate that still works. What they consented to was the
+ * outcome, not one specific seat.
+ *
+ * A candidate we cannot re-check (no supplier handle, or the supplier did not
+ * answer) is left alone rather than blocked: this is a demo whose seeded
+ * inventory has no real supplier behind it, and refusing to book those would
+ * make the whole flow unreachable. Only a confirmed `gone` triggers a switch.
+ */
+async function revalidateChoice(task: RecoveryTask, flight: Flight): Promise<string | null> {
+  const chosen = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
+  if (!chosen?.supplier || !chosen.supplierOfferId) return null;
+
+  const asOffer = {
+    id: chosen.id,
+    supplier: chosen.supplier as Offer['supplier'],
+    supplierOfferId: chosen.supplierOfferId,
+    flightCode: chosen.code,
+    from: flight.from,
+    to: flight.to,
+    departsAt: new Date(flight.depISO).getTime(),
+    arrivesAt: new Date(flight.depISO).getTime(),
+    cabin: chosen.cabin,
+    seatsRemaining: chosen.seats,
+    price: { amount: chosen.fare, currency: chosen.currency },
+    expiresAt: chosen.expiresAt,
+    live: true,
+  } satisfies Offer;
+
+  const result = await revalidateOffer(asOffer);
+  if (result.state !== 'gone') return null;
+
+  const next = flight.candidates.alts.find((a) => a.ok && a.id !== chosen.id);
+  if (!next) return null;
+
+  task.rejectedAltIds = task.rejectedAltIds.includes(chosen.id)
+    ? task.rejectedAltIds
+    : [...task.rejectedAltIds, chosen.id];
+  task.chosenAltId = next.id;
+  return `${chosen.code} went while you were deciding, so we booked ${next.code} instead — it still keeps your trip together.`;
+}
+
 /** Member actions — approve / hand over / browse alternatives / choose / swap / go back. */
-export function resolveTask(flightId: string, passengerId: string, action: ResolveAction): RecoveryTask | null {
+export async function resolveTask(
+  flightId: string,
+  passengerId: string,
+  action: ResolveAction,
+): Promise<RecoveryTask | null> {
   const task = store.getRecoveryTask(flightId, passengerId);
   if (!task) return null;
   if (task.resolution) return task; // already resolved — no further action changes anything
@@ -283,7 +378,9 @@ export function resolveTask(flightId: string, passengerId: string, action: Resol
       break;
     }
     case 'approve': {
-      task.note = 'You approved it, so we went straight through.';
+      const flight = store.getFlight(flightId);
+      const switched = flight ? await revalidateChoice(task, flight) : null;
+      task.note = switched ?? 'You approved it, so we went straight through.';
       finalizeResolution(task, { kind: 'approved', at: Date.now(), altId: task.chosenAltId, hotelId: task.chosenHotelId, cabId: task.chosenCabId });
       return store.getRecoveryTask(flightId, passengerId) ?? task;
     }
@@ -308,7 +405,7 @@ export function getRecoveryView(flightId: string, passengerId: string): Recovery
   if (event.phase === 'DECIDING') {
     return {
       taskId: null, flightId, detectedAt: event.detectedAt, phase: 'deciding',
-      shown: [], secondsLeft: QUIET_WINDOW_SECONDS,
+      shown: [], secondsLeft: 0, windowSeconds: 0, windowBoundBy: 'ceiling',
       chosenAltId: '', chosenHotelId: '', chosenCabId: '', rejectedAltIds: [],
       owedNow: 0, note: null, resolution: null,
     };
@@ -320,10 +417,13 @@ export function getRecoveryView(flightId: string, passengerId: string): Recovery
   const secondsLeft = task.phase === 'waiting'
     ? Math.max(0, Math.ceil((task.windowExpiresAt - Date.now()) / 1000))
     : 0;
+  const windowSeconds = task.windowExpiresAt
+    ? Math.max(1, Math.round((task.windowExpiresAt - event.detectedAt) / 1000))
+    : 0;
 
   return {
     taskId: task.id, flightId, detectedAt: event.detectedAt, phase: task.phase,
-    shown: task.shown, secondsLeft,
+    shown: task.shown, secondsLeft, windowSeconds, windowBoundBy: task.windowBoundBy,
     chosenAltId: task.chosenAltId, chosenHotelId: task.chosenHotelId, chosenCabId: task.chosenCabId,
     rejectedAltIds: task.rejectedAltIds,
     owedNow: owedFor(flight, task), note: task.note, resolution: task.resolution,

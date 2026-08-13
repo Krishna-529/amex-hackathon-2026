@@ -10,6 +10,15 @@ import type { Passenger, Flight, PastFlight } from './types';
 const now = Date.now();
 const MIN = 60_000;
 const iso = (offsetMin: number) => new Date(now + offsetMin * MIN).toISOString();
+/**
+ * Seeded candidates stand in for supplier inventory, so they carry an offer
+ * expiry the same way they carry a fare — both are mock. The member's decision
+ * window is derived from this exactly as it would be from a real Duffel
+ * `expires_at`; without one the window would always fall back to its ceiling
+ * and the mechanism would never be visible in the demo.
+ */
+const expiresIn = (minutes: number) => now + minutes * MIN;
+
 const hhmm = (offsetMin: number) => {
   const d = new Date(now + offsetMin * MIN);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -51,26 +60,27 @@ function seedPassengers() {
 function seedFlights() {
   const flights: Flight[] = [
     {
-      // The flagship — same signals/route as the original single-flight demo.
+      // The flagship — the route the whole walkthrough is built around.
       id: 'u1', code: 'AI 2803', from: 'MAA', to: 'DEL', depISO: iso(168), durationMin: 160,
       aircraft: 'A320neo', terminal: 'T1',
-      signals: { weather: 0.96, rotation: 0.92, congestion: 0.78, record: 0.68, slot: 0.40 },
+      // Feeds the London leg 380 min later; 160 in the air leaves 220 of slack.
+      connectionSlackMinutes: 220, hasHardConstraint: true,
       candidates: {
         alts: [
-          { id: 'a1', code: 'AI 415', dep: hhmm(168 + 180), arr: hhmm(168 + 340), cabin: 'Economy', seats: 3, fare: 0, ok: true, why: 'Same carrier, economy, still connects to your London leg' },
-          { id: 'a2', code: 'UK 820', dep: hhmm(168 + 360), arr: hhmm(168 + 520), cabin: 'Business', seats: 6, fare: 41200, ok: false, why: 'Business exceeds your entitled cabin' },
-          { id: 'a3', code: 'SG 423', dep: hhmm(168 + 540), arr: hhmm(168 + 700), cabin: 'Economy', seats: 5, fare: 0, ok: true, why: 'Different carrier, lands after your London departure — the connection would break' },
-          { id: 'a4', code: 'AI 973', dep: hhmm(168 + 900), arr: hhmm(168 + 1060), cabin: 'Economy', seats: 9, fare: 0, ok: false, why: 'Departs past your travel window' },
+          { id: 'a1', code: 'AI 415', dep: hhmm(168 + 180), arr: hhmm(168 + 340), cabin: 'Economy', seats: 3, fare: 0, currency: 'INR', expiresAt: expiresIn(14), ok: true, why: 'Same carrier, economy, still connects to your London leg' },
+          { id: 'a2', code: 'UK 820', dep: hhmm(168 + 360), arr: hhmm(168 + 520), cabin: 'Business', seats: 6, fare: 41200, currency: 'INR', expiresAt: expiresIn(9), ok: false, why: 'Business exceeds your entitled cabin' },
+          { id: 'a3', code: 'SG 423', dep: hhmm(168 + 540), arr: hhmm(168 + 700), cabin: 'Economy', seats: 5, fare: 0, currency: 'INR', expiresAt: expiresIn(22), ok: true, why: 'Different carrier, lands after your London departure — the connection would break' },
+          { id: 'a4', code: 'AI 973', dep: hhmm(168 + 900), arr: hhmm(168 + 1060), cabin: 'Economy', seats: 9, fare: 0, currency: 'INR', expiresAt: expiresIn(31), ok: false, why: 'Departs past your travel window' },
         ],
         hotels: [
-          { id: 'h1', name: 'Andaz Delhi Aerocity', area: 'Aerocity · 8 min from T3', checkin: '16:30', rate: 0, extra: 0, ok: true, walk: 'Your existing booking, re-timed', why: 'Same property, same rate — we only moved the check-in time' },
-          { id: 'h2', name: 'Roseate House', area: 'Aerocity · 10 min from T3', checkin: '17:00', rate: 0, extra: 2400, ok: true, walk: 'New booking', why: 'Airline-covered up to your entitlement; ₹2,400 over' },
-          { id: 'h3', name: 'The Leela Palace', area: 'Chanakyapuri · 40 min from T3', checkin: '17:00', rate: 0, extra: 14800, ok: false, walk: 'New booking', why: 'Beyond the duty-of-care rate the airline will reimburse' },
+          { id: 'h1', name: 'Andaz Delhi Aerocity', area: 'Aerocity · 8 min from T3', checkin: '16:30', rate: 0, extra: 0, currency: 'INR', ok: true, walk: 'Your existing booking, re-timed', why: 'Same property, same rate — we only moved the check-in time' },
+          { id: 'h2', name: 'Roseate House', area: 'Aerocity · 10 min from T3', checkin: '17:00', rate: 0, extra: 2400, currency: 'INR', ok: true, walk: 'New booking', why: 'Airline-covered up to your entitlement; ₹2,400 over' },
+          { id: 'h3', name: 'The Leela Palace', area: 'Chanakyapuri · 40 min from T3', checkin: '17:00', rate: 0, extra: 14800, currency: 'INR', ok: false, walk: 'New booking', why: 'Beyond the duty-of-care rate the airline will reimburse' },
         ],
         cabs: [
-          { id: 'c1', kind: 'Sedan', seats: 3, extra: 0, ok: true, why: 'Within the transfer allowance the airline reimburses' },
-          { id: 'c2', kind: 'SUV', seats: 6, extra: 900, ok: true, why: 'More boot space for your London bags · ₹900 over the allowance' },
-          { id: 'c3', kind: 'Chauffeured luxury', seats: 3, extra: 6200, ok: false, why: 'Beyond the transfer allowance the airline will reimburse' },
+          { id: 'c1', kind: 'Sedan', seats: 3, extra: 0, currency: 'INR', ok: true, why: 'Within the transfer allowance the airline reimburses' },
+          { id: 'c2', kind: 'SUV', seats: 6, extra: 900, currency: 'INR', ok: true, why: 'More boot space for your London bags · ₹900 over the allowance' },
+          { id: 'c3', kind: 'Chauffeured luxury', seats: 3, extra: 6200, currency: 'INR', ok: false, why: 'Beyond the transfer allowance the airline will reimburse' },
         ],
         cabLegs: [
           { id: 'l1', from: 'DEL T3', to: 'Andaz Aerocity', pickup: hhmm(168 + 320), note: 'Re-timed around your new arrival' },
@@ -81,30 +91,30 @@ function seedFlights() {
     {
       id: 'u2', code: 'AI 2201', from: 'DEL', to: 'LHR', depISO: iso(168 + 380), durationMin: 555,
       aircraft: 'B787-9', terminal: 'T3',
-      signals: { weather: 0.22, rotation: 0.18, congestion: 0.35, record: 0.12, slot: 0.4 },
+      connectionSlackMinutes: null, hasHardConstraint: true,
       candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
     },
     {
       id: 'u3', code: '6E 5192', from: 'BOM', to: 'DEL', depISO: iso(168 - 60 + 24 * 60 * 17), durationMin: 135,
       aircraft: 'A320', terminal: 'T2',
-      signals: { weather: 0.3, rotation: 0.24, congestion: 0.44, record: 0.2, slot: 0.1 },
+      connectionSlackMinutes: null, hasHardConstraint: false,
       candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
     },
     {
       // Multi-passenger case: three bookings on one flight.
       id: 'f-multi', code: 'AI 401', from: 'DEL', to: 'BLR', depISO: iso(300), durationMin: 170,
       aircraft: 'A321neo', terminal: 'T3',
-      signals: { weather: 0.55, rotation: 0.48, congestion: 0.6, record: 0.3, slot: 0.5 },
+      connectionSlackMinutes: null, hasHardConstraint: false,
       candidates: {
         alts: [
-          { id: 'ma1', code: 'AI 505', dep: hhmm(300 + 90), arr: hhmm(300 + 260), cabin: 'Economy', seats: 12, fare: 0, ok: true, why: 'Same carrier, next available departure' },
-          { id: 'ma2', code: '6E 6031', dep: hhmm(300 + 150), arr: hhmm(300 + 320), cabin: 'Economy', seats: 8, fare: 0, ok: true, why: 'Different carrier, still within your travel window' },
+          { id: 'ma1', code: 'AI 505', dep: hhmm(300 + 90), arr: hhmm(300 + 260), cabin: 'Economy', seats: 12, fare: 0, currency: 'INR', expiresAt: expiresIn(17), ok: true, why: 'Same carrier, next available departure' },
+          { id: 'ma2', code: '6E 6031', dep: hhmm(300 + 150), arr: hhmm(300 + 320), cabin: 'Economy', seats: 8, fare: 0, currency: 'INR', expiresAt: expiresIn(26), ok: true, why: 'Different carrier, still within your travel window' },
         ],
         hotels: [
-          { id: 'mh1', name: 'Ibis Bengaluru Airport', area: 'Airport area · 12 min', checkin: '18:00', rate: 0, extra: 0, ok: true, walk: 'New booking', why: 'Within the duty-of-care rate' },
+          { id: 'mh1', name: 'Ibis Bengaluru Airport', area: 'Airport area · 12 min', checkin: '18:00', rate: 0, extra: 0, currency: 'INR', ok: true, walk: 'New booking', why: 'Within the duty-of-care rate' },
         ],
         cabs: [
-          { id: 'mc1', kind: 'Sedan', seats: 3, extra: 0, ok: true, why: 'Within the transfer allowance the airline reimburses' },
+          { id: 'mc1', kind: 'Sedan', seats: 3, extra: 0, currency: 'INR', ok: true, why: 'Within the transfer allowance the airline reimburses' },
         ],
         cabLegs: [
           { id: 'ml1', from: 'BLR T2', to: 'Ibis Bengaluru Airport', pickup: hhmm(300 + 280), note: 'Re-timed around new arrival' },
@@ -114,7 +124,7 @@ function seedFlights() {
     {
       id: 'f-depth', code: '6E 234', from: 'BLR', to: 'MAA', depISO: iso(420), durationMin: 80,
       aircraft: 'A320', terminal: 'T1',
-      signals: { weather: 0.15, rotation: 0.2, congestion: 0.25, record: 0.1, slot: 0.2 },
+      connectionSlackMinutes: null, hasHardConstraint: false,
       candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
     },
   ];

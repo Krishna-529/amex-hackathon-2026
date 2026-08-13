@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { C, mono } from '../theme';
-import { WARM_STEPS, WARM_TOTAL, DECIDE_TOTAL, ACT_TOTAL, MACHINE_TOTAL, QUIET_WINDOW_SECONDS } from '../lib/recovery';
+import { WARM_STEPS, WARM_TOTAL, DECIDE_TOTAL, ACT_TOTAL, MACHINE_TOTAL } from '../lib/recovery';
 import { secs, money, agoLabel, hhmm } from '../lib/time';
 import { useWorld } from '../world';
 import { usePoll } from '../lib/usePoll';
@@ -151,7 +151,7 @@ export default function RecoveryScreen({ route, navigation }: any) {
                 style={[
                   s.barFill,
                   {
-                    width: `${(view.secondsLeft / QUIET_WINDOW_SECONDS) * 100}%`,
+                    width: `${(view.secondsLeft / Math.max(1, view.windowSeconds)) * 100}%`,
                     backgroundColor: view.phase === 'choosing' ? C.warn : C.iris,
                   },
                 ]}

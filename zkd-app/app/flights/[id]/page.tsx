@@ -6,7 +6,7 @@ import { notFound } from 'next/navigation';
 import { useWorld } from '@/components/WorldProvider';
 import RouteLine from '@/components/Route';
 import { usePoll } from '@/lib/usePoll';
-import { risk, BAND_LABEL, BAND_SAY, bandOf } from '@/lib/risk';
+import { BAND_LABEL, BAND_SAY } from '@/lib/thresholds';
 import { OUTCOME } from '@/lib/outcome';
 import { hhmm, mins, dayLabel, money } from '@/lib/time';
 import type { FlightDetail } from '@/lib/apiTypes';
@@ -101,10 +101,11 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
 
   if (!detail) return <div className="skeleton">{head}<div className="page-h"><h1>Loading risk detail…</h1></div></div>;
 
-  const r = risk(detail.signals);
+  const fc = detail.forecast;
+  const tone = fc?.tone ?? 'low';
   const stops =
-    r.band === 'high' ? ['#ff9aa9', 'var(--risk)']
-      : r.band === 'mid' ? ['#ffd98a', 'var(--warn)']
+    tone === 'high' ? ['#ff9aa9', 'var(--risk)']
+      : tone === 'mid' ? ['#ffd98a', 'var(--warn)']
         : ['#7cf0c0', 'var(--safe)'];
   const usableAlts = detail.candidates.alts.filter((a) => a.ok);
 
@@ -127,31 +128,62 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
                   cx="105" cy="105" r="92" fill="none" stroke="url(#gr)" strokeWidth="13"
                   strokeLinecap="round"
                   strokeDasharray={`${RING} ${RING}`}
-                  strokeDashoffset={RING * (1 - r.pct / 100)}
+                  strokeDashoffset={RING * (1 - (fc?.pct ?? 0) / 100)}
                   style={{ transition: 'stroke-dashoffset .7s cubic-bezier(.2,.8,.3,1)' }}
                 />
               </svg>
               <div className="val">
-                <div className={`n ${r.band}`}>{r.pct}%</div>
+                <div className={`n ${tone}`}>{fc ? `${fc.pct}%` : '—'}</div>
                 <div className="c">cancel risk</div>
               </div>
             </div>
-            <div className={`band ${r.band}`}>{BAND_LABEL[r.band]}</div>
-            <div className="say">{BAND_SAY[r.band]}</div>
+            {fc && <div className={`band ${tone}`}>{BAND_LABEL[fc.band]}</div>}
+            <div className="say">
+              {fc ? BAND_SAY[fc.band] : 'Checking this flight against the disruption forecast.'}
+            </div>
           </div>
 
-          <div className="g panel">
-            <h3>What&apos;s driving it</h3>
-            {r.parts.map((p) => (
-              <div className="fac" key={p.id}>
-                <div className="fh"><span className="fn">{p.name}</span><span className="fv">+{p.pts}</span></div>
-                <div className="track">
-                  <div className={`fill ${bandOf(p.v)}`} style={{ width: `${(p.v * 100).toFixed(0)}%` }} />
-                </div>
-                <div className="note">{p.note}</div>
+          {fc && (
+            <div className="g panel" style={{ marginBottom: 16 }}>
+              <h3>Where this number comes from</h3>
+              <div className="kv">
+                <span className="k">Forecast source</span>
+                <span className={`v ${fc.source === 'lumo' ? 'ok' : ''}`}>
+                  {fc.source === 'lumo' ? 'Lumo — live' : 'Lumo — mocked, no commercial key yet'}
+                </span>
               </div>
-            ))}
-          </div>
+              <div className="kv">
+                <span className="k">Forecast confidence</span>
+                <span className="v">{Math.round(fc.confidence * 100)}%</span>
+              </div>
+              {fc.connectionRisk !== null && (
+                <div className="kv">
+                  <span className="k">Risk to your onward leg</span>
+                  <span className="v">{Math.round(fc.connectionRisk * 100)}%</span>
+                </div>
+              )}
+              <p className="why">
+                We buy this forecast rather than building one. Until it has been checked against what
+                actually happened on our own routes it is advisory — it decides when we start
+                preparing, never whether we spend your money.
+              </p>
+            </div>
+          )}
+
+          {fc && (
+            <div className="g panel">
+              <h3>What it takes to act on this flight</h3>
+              <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
+                These thresholds are not fixed. They move with how many seats are left on this route,
+                how close departure is, and whether a late arrival breaks something that matters —
+                because the cost of waiting is not the same on every flight.
+              </p>
+              <div className="kv"><span className="k">Start preparing at</span><span className="v">{fc.thresholds.prepare}%</span></div>
+              <div className="kv"><span className="k">Consider holding a seat at</span><span className="v">{fc.thresholds.holdGate}%</span></div>
+              <div className="kv"><span className="k">Come and ask you at</span><span className="v">{fc.thresholds.preAuthorise}%</span></div>
+              <div className="kv"><span className="k">Seats we can see on this route</span><span className="v">{fc.thresholds.inputs.seatsAvailable}</span></div>
+            </div>
+          )}
         </div>
 
         <div>

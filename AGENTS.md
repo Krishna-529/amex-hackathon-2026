@@ -33,14 +33,17 @@ carrier, and stop safely when it cannot.
 
 | Path | What it is |
 |---|---|
-| `documentation/agent-specs/current/` | Current agent specs `zkd_*_agent_v2.0.md` (the design docs + runtime LangGraph prompts); `legacy/` holds superseded `_v1.0.md` provenance copies |
-| `documentation/design/` | Four written documents: prediction model, data sources & APIs, action policy, infrastructure & cost |
-| `documentation/project/` | Submission, architecture validation plan, architecture narrative |
-| `zkd-app/` | Next.js web app. Routes: `/flights`, `/flights/[id]`, `/prepare/[id]`, `/recovery/[id]`, `/profile`, `/settings`, `/history`, `/how-it-works` |
+| `documentation/design/` | The four core documents: prediction model, data sources & APIs, action policy, infrastructure & cost |
+| `documentation/architecture/` | `architecture.md` (system design) and `validation-plan.md` (the 13-finding Round 1 review) |
+| `documentation/agent-specs/current/` | Current agent specs `zkd_*_agent_v2.0.md` (design docs + runtime LangGraph prompts); `legacy/` holds superseded `_v1.0.md` provenance copies |
+| `documentation/project/` | `SUBMISSION.md` — what was submitted and what is honestly not built |
+| `assets/` | `deck/` the pitch deck · `data/` API-requirements tracker · `reference/` PDFs and mockups · `builds/` the APK · `media/` the demo videos |
+| `tools/` | One-off scripts that are not part of either app |
+| `zkd-app/` | Next.js web app. Routes: `/flights`, `/flights/[id]`, `/prepare/[id]`, `/recovery/[id]`, `/profile`, `/settings`, `/history`, `/how-it-works`, `/ops` |
 | `zkd-android/` | Expo / React Native Android app (subset of the web app: 4 screens) |
-| `iropssim.py` | Monte Carlo simulator behind every `sim`-tier number |
 | `ZKD Website/` | Production builds of the three demo sites + `serve.js` (ports 5173/5174/5175) |
-| `apk/`, `videos/` | Submission artifacts |
+| `README.md`, `context.md`, `memory.md` | Kept at the root deliberately — landing page, fast orientation, and the running decision record |
+| `iropssim.py` | Monte Carlo simulator behind every `sim`-tier number. Stays at the root because the metrics site cites `python iropssim.py` as its reproduction command |
 
 ## House rules
 

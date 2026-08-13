@@ -5,8 +5,7 @@ import { useState } from 'react';
 import { useWorld } from '@/components/WorldProvider';
 import RouteLine from '@/components/Route';
 import HistoryTable from '@/components/HistoryTable';
-import { BAND_SAY, GLOW } from '@/lib/risk';
-import { PREAUTH_THRESHOLD } from '@/lib/recovery';
+import { BAND_SAY, GLOW } from '@/lib/thresholds';
 import { usePoll } from '@/lib/usePoll';
 import { dayLabel, agoLabel } from '@/lib/time';
 import type { RecoveryView, PreAuthResponse } from '@/lib/apiTypes';
@@ -56,20 +55,21 @@ export default function FlightsPage() {
         </p>
       </div>
 
-      {/* Before anything breaks: if we are confident enough, ask early. This is
-          the whole point — consent collected with hours to spare, not 90 seconds. */}
-      {!nextDisrupted && (next.riskPct ?? 0) >= PREAUTH_THRESHOLD && (
+      {/* Before anything breaks: if the forecast has crossed THIS flight's own
+          ask-early threshold, ask. The threshold is not a fixed 80 — it moves with
+          how many seats are left and how close departure is. */}
+      {!nextDisrupted && next.forecast && next.forecast.pct >= next.forecast.thresholds.preAuthorise && (
         <Link href={`/prepare/${next.id}`} className="g alert warn" style={{ display: 'flex' }}>
           <span className="ic">!</span>
           <span className="tx">
             <span className="tt">
               {preAuth
                 ? `You've told us what to do if ${next.code} cancels`
-                : `${next.code} looks like it will cancel — ${next.riskPct}%`}
+                : `${next.code} looks like it will cancel — ${next.forecast.pct}%`}
             </span>
             <span className="bd">
               {preAuth
-                ? 'We act the second it happens. No 90-second window needed.'
+                ? 'We act the second it happens. No decision window needed at all.'
                 : "It hasn't been cancelled. Tell us now what you'd want, while you have time to think."}
             </span>
           </span>
@@ -139,7 +139,7 @@ export default function FlightsPage() {
           })}
         </div>
 
-        <div className="pred" style={{ ['--glow' as string]: activeDisrupted ? GLOW.high : GLOW[active?.riskBand ?? 'low'] }}>
+        <div className="pred" style={{ ['--glow' as string]: activeDisrupted ? GLOW['hold-gate'] : GLOW[active?.forecast?.band ?? 'watch'] }}>
           <div key={String(active?.id) + String(activeDisrupted)} className="fade">
             <div className="eyebrow">{active?.from} → {active?.to}</div>
             {activeDisrupted ? (
@@ -155,9 +155,15 @@ export default function FlightsPage() {
               </>
             ) : (
               <>
-                <div className={`n ${active?.riskBand ?? 'low'}`}>{active?.riskPct ?? 0}%</div>
+                <div className={`n ${active?.forecast?.tone ?? 'low'}`}>
+                  {active?.forecast ? `${active.forecast.pct}%` : '—'}
+                </div>
                 <div className="lb">chance of cancellation</div>
-                <div className="say">{BAND_SAY[active?.riskBand ?? 'low']}</div>
+                <div className="say">
+                  {active?.forecast
+                    ? BAND_SAY[active.forecast.band]
+                    : 'Checking this flight against the disruption forecast.'}
+                </div>
                 <div className="go">View details →</div>
               </>
             )}

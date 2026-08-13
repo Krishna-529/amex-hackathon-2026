@@ -8,10 +8,10 @@ Codestreet 2026 / American Express · Team ZKD, IIT Madras
 ## What's in here
 
 ```
-videos/     ZKD-full-tutorial.mp4     6m39s — everything, web + mobile
+assets/media/   ZKD-full-tutorial.mp4     6m39s — everything, web + mobile
             ZKD-web-tutorial.mp4      3m30s — web only
             ZKD-mobile-tutorial.mp4   2m52s — Android only
-apk/        ZKD-Concierge.apk         installable, self-contained
+assets/builds/  ZKD-Concierge.apk         installable, self-contained
 docs/       the four written documents
 ./          full source, including git history — this repository
 ```
@@ -32,7 +32,7 @@ Routes: `/flights` · `/flights/[id]` · `/prepare/[id]` · `/recovery/[id]` ·
 ## Install the Android app
 
 ```bash
-adb install apk/ZKD-Concierge.apk
+adb install assets/builds/ZKD-Concierge.apk
 ```
 
 Release build with the JS bundled — it needs no dev server. Grant notifications

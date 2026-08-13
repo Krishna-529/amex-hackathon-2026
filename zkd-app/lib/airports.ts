@@ -1,17 +1,28 @@
-/** Static IATA -> ICAO/coordinates lookup for the airports used in the seeded flight data. */
+/**
+ * Client-safe airport helpers.
+ *
+ * The full directory (6,072 airports with country and timezone, ~430 KB) lives
+ * in server/airportDirectory.ts and stays there — shipping it to the browser to
+ * render a city name would be absurd. Pages pass IATA codes; the server
+ * resolves them.
+ *
+ * What remains here is formatting the UI genuinely needs client-side.
+ */
 
-export type AirportInfo = { icao: string; lat: number; lon: number; city: string; country: string };
+export function routeLabel(from: string, to: string): string {
+  return `${from} → ${to}`;
+}
 
-export const AIRPORTS: Record<string, AirportInfo> = {
-  MAA: { icao: 'VOMM', lat: 12.990, lon: 80.1693, city: 'Chennai', country: 'IN' },
-  DEL: { icao: 'VIDP', lat: 28.5665, lon: 77.1031, city: 'Delhi', country: 'IN' },
-  LHR: { icao: 'EGLL', lat: 51.4700, lon: -0.4543, city: 'London', country: 'GB' },
-  BOM: { icao: 'VABB', lat: 19.0896, lon: 72.8656, city: 'Mumbai', country: 'IN' },
-  CCU: { icao: 'VECC', lat: 22.6547, lon: 88.4467, city: 'Kolkata', country: 'IN' },
-  BLR: { icao: 'VOBL', lat: 13.1986, lon: 77.7066, city: 'Bengaluru', country: 'IN' },
-  GAU: { icao: 'VEGT', lat: 26.1061, lon: 91.5859, city: 'Guwahati', country: 'IN' },
-};
-
-export function icaoOf(iata: string): string | null {
-  return AIRPORTS[iata]?.icao ?? null;
+/** Money with its currency attached, because a bare number assumes one country. */
+export function formatMoney(amount: number, currency: string): string {
+  if (!amount) return currency === 'INR' ? '₹0' : `${currency} 0`;
+  try {
+    return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-GB', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `${currency} ${Math.round(amount).toLocaleString()}`;
+  }
 }

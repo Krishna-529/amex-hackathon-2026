@@ -37,5 +37,5 @@ npm run dev          # → http://localhost:5176
 ```
 
 Copy `.env.example` to `.env.local` and fill in keys to enable the live integrations —
-without it, the app runs entirely on its mock data. See `assets/round2-api-requirements.xlsx` at the
+without it, the app runs entirely on its mock data. See `assets/data/round2-api-requirements.xlsx` at the
 repo root for signup links and free-tier details per provider.

@@ -1,16 +1,21 @@
 /** Response-shaping helpers — turn domain entities into the API contract shapes in lib/apiTypes.ts. */
 import * as store from './store';
+import { refreshIfStale } from '../engine/forecast';
 import type { Flight } from './types';
 import type { FlightSummary, FlightDetail, DisruptionOpsView } from '@/lib/apiTypes';
 
 export function toFlightSummary(flight: Flight, passengerId?: string): FlightSummary {
+  // Kick a refresh if the cached forecast has aged out. Deliberately not awaited:
+  // a device asking for a flight gets whatever we hold now, and the next poll
+  // picks up the fresh number rather than blocking this response on a vendor.
+  refreshIfStale(flight);
   const event = store.getDisruptionEvent(flight.id);
   const bookings = store.getBookingsForFlight(flight.id);
   const summary: FlightSummary = {
     id: flight.id, code: flight.code, from: flight.from, to: flight.to,
     depISO: flight.depISO, durationMin: flight.durationMin,
     aircraft: flight.aircraft, terminal: flight.terminal,
-    riskPct: flight.riskPct, riskBand: flight.riskBand,
+    forecast: flight.forecast,
     passengerCount: bookings.length,
     disruptionPhase: event?.phase ?? 'none',
   };
@@ -29,8 +34,10 @@ export function toFlightDetail(flight: Flight): FlightDetail {
   }));
   return {
     ...toFlightSummary(flight),
-    signals: flight.signals,
     candidates: flight.candidates,
+    connectionSlackMinutes: flight.connectionSlackMinutes,
+    hasHardConstraint: flight.hasHardConstraint,
+    rescheduledToISO: flight.rescheduledToISO,
     bookings,
   };
 }

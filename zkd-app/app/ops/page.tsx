@@ -84,7 +84,12 @@ export default function OpsPage() {
                 <td className="fc">{f.code}</td>
                 <td className="rt">{f.from} → {f.to}</td>
                 <td className="dt">{hhmm(new Date(f.depISO))}</td>
-                <td>{f.riskPct ?? 0}% <span style={{ color: 'var(--mist2)' }}>({f.riskBand ?? 'low'})</span></td>
+                <td>
+                  {f.forecast ? `${f.forecast.pct}%` : '—'}{' '}
+                  <span style={{ color: 'var(--mist2)' }}>
+                    ({f.forecast ? `${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
+                  </span>
+                </td>
                 <td>{f.passengerCount}</td>
                 <td>
                   {f.disruptionPhase === 'none' ? (

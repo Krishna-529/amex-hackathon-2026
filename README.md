@@ -15,7 +15,7 @@ and an Android app, both wired to real sandbox APIs.
 | Run the actual product | [`zkd-app/`](#zkd-app--the-round-2-product-start-here) below, or `cd zkd-app && npm install && npm run dev` |
 | See the submission package (videos, APK, docs) | [`SUBMISSION.md`](documentation/project/SUBMISSION.md) |
 | Read the design docs | [`documentation/`](documentation/README.md) |
-| Check which APIs are wired vs. stubbed | [`round2-api-requirements.xlsx`](assets/round2-api-requirements.xlsx) / `.csv` |
+| Check which APIs are wired vs. stubbed | [`round2-api-requirements.xlsx`](assets/data/round2-api-requirements.xlsx) / `.csv` |
 | Read the current agent specs | `documentation/agent-specs/current/zkd_*_agent_v2.0.md` (see below — never edit `_v1.0.md`, provenance only) |
 | See the Round 1 evidence sites | `zkd-website/` (built) or `Code/` (source) — see [below](#round-1-evidence-sites) |
 
@@ -54,7 +54,7 @@ live-status poller would call — only the caller differs, never the detection l
 Routes: `/flights` · `/flights/[id]` · `/prepare/[id]` · `/recovery/[id]` · `/profile` ·
 `/settings` · `/history` · `/how-it-works` · `/ops` (operator console, direct URL only)
 
-**Live API integrations** (added this round — see `assets/round2-api-requirements.xlsx` for the full
+**Live API integrations** (added this round — see `assets/data/round2-api-requirements.xlsx` for the full
 credential tracker): real weather (NOAA / Open-Meteo) and aircraft-position data (OpenSky) feed
 the risk gauge; a live flight-status check (AviationStack) is shown informationally; two live
 flight-search sandboxes and a live hotel-search sandbox back the rebooking options; a live LLM
@@ -64,7 +64,7 @@ to the existing mock data if a provider is down — no vendor name is ever shown
 **Payment stays fully mocked** — no live payment integration exists.
 
 To actually use the live integrations, copy `zkd-app/.env.example` to `zkd-app/.env.local` and
-fill in the keys documented there (`assets/round2-api-requirements.xlsx` has signup links and free-tier
+fill in the keys documented there (`assets/data/round2-api-requirements.xlsx` has signup links and free-tier
 details for each). Without it, the app runs entirely on its built-in mock data.
 
 ## `zkd-android/` — the mobile app
@@ -111,7 +111,7 @@ Wi-Fi.**
 |---|---|
 | `documentation/agent-specs/current/zkd_*_agent_v2.0.md` | **Current.** Four agent specs — Supervisor/Negotiator, Flight Reshop, Hotel Re-accommodation, Ground Transfer. Each is Part A (a prompt that writes the design-doc section) + Part B (the runtime LangGraph system prompt). |
 | `documentation/agent-specs/legacy/zkd_*_agent_v1.0.md` | **Superseded.** Kept for provenance only; each carries a banner saying so. |
-| `documentation/project/ZKD-Architecture-Validation-Plan.md` | The 13-finding review of the Round 1 deck. Partially superseded — see its banner. |
+| `documentation/architecture/validation-plan.md` | The 13-finding review of the Round 1 deck. Partially superseded — see its banner. |
 | `iropssim.py` → `iropssim-output.json` | 250,000-case Monte Carlo behind every `sim`-tier number. Fixed seed; `python3 iropssim.py` reproduces the JSON byte-for-byte. |
 | `Amex-workflows.pdf`, `amex-goat-components-2-3.html` | Round 1 supporting artifacts. |
 

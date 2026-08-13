@@ -19,9 +19,15 @@ The most important feed in the system. Everything else is secondary.
 |---|---|---|---|---|
 | **Cirium (FlightStats)** | Schedules, status, cancellations, tail linkage. The industry reference. | Push webhook, seconds | Enterprise, quote-only | `identified` |
 | **FlightAware AeroAPI** | Status, position, tail-number linkage, alerts | Push alerts, ~seconds | ~$0.002–0.02/query; tiered | `identified` |
-| **AviationStack** | Status + schedules, real-time flag | Poll, ~1 min | Free 100/mo; ~$50/mo for 10k | `sandbox` |
-| **OpenSky Network** | ADS-B positions, free, research-friendly | Poll, 5–10 s | Free (rate-limited) | `sandbox` |
+| **AviationStack** | Status + schedules incl. **scheduled/estimated departure times** | Poll, ~1 min | Free 100/mo; ~$50/mo for 10k | `wired` |
+| **Lumo Subscription API** | Webhook push on **schedule change** and cancellation | Push | Commercial | `sandbox` (mocked) |
 | **Airline NDC / direct** | Authoritative cancellation the moment it is filed | Push | Commercial | `commercial` |
+
+**Schedule times, not just delay minutes.** A reschedule is a change to the *schedule*, so the
+carrier's reported delay against the new time reads as zero. Detecting one requires the published
+`departure.scheduled` diffed against **what the member actually booked**. This is why
+`server/aviationstack.ts` reads scheduled and estimated times, and why the booked departure is kept
+as a fixed reference point on every Flight.
 
 **Design position.** Poll-only detection is not good enough — a 60-second poll means up to 60
 seconds of the recovery budget gone before we start. Target architecture is **push (webhook)
@@ -34,79 +40,89 @@ primary, poll as reconciliation**:
 > missed cancellation is indistinguishable from a healthy trip, so it fails silently. The periodic
 > reconcile is what makes the feed's misses recoverable.
 
-**Tail-number linkage** is the hard part. Rotation is our second-heaviest feature and it requires
-knowing which airframe operates your leg. Cirium and FlightAware both expose it; free tiers
-generally do not. Where linkage is unavailable the rotation feature degrades to a route-level prior.
+**Tail-number linkage** used to be our hard problem, because rotation was our second-heaviest
+feature. It is now the *forecaster's* problem — see §2.
 
 ---
 
-## 2. Weather — the heaviest feature
+## 2. Disruption prediction — bought, not built
 
 | Provider | What it gives | Cost | Status |
 |---|---|---|---|
-| **NOAA Aviation Weather Center** | METAR, TAF, SIGMET, PIREP. Authoritative, free, no key. | Free | `identified` |
-| **IMD (India Meteorological Dept)** | Indian aerodrome forecasts and warnings | Free / MoU | `identified` |
-| **OpenWeatherMap** | General forecast, useful for destination-city context | Free 1k/day; ~$40/mo | `sandbox` |
-| **Tomorrow.io** | Aviation-specific nowcasting, thunderstorm cells | Paid | `identified` |
-| **RainViewer / IMD radar** | Convective cells near the terminal area | Free tier | `identified` |
+| **Lumo (thinklumo.com)** | Per-leg cancellation probability, delay distribution, connection risk, airport outlook, schedule-change webhooks | Commercial | `sandbox` (adapter shaped to the real API, deterministic mock without a key) |
 
-**Use METAR/TAF, not consumer weather.** A consumer API tells you it is raining. Aviation
-cancellations turn on **visibility against published runway minima** and **crosswind component
-against runway heading** — quantities only aviation feeds carry. Parsing raw METAR is a solved
-problem (`python-metar`, `metar-taf-parser`).
+**We no longer consume weather, congestion or rotation feeds directly.** Those are inputs to a
+disruption forecast, and forecasting is an existing industry trained on far more history than we
+could assemble. Re-deriving visibility minima, crosswind components and tail rotation ourselves
+would take months to produce a worse answer than a vendor already sells.
+
+| Removed | Why |
+|---|---|
+| NOAA Aviation Weather Center | Weather is a Lumo input, not ours |
+| Open-Meteo | Same, and it was a consumer feed standing in for aviation data |
+| OpenSky Network | Aircraft counts near an airport were an honest proxy for congestion and rotation — but a proxy for something the vendor measures properly |
+
+**AviationStack stays**, because it gives us observed outcomes independent of the forecaster. That
+independence is what makes it both the reschedule fallback and the beginning of a back-test corpus.
+
+### The honesty constraint
+
+Every forecast response carries a `source` of `lumo` or `mock`, surfaced in the UI. Until a
+commercial key exists everything is mocked and says so. Until the forecast is back-tested against
+outcomes on our own routes it is **advisory**: it decides when preparation starts, never whether
+money moves.
 
 ---
 
-## 3. Airport congestion and ATC flow
+## 3. Historical baselines
 
 | Provider | What it gives | Cost | Status |
 |---|---|---|---|
-| **AAI / DGCA** | Indian airport movement statistics, ground delay programmes | Free, published | `identified` |
-| **Eurocontrol NM B2B** | Flow restrictions (European legs) | Free with registration | `identified` |
-| **Derived from schedules** | Movements in the ±30 min departure bank | — | `wired` (computable from §1) |
+| **DGCA monthly reports** | Per-carrier cancellation rate + cause split. Context for the deck's problem framing. | Free | `identified` |
+| **Our own observations** | Every forecast and outcome we log from day one | — | `wired` |
 
-Much of congestion is derivable from the schedule feed we already pay for. Compute it before
-buying it.
-
----
-
-## 4. Historical baselines
-
-| Provider | What it gives | Cost | Status |
-|---|---|---|---|
-| **DGCA monthly reports** | Per-carrier cancellation rate + cause split (weather / technical / commercial). The basis for our initial feature weights. | Free | `identified` |
-| **Cirium historical** | Per-route, per-season on-time and cancellation history | Enterprise | `identified` |
-| **Our own observations** | Every prediction and outcome we log from day one | — | `wired` |
-
-Our own log is the one that matters. It is the only corpus that will ever match our exact feature
-set, and it is why prediction/outcome logging is in the system from Phase 0.
+Our own log is the one that matters — not to train a model, but to **back-test the vendor's**. Hold
+conversion (`01-prediction-model.md` §6) is the measurable form of that: it scores forecast
+precision against outcomes we observe ourselves rather than accuracy the vendor claims.
 
 ---
 
-## 5. Booking and inventory — where the money moves
+## 4. Booking and inventory — where the money moves
 
 | Provider | What it gives | Notes | Status |
 |---|---|---|---|
-| **Duffel** | Search, book **and cancel** in sandbox. Real round trip. | This is what makes the rollback demo real rather than narrated | `sandbox` |
-| **Sabre Dev Studio** | Shop, price, book; broad Indian carrier coverage | Free self-serve tier; onboarding is the top ask | `sandbox` |
+| **Duffel** | Search, book **and cancel** in sandbox. Real round trip. Carries a per-offer `expires_at`. | Makes the rollback demo real rather than narrated — and its offer expiry is what the confirmation window is derived from | `wired` |
+| **Sabre Dev Studio** | Shop, price, book; broad Indian carrier coverage | Authenticates against cert; every route tried returns no results. Degrades to empty, never blocks the others | `wired` (unpopulated) |
 | **Amadeus Self-Service** | — | **Decommissioned 17 Jul 2026. Do not reference it as available.** | ✗ |
 | **Airline NDC direct** | Best fares, best change rights, no GDS surcharge | Per-carrier commercial agreement | `commercial` |
-| **Travelport** | Alternative GDS | Commercial | `identified` |
+| **Travelport** | The alternative GDS after Amadeus was decommissioned | Behind the same interface, returning synthetic inventory flagged non-live. Never presented as bookable | `sandbox` |
 
-**Abstract the supplier.** No single GDS may become load-bearing — coverage differs by carrier and
-any one of them can change terms. The agent talks to a supplier-neutral interface.
+**Abstract the supplier.** Implemented in `zkd-app/server/suppliers/` — one `searchInventory()` fans
+out with `Promise.allSettled`, normalises to a single offer shape carrying **currency** and
+**expiry**, de-duplicates the same physical flight arriving from two sources, and reports per-source
+status so the UI can say what it actually looked at. A dead source degrades the result rather than
+failing it.
+
+The union of sources also feeds the scarcity input to the adaptive thresholds — seat counts across
+every supplier are what make “act earlier when there is less left” implementable.
+
+### Re-validation before spend
+
+`revalidateOffer()` re-checks a chosen offer with its supplier at the moment of confirm, and
+`firstBookable()` walks the ranked portfolio when it is gone. A source we cannot re-check returns
+`unknown`, which is **not** treated as available — we cannot promise what we could not verify.
 
 ### The commercial ask
 
 Automatic re-accommodation works best when inventory can be **held briefly while the member has
-their 90 seconds**. Today that is a fare-rule and GDS-policy question that varies per carrier.
+their decision window**. Today that is a fare-rule and GDS-policy question that varies per carrier.
 An **Amex-negotiated hold arrangement with partner airlines** would convert our weakest mechanism
 (hold gate + churn governance) into our strongest. This is a partnership ask, not an engineering
 task — it belongs in the commercial section of the deck.
 
 ---
 
-## 6. Hotels and ground
+## 5. Hotels and ground
 
 | Provider | What it gives | Cost | Status |
 |---|---|---|---|
@@ -122,7 +138,40 @@ contract: a hotel task without a `flight_offer_id` is malformed.
 
 ---
 
-## 7. Payment
+## 6. Member profile, preferences and payment
+
+| Provider | What it gives | Status |
+|---|---|---|
+| **MyCa** (Amex card member app) | Identity, passport, travel preferences, cabin entitlement, per-transaction cap, card product terms, payment instrument reference | `sandbox` (mocked) |
+
+**The concierge is not the system of record.** Preferences are read from MyCa at recovery time and
+no copy is kept — a local copy would drift from the card, and we would rank replacement flights
+against entitlements the member no longer holds. Candidates are ranked against MyCa entitlement
+rather than hardcoded rules, and anything outside it is surfaced and marked rather than dropped.
+
+**Open, needs Amex input:** when the card member books for someone else, spend authority sits with
+the card member while the passport and preferences belong to the traveller. `server/myca.ts` keeps
+`cardMember` and `traveller` as separate fields so the answer can be dropped in; the consent rules
+for that case are not guessed at.
+
+---
+
+## 7. Airports and jurisdictions
+
+| Source | What it gives | Status |
+|---|---|---|
+| **OpenFlights airport dataset** | 6,072 airports with IATA/ICAO, city, country and IANA timezone | `wired` |
+
+This replaced a hand-written table of seven airports, which was the hard blocker on operating
+outside one Indian route. Timezone is the load-bearing field: reschedule detection diffs departure
+times, and comparing a Chennai clock against a London one invents a nine-hour delay.
+
+Duty of care is selected by route jurisdiction — DGCA (India), EU261 (EU/UK), card benefit terms
+elsewhere. Entitlement is data, not code (`lib/entitlement.ts`).
+
+---
+
+## 8. Payment
 
 | Provider | What it gives | Status |
 |---|---|---|
@@ -133,13 +182,13 @@ The VAN is the security story: **it cannot be reused or overspent**, so even a f
 agent cannot exceed the plan it presented to the member. Any payment provider we use must support
 amount-and-date-locked single-use credentials, or the safety claim weakens to a policy promise.
 
-The 90-second quiet window maps onto the **RBI Additional Factor of Authentication e-mandate**
+The quiet window maps onto the **RBI Additional Factor of Authentication e-mandate**
 framework as a recognised pre-debit notification. That is a regulatory alignment, and worth
 stating explicitly to a financial-services judge.
 
 ---
 
-## 8. Notifications
+## 9. Notifications
 
 | Provider | What it gives | Status |
 |---|---|---|
@@ -158,13 +207,13 @@ different urgency, and the member can mute one without losing the other.
 
 ---
 
-## 9. Compliance
+## 10. Compliance
 
 | What | Applies to |
 |---|---|
 | **DPDP Act 2023** | PNR, passport, payment data. Purpose limitation, storage limitation, breach notification. |
 | **DGCA CAR Section 3, Series M, Part IV** | Duty of care — meals ≥2 h, hotel + transfer ≥6 h with overnight, alternate flight or refund ≥6 h. Cancellation compensation slabs ₹5,000 / ₹7,500 / ₹10,000 by block time, or the booked fare, whichever is less. Force majeure removes the cash component, never the duty of care. |
-| **RBI AFA / e-mandate** | The 90-second pre-debit notification |
+| **RBI AFA / e-mandate** | The pre-debit notification and its quiet window |
 | **PCI-DSS** | We hold no PAN or CVV — single-use VANs only, which materially narrows scope |
 
 > **Verification note.** The DGCA thresholds above carry evidence tier `deck` — they are taken
@@ -174,7 +223,7 @@ different urgency, and the member can mute one without losing the other.
 
 ---
 
-## 10. What the critical path actually depends on
+## 11. What the critical path actually depends on
 
 Ranked by what breaks the product if it goes away:
 

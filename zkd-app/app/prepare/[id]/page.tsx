@@ -5,8 +5,6 @@ import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWorld } from '@/components/WorldProvider';
 import { usePoll } from '@/lib/usePoll';
-import { risk } from '@/lib/risk';
-import { PREAUTH_THRESHOLD } from '@/lib/recovery';
 import { money } from '@/lib/time';
 import type { FlightDetail, PreAuthResponse } from '@/lib/apiTypes';
 
@@ -37,7 +35,7 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
   const cab = detail.candidates.cabs.find((c) => c.id === cabId);
   if (!alt || !hotel || !cab) return <div className="page-h"><h1>Getting ahead of it</h1></div>;
 
-  const r = risk(detail.signals);
+  const fc = detail.forecast;
   const hotelCost = hotel.extra || hotel.rate;
   const owed = alt.fare + hotelCost + cab.extra;
 
@@ -58,21 +56,43 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
       <div className="page-h" style={{ padding: '0 0 26px' }}>
         <h1>{detail.code} looks like it will cancel</h1>
         <p>
-          We put it at <b style={{ color: 'var(--risk)' }}>{r.pct}%</b> — over the {PREAUTH_THRESHOLD}%
-          mark where we come and ask you early rather than in a hurry. It has <b>not</b> been cancelled.
+          The forecast puts it at{' '}
+          <b style={{ color: 'var(--risk)' }}>{fc ? `${fc.pct}%` : '—'}</b>
+          {fc ? ` — over the ${fc.thresholds.preAuthorise}% mark ` : ' — over the mark '}
+          where we come and ask you early rather than in a hurry. It has <b>not</b> been cancelled.
           Nothing here is booked, and nothing is charged unless it actually is.
         </p>
       </div>
       <div className="split">
         <div>
           <div className="g panel" style={{ marginBottom: 16, borderColor: 'rgba(217,97,90,.3)' }}>
-            <h3 style={{ color: 'var(--risk)' }}>Why we think so</h3>
-            {r.parts.map((p) => (
-              <div className="kv" key={p.id}>
-                <span className="k">{p.name}</span>
-                <span className="v">{p.note}</span>
-              </div>
-            ))}
+            <h3 style={{ color: 'var(--risk)' }}>Why we are asking now</h3>
+            {fc ? (
+              <>
+                <div className="kv"><span className="k">Cancellation forecast</span><span className="v">{fc.pct}%</span></div>
+                <div className="kv">
+                  <span className="k">Where it comes from</span>
+                  <span className="v">{fc.source === 'lumo' ? 'Lumo — live' : 'Lumo — mocked, no key yet'}</span>
+                </div>
+                <div className="kv">
+                  <span className="k">Ask-early threshold for this flight</span>
+                  <span className="v">{fc.thresholds.preAuthorise}%</span>
+                </div>
+                <div className="kv">
+                  <span className="k">Seats left across every source</span>
+                  <span className="v">{fc.thresholds.inputs.seatsAvailable}</span>
+                </div>
+                <p className="why">
+                  That threshold is not a fixed number. On a route with plenty of seats we wait for
+                  more certainty; when there is little left to move you onto, asking early is worth
+                  more than being sure.
+                </p>
+              </>
+            ) : (
+              <p style={{ margin: 0, color: 'var(--mist)', fontSize: 13.5 }}>
+                Checking this flight against the disruption forecast.
+              </p>
+            )}
           </div>
 
           <div className="g panel">

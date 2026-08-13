@@ -11,7 +11,7 @@ safely when it cannot.
 
 ## Version history
 
-- **Round 1**: deck + architecture validation plan (`documentation/project/ZKD-Architecture-Validation-Plan.md`, 13
+- **Round 1**: deck + architecture validation plan (`documentation/architecture/validation-plan.md`, 13
   findings, partially superseded). Evidence tier `deck` numbers originate here.
 - **Round 2 (current)**: four v2.0 agent specs, four written docs in `documentation/design/`, web + Android
   prototypes, Monte Carlo simulator, submission bundle (APK, videos).
@@ -42,9 +42,9 @@ safely when it cannot.
 - `zkd-android/` — Expo/RN Android app, subset (Flights, Flight detail, Recovery, Profile)
 - `iropssim.py` + `iropssim-output.json` — 250k-case fixed-seed Monte Carlo
 - `ZKD Website/` — production builds of the three demo sites + `serve.js` (5173/5174/5175)
-- `apk/`, `videos/` — submission artifacts
+- `assets/builds/`, `assets/media/` — the APK and the demo videos
 - `README.md`, `documentation/project/SUBMISSION.md`, `documentation/README.md` — the story, claims, evidence tiers
-- `assets/` — pitch deck (`PPT.pptx`) and the API-requirements tracker (`.xlsx`/`.csv`)
+- `assets/deck/PPT.pptx` — the pitch deck; `assets/data/` — the API-requirements tracker
 
 ## Evidence tiers
 
