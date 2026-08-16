@@ -20,6 +20,13 @@ export function middleware(req: NextRequest) {
   return NextResponse.redirect(new URL('/login', req.url));
 }
 
+/**
+ * The trailing `|.*\..*` excludes any path with a file extension — every
+ * static asset under public/ (fonts, brand icons, favicon) — not just the
+ * two that happened to get named here before. Without it, an unauthenticated
+ * request for e.g. /fonts/geist.woff2 gets redirected to /login and the
+ * browser tries to parse the login page's HTML as a font.
+ */
 export const config = {
-  matcher: ['/((?!api|login|ops|_next|favicon.svg).*)'],
+  matcher: ['/((?!api|login|ops|_next|.*\\..*).*)'],
 };

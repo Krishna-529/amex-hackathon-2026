@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "updatedAt": "2026-08-14T00:00:00Z",
+  "comment": "Adaptive-threshold parameters for lib/thresholds.ts. Edited here, not hardcoded in TS, so ops can retune band aggressiveness (and the risk band that gates pre-caching alternate flights, see altCache.prefetchAtOrAbove) without a redeploy. In production this file is the local fallback; the live source is AWS AppConfig (see zkd-risk-model/infra/appconfig.tf) and is hot-reloaded on a poll interval — see lib/thresholdConfig.ts.",
+  "bands": {
+    "_comment": "Recalibrated 2026-08-16 after the src/train.py retrain that masked prior_leg_cancelled to null (see documentation/design/05-cancellation-risk-model.md §1 for why), which shifted the real score distribution meaningfully higher (score_distribution.json: real range min 1.64%, p50 3.22%, p75 4.37%, p90 6.45%, p95 7.08%, p99 9.74%, max 10.33% — was 0.89%-4.06% before, not a small tweak) AND, separately, changed how much the 6 seeded flights (server/domain/seed.ts) differentiate from each other: u1 and f-multi (both hasHardConstraint) now compute a real 6% vs u4's 8% — close enough that a naive same-ratio rescale put u1/f-multi INTO hold-gate too, breaking the seeded walkthrough's own stated property that u4 alone should reach it. Empirically verified against all 6 seeded flights' real computed thresholds (not asserted): holdGate.floor is intentionally ABOVE holdGate.base (7 > 6) so hasHardConstraint/scarcity/urgency can only ever raise a flight up toward the floor, never pull it below — u1/f-multi land on floor=7 (pct 6 stays under), while u3/u4/f-depth's more favorable shift pushes past the floor on its own multiplier, landing u4 at 7 (pct 8 clears it) while u3/f-depth (pct 3) stay clear regardless. Verified live: u1/f-multi -> 'prepare', u2/u3/f-depth -> 'watch', u4 -> 'hold-gate' — exactly one flight, with real margin, not a coin-flip tie. Also verified against server/engine/thresholds.test.ts's property tests (ordering + monotonicity hold across the full real shift range). Re-run score_distribution.py after any retrain that could shift the distribution and revisit these.",
+    "base": { "prepare": 4, "holdGate": 6, "preAuthorise": 11 },
+    "floor": { "prepare": 2, "holdGate": 7, "preAuthorise": 9 },
+    "ceiling": { "prepare": 6, "holdGate": 9, "preAuthorise": 15 }
+  },
+  "scarcity": {
+    "_comment": "Seats left across every supplier, filtered to the largest party on the flight. Below the plateau, fewer seats -> lower factor -> act earlier.",
+    "soldOutFactor": 0.6,
+    "amplePlateauSeats": 20
+  },
+  "urgency": {
+    "_comment": "Minutes to scheduled departure. Inside the near-term window, act on less certainty.",
+    "insideWindowFactor": 0.65,
+    "insideWindowMinutes": 60,
+    "amplePlateauMinutes": 480
+  },
+  "criticality": {
+    "hardConstraintFactor": 0.85
+  },
+  "confidence": {
+    "_comment": "shift = shift / (floor + span * confidence). A forecast that trusts itself less has to clear a higher bar.",
+    "floor": 0.7,
+    "span": 0.3
+  },
+  "holdGate": {
+    "_comment": "Per lib/holdGate.ts and documentation/design/01-prediction-model.md #6. Below this, speculative holding auto-disables for the carrier.",
+    "minHoldConversion": 0.85
+  },
+  "altCache": {
+    "_comment": "Gates server/engine/altsCache.ts. Alternative-flight search+cache only runs once a flight's riskScore (0-100 percentile rank of cancelProbability against the real live-realistic score distribution, zkd-risk-model/reports/score_distribution.json) reaches this value, not on every page view. This is deliberately NOT a raw cancelProbability cutoff: this model's real cancelProbability never exceeds ~4% (a calibrated probability of a rare event, not an inflated risk score), so a percentage-shaped gate has to be judged against the percentile rank, which is meaningful across its full 0-100 range by construction. See server/engine/riskModel.ts's ModelScore.riskScore. ttlMs is the FAR-OUT baseline; server/engine/rescoreTiming.ts's effectiveAltTtlMs() scales it down as departure approaches (urgent/near/approaching windows below) because inventory churns faster close in — a 10-minute-old seat count is a much bigger real gap 45 minutes out than the same staleness 2 days out. ttlFloorMs bounds how low that scaling can push it, so a very-close-in flight can't be driven to an effectively-zero TTL that would defeat the in-flight-request dedup's whole purpose.",
+    "prefetchAtOrAboveRiskScore": 75,
+    "ttlMs": 600000,
+    "ttlFloorMs": 180000,
+    "urgentWindowMinutes": 60,
+    "urgentTtlFactor": 0.33,
+    "nearWindowMinutes": 180,
+    "nearTtlFactor": 0.5,
+    "approachingWindowMinutes": 480,
+    "approachingTtlFactor": 0.75
+  },
+  "forecast": {
+    "_comment": "batchRescoreIntervalMs is the STANDARD tier's cadence, unchanged from before. server/engine/batchScorer.ts now runs three independent tiers off the same one-HTTP-call-per-tick batch scorer, partitioned by server/engine/rescoreTiming.ts's tierFor(): 'critical' (inside criticalWindowMinutes of departure, OR already at hold-gate/pre-authorise — the flights where a swing has the least runway to be caught before the carrier files) rescored every criticalRescoreIntervalMs; 'dormant' (more than dormantWindowMinutes out AND still at watch/unscored) rescored every dormantRescoreIntervalMs, since there is no reason to spend Lambda invocations on a flight days out showing no signal; everything else stays on the standard cadence. A flight migrates tiers automatically tick to tick as departure approaches or its band changes — no separate promotion state. eventRescoreDebounceMs gates triggerEventRescore() (forecast.ts), the out-of-cycle rescore fired when AviationStack reports a real status change (app/api/flight-status/route.ts) — debounced per flight so a flapping status feed cannot turn into a rescore storm.",
+    "ttlMs": 600000,
+    "batchRescoreIntervalMs": 600000,
+    "criticalRescoreIntervalMs": 90000,
+    "criticalWindowMinutes": 180,
+    "dormantRescoreIntervalMs": 1800000,
+    "dormantWindowMinutes": 1440,
+    "eventRescoreDebounceMs": 30000
+  }
+}

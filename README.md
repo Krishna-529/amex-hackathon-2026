@@ -146,6 +146,9 @@ not a model finding — the sensitivity table now shows this directly.
 ## Known limitations, stated plainly
 
 See [`SUBMISSION.md`](documentation/project/SUBMISSION.md#known-limitations-stated-plainly) for the full list. In
-short: no trained risk model yet (transparent weighted sum), payment is mocked, the Android app
-is a four-screen subset, and DGCA duty-of-care thresholds still carry the Round 1 `deck`
-evidence tier pending a primary-source re-check.
+short: the cancellation-risk model (`zkd-risk-model/`) is real and self-trained — see
+[`documentation/design/05-cancellation-risk-model.md`](documentation/design/05-cancellation-risk-model.md) —
+but has no Indian/international historical training data yet and cold-starts those routes to the
+population base rate; payment is mocked, the Android app is a four-screen subset, and DGCA
+duty-of-care thresholds still carry the Round 1 `deck` evidence tier pending a primary-source
+re-check.

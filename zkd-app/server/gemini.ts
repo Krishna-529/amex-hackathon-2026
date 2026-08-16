@@ -21,6 +21,7 @@ export async function explain(prompt: string): Promise<string | null> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
         cache: 'no-store',
+        signal: AbortSignal.timeout(15000),
       },
     );
     if (!res.ok) return null;

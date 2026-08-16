@@ -27,6 +27,7 @@ export default function OpsPage() {
 
   const [form, setForm] = useState(emptyForm);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [warmingId, setWarmingId] = useState<string | null>(null);
 
   const trigger = (flightId: string) => {
     setBusyId(flightId);
@@ -35,6 +36,18 @@ export default function OpsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ flightId }),
     }).finally(() => setBusyId(null));
+  };
+
+  /**
+   * Real candidates come from a real supplier search, gated on the real risk
+   * model crossing its prefetch threshold (server/engine/forecast.ts) — the
+   * point of that gate, not a bug. This bypasses it on demand: same real
+   * search, just without waiting for the scorer, useful whenever a demo (or
+   * an operator) wants a flight's alt/hotel/cab candidates warm right now.
+   */
+  const warm = (flightId: string) => {
+    setWarmingId(flightId);
+    fetch(`/api/flights/${flightId}/warm`, { method: 'POST' }).finally(() => setWarmingId(null));
   };
 
   const togglePassenger = (id: string) => {
@@ -84,9 +97,9 @@ export default function OpsPage() {
                 <td className="rt">{f.from} → {f.to}</td>
                 <td className="dt">{hhmm(new Date(f.depISO))}</td>
                 <td>
-                  {f.forecast ? `${f.forecast.pct}%` : '—'}{' '}
+                  {f.forecast ? `${Math.round(f.forecast.riskScore ?? f.forecast.pct)}/100` : '—'}{' '}
                   <span style={{ color: 'var(--mist2)' }}>
-                    ({f.forecast ? `${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
+                    ({f.forecast ? `${f.forecast.pct}% real · ${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
                   </span>
                 </td>
                 <td>{f.passengerCount}</td>
@@ -98,6 +111,14 @@ export default function OpsPage() {
                   )}
                 </td>
                 <td className="ar">
+                  <button
+                    disabled={warmingId === f.id}
+                    onClick={() => warm(f.id)}
+                    style={{ marginRight: 8 }}
+                    title="Real supplier search, right now — bypasses the risk-score prefetch gate"
+                  >
+                    {warmingId === f.id ? 'Warming…' : 'Warm candidates'}
+                  </button>
                   <button
                     disabled={f.disruptionPhase !== 'none' || busyId === f.id}
                     onClick={() => trigger(f.id)}

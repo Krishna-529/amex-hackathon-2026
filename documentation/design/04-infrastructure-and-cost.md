@@ -122,6 +122,45 @@ At ~50,000 monitored trips/month. Order-of-magnitude, for the business case:
 **The feed is the budget.** Everything else is rounding. That is the correct thing to negotiate
 hard on, and it is a partnership conversation rather than an engineering one.
 
+### 5a. Unit economics: cost per monitored trip, and a scale ladder
+
+Two different things get charged, at two different scales. The §5 table (compute, database, LLM,
+notifications, storage — everything except the feed) scales roughly with trip volume: $750–2,000
+at ~50,000 trips/month is **$0.015–$0.04 per monitored trip/month**, excluding the flight-status
+feed (a fixed enterprise contract, not a per-trip line).
+
+The prediction pipeline specifically (`zkd-risk-model/infra/scoring.tf`, `training.tf`) — the part
+this document's "keep the forecast dynamic without a standing endpoint" question is actually
+about — is cheap by design, and the cost is computable from the real Terraform config rather than
+guessed. At the real `batch_rescore_interval_minutes = 10` default and standard AWS us-east-1
+on-demand rate cards (Lambda: $0.20/1M requests + $0.0000166667/GB-s; DynamoDB on-demand:
+$1.25/1M writes; Fargate Spot ≈ 30% of on-demand $0.04048/vCPU-hr + $0.004445/GB-hr):
+
+- Assume a trip is actively rescored for the 48h before departure — 288 rescores at the 10-minute
+  cadence. Each rescore is one Lambda invocation slice (~1GB memory, ~50ms) plus one DynamoDB
+  forecast-cache write: `288 × (0.05 GB-s × $0.0000166667 + $1.25/1e6) ≈ $0.0006/trip/month`.
+- The weekly Fargate Spot retrain (~30 min on 2 vCPU/4GB) is a **fixed** cost independent of trip
+  volume: `0.5hr × 4.33wk × (2×$0.04048 + 4×$0.004445) × 0.30 ≈ $0.065/month`.
+- AppConfig hot-reload reads are negligible at this scale.
+
+| Monitored trips/month | Scoring compute (Lambda + DynamoDB) | + weekly retrain (fixed) | Prediction-pipeline total |
+|---|---|---|---|
+| 1,000 | ~$0.60 | $0.065 | **~$0.67/month** |
+| 10,000 | ~$6.00 | $0.065 | **~$6.10/month** |
+| 50,000 | ~$30.00 | $0.065 | **~$30.10/month** |
+
+This is the concrete version of `infra/README.md`'s cost-lever #1: `batch_rescore_interval_minutes`
+scales the scoring-compute column roughly linearly — halving it to 5 minutes roughly doubles it;
+the demo profile widens it to 15 for exactly this reason. It's also why the design uses batch/event
+Lambda rather than a standing SageMaker endpoint (§6): a real-time endpoint bills by the hour
+whether or not it's scoring anything, this bills by actual scoring events.
+
+This table prices only the prediction pipeline — not the whole-app baseline (NAT gateway, ALB,
+RDS, Fargate app tasks — the fixed ~$25–35/week `terraform.tfvars.demo.example` already estimates)
+or the flight-status feed (§5's dominant, fixed line). Figures are computed from public AWS
+us-east-1 on-demand rate cards at time of writing, not a real bill — see `infra/README.md`'s own
+"cost estimate is not yet a bill" caveat.
+
 ---
 
 ## 6. Failure modes we have designed for
@@ -142,8 +181,10 @@ hard on, and it is a partnership conversation rather than an engineering one.
 
 Stated plainly:
 
-- **No model of our own to run.** The forecast is bought from Lumo, so there is nothing to train or
-  score — the cost moves from compute to a per-call vendor fee, and remains off the critical path.
+- ~~No model of our own to run. The forecast is bought from Lumo.~~ **Superseded** — the
+  forecast is now a real, self-trained XGBoost model (`zkd-risk-model/`), batch/event-scored per
+  `documentation/design/05-cancellation-risk-model.md` §7 (which also carries this section's
+  compute/cost framing forward: no GPU, no standing endpoint, Lambda batch + Fargate Spot retrain).
 - **No live supplier integration.** Duffel and LiteAPI sandboxes are the intended proving ground.
 - **No real payment rail.** Amex vPayment is mocked behind a contract test.
 - **API failure is not modelled** in the simulation — rate limits, timeouts, circuit breakers.

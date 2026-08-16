@@ -7,8 +7,8 @@ import RouteLine from '@/components/Route';
 import HistoryTable from '@/components/HistoryTable';
 import { BAND_SAY, GLOW } from '@/lib/thresholds';
 import { usePoll } from '@/lib/usePoll';
-import { dayLabel, agoLabel } from '@/lib/time';
-import type { RecoveryView, PreAuthResponse } from '@/lib/apiTypes';
+import { dayLabel } from '@/lib/time';
+import type { PreAuthResponse } from '@/lib/apiTypes';
 
 export default function FlightsPage() {
   const { passengerId, schedule } = useWorld();
@@ -26,18 +26,13 @@ export default function FlightsPage() {
   // On-demand polling only when there's actually something to watch — no
   // client-side disruption timer any more (that's operator-triggered now).
   // The passenger id no longer travels in the URL — every one of these is
-  // scoped to the signed-in session on the server.
-  const { data: nextRecovery } = usePoll<RecoveryView>(
-    nextDisrupted && passengerId ? `/api/disruptions/${next!.id}` : null, 2000,
-  );
+  // scoped to the signed-in session on the server. Live recovery-phase
+  // polling (RecoveryView, the rebooking-in-progress banner) is the
+  // execution-plane's own concern, not this branch's — cancelled flights
+  // still show here, just without a live phase readout.
   const { data: preAuth } = usePoll<PreAuthResponse>(
     next && !nextDisrupted && passengerId ? `/api/flights/${next.id}/preauth` : null, 5000,
   );
-  const sameAsNext = active?.id === next?.id;
-  const { data: activeRecoveryOther } = usePoll<RecoveryView>(
-    activeDisrupted && !sameAsNext && passengerId ? `/api/disruptions/${active!.id}` : null, 2000,
-  );
-  const activeRecovery = sameAsNext ? nextRecovery : activeRecoveryOther;
 
   if (!schedule || !next) return <div className="page-h"><h1>Your flights</h1></div>;
 
@@ -67,7 +62,7 @@ export default function FlightsPage() {
             <span className="tt">
               {preAuth
                 ? `You've told us what to do if ${next.code} cancels`
-                : `${next.code} looks like it will cancel — ${next.forecast.pct}%`}
+                : `${next.code} looks like it will cancel — risk score ${Math.round(next.forecast.riskScore ?? next.forecast.pct)}/100`}
             </span>
             <span className="bd">
               {preAuth
@@ -80,33 +75,17 @@ export default function FlightsPage() {
       )}
 
       {nextDisrupted && (
-        <Link
-          href={`/recovery/${next.id}`}
-          className={`g alert ${nextRecovery?.phase === 'booked' ? 'ok' : ''}`}
-          style={{ display: 'flex' }}
-        >
-          <span className="ic">{nextRecovery?.phase === 'booked' ? '✓' : '!'}</span>
+        <Link href={`/recovery/${next.id}`} className="g alert" style={{ display: 'flex' }}>
+          <span className="ic">!</span>
           <span className="tx">
-            <span className="tt">
-              {nextRecovery?.phase === 'booked'
-                ? 'Rebooked. Your trip is back together.'
-                : nextRecovery?.phase === 'handed'
-                  ? 'A person has taken over your trip'
-                  : `${next.code} has been cancelled`}
-            </span>
+            <span className="tt">{next.code} has been cancelled</span>
             <span className="bd">
-              {nextRecovery?.phase === 'booked'
-                ? 'Alternative booked · hotel moved · you paid nothing'
-                : nextRecovery?.phase === 'handed'
-                  ? 'Nothing was booked and nothing was charged.'
-                  : `Detected ${agoLabel(new Date(nextRecovery?.detectedAt ?? Date.now()), new Date())}. ${
-                      consent === 'autopilot'
-                        ? "We're rebooking you now — tap to watch."
-                        : 'We need your go-ahead before we book anything.'
-                    }`}
+              {consent === 'autopilot'
+                ? "We're rebooking you now — tap to watch."
+                : 'We need your go-ahead before we book anything.'}
             </span>
           </span>
-          <span className="go">{!nextRecovery?.resolution ? 'Open →' : 'View recovery →'}</span>
+          <span className="go">Open →</span>
         </Link>
       )}
 
@@ -151,25 +130,21 @@ export default function FlightsPage() {
               <>
                 <div className="n dead">✕</div>
                 <div className="lb">Cancelled by the airline</div>
-                <div className="say">
-                  {activeRecovery?.phase === 'booked'
-                    ? "We rebooked you and moved tonight's hotel — you paid nothing."
-                    : 'We have alternatives ready and are waiting on the go-ahead.'}
-                </div>
-                <div className="go">View recovery →</div>
+                <div className="say">We have alternatives ready and are waiting on the go-ahead.</div>
+                {active && <Link className="go" href={`/recovery/${active.id}`} style={{ display: 'block' }}>View recovery →</Link>}
               </>
             ) : (
               <>
                 <div className={`n ${active?.forecast?.tone ?? 'low'}`}>
-                  {active?.forecast ? `${active.forecast.pct}%` : '—'}
+                  {active?.forecast ? Math.round(active.forecast.riskScore ?? active.forecast.pct) : '—'}
                 </div>
-                <div className="lb">chance of cancellation</div>
+                <div className="lb">risk score</div>
                 <div className="say">
                   {active?.forecast
                     ? BAND_SAY[active.forecast.band]
                     : 'Checking this flight against the disruption forecast.'}
                 </div>
-                <div className="go">View details →</div>
+                {active && <Link className="go" href={`/flights/${active.id}`} style={{ display: 'block' }}>View details →</Link>}
               </>
             )}
           </div>

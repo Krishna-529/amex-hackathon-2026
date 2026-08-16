@@ -1,0 +1,158 @@
+{
+  "trained_at": "2026-08-15T18:44:18.628275+00:00",
+  "n_train": 5525568,
+  "n_calib": 1184050,
+  "n_test": 1184051,
+  "positive_rate_train": 0.01894339188297022,
+  "positive_rate_test": 0.010462387177579344,
+  "best_iteration": 63,
+  "roc_auc": 0.8038269098091382,
+  "pr_auc": 0.12344536409903796,
+  "brier_score": 0.009715256281197071,
+  "log_loss": 0.04906681180000305,
+  "calibration_curve": {
+    "mean_predicted": [
+      0.0008885506076438372,
+      0.0018623698038725154,
+      0.002629841165794149,
+      0.003334338758657695,
+      0.0039721490968439065,
+      0.005261324613133496,
+      0.007549302126292459,
+      0.010289158037136826,
+      0.016974500493511496,
+      0.07088274759707332
+    ],
+    "fraction_positive": [
+      0.0009763299518978902,
+      0.0025703664365374405,
+      0.003248063834780568,
+      0.003973716988648684,
+      0.003909483948118848,
+      0.005718827971472102,
+      0.007855357795928318,
+      0.009101475746694619,
+      0.014180830735190586,
+      0.05490172701570324
+    ]
+  },
+  "feature_importance": {
+    "origin_month_hist_cancel_rate": 27892.8671875,
+    "route_hist_cancel_rate": 6666.23291015625,
+    "carrier_hist_cancel_rate": 6146.85791015625,
+    "month": 4423.6552734375,
+    "hour_of_day": 2658.186279296875,
+    "day_of_week": 2167.093017578125,
+    "sched_duration_min": 1782.5755615234375,
+    "dest_hist_cancel_rate": 1653.32421875,
+    "is_redeye": 1540.4656982421875,
+    "origin_hist_cancel_rate": 1386.494140625,
+    "distance_km": 1362.6226806640625,
+    "is_weekend": 1348.8807373046875,
+    "origin_hour_density": 746.5126342773438,
+    "international": 691.5066528320312
+  },
+  "data_sources": {
+    "BTS_US": 7079061,
+    "ANAC_BR": 814608
+  },
+  "baseline_base_rate": {
+    "roc_auc": 0.5,
+    "pr_auc": 0.010462387177579344,
+    "brier_score": 0.010424853072938632
+  },
+  "baseline_logistic_regression": {
+    "roc_auc": 0.7422816222194584,
+    "pr_auc": 0.10375353029371927,
+    "brier_score": 0.2411636441978684,
+    "note": "raw predict_proba, not isotonic-calibrated like the XGBoost numbers above \u2014 ROC-AUC/PR-AUC are ranking metrics unaffected by calibration, Brier is not directly comparable to the calibrated XGBoost Brier score"
+  },
+  "lift_table": [
+    {
+      "decile_mean_predicted": 0.0008885506076438372,
+      "decile_fraction_positive": 0.0009763299518978902,
+      "lift_over_base_rate": 0.09331808652523804
+    },
+    {
+      "decile_mean_predicted": 0.0018623698038725154,
+      "decile_fraction_positive": 0.0025703664365374405,
+      "lift_over_base_rate": 0.24567686063517866
+    },
+    {
+      "decile_mean_predicted": 0.002629841165794149,
+      "decile_fraction_positive": 0.003248063834780568,
+      "lift_over_base_rate": 0.3104515040067619
+    },
+    {
+      "decile_mean_predicted": 0.003334338758657695,
+      "decile_fraction_positive": 0.003973716988648684,
+      "lift_over_base_rate": 0.37980978157301126
+    },
+    {
+      "decile_mean_predicted": 0.0039721490968439065,
+      "decile_fraction_positive": 0.003909483948118848,
+      "lift_over_base_rate": 0.3736703566559631
+    },
+    {
+      "decile_mean_predicted": 0.005261324613133496,
+      "decile_fraction_positive": 0.005718827971472102,
+      "lift_over_base_rate": 0.5466083289029313
+    },
+    {
+      "decile_mean_predicted": 0.007549302126292459,
+      "decile_fraction_positive": 0.007855357795928318,
+      "lift_over_base_rate": 0.7508188774319278
+    },
+    {
+      "decile_mean_predicted": 0.010289158037136826,
+      "decile_fraction_positive": 0.009101475746694619,
+      "lift_over_base_rate": 0.8699234306869156
+    },
+    {
+      "decile_mean_predicted": 0.016974500493511496,
+      "decile_fraction_positive": 0.014180830735190586,
+      "lift_over_base_rate": 1.35541062421966
+    },
+    {
+      "decile_mean_predicted": 0.07088274759707332,
+      "decile_fraction_positive": 0.05490172701570324,
+      "lift_over_base_rate": 5.247533481972106
+    }
+  ],
+  "segment_metrics": {
+    "by_country": {
+      "BR": {
+        "n": 143492,
+        "positive_rate": 0.044058205335489084,
+        "roc_auc": 0.7720292412929622,
+        "pr_auc": 0.21523030418140782
+      },
+      "US": {
+        "n": 1040559,
+        "positive_rate": 0.00582955891977293,
+        "roc_auc": 0.7035181531090687,
+        "pr_auc": 0.015868311124092378
+      }
+    },
+    "by_month": {
+      "1": {
+        "n": 13,
+        "positive_rate": 0.46153846153846156,
+        "roc_auc": 0.7857142857142857,
+        "pr_auc": 0.7847222222222221
+      },
+      "11": {
+        "n": 509997,
+        "positive_rate": 0.008968680207922792,
+        "roc_auc": 0.830138555530174,
+        "pr_auc": 0.13687256452855517
+      },
+      "12": {
+        "n": 674041,
+        "positive_rate": 0.011583865076456774,
+        "roc_auc": 0.7903831305545509,
+        "pr_auc": 0.11639948458890084
+      }
+    }
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["version", "bands", "scarcity", "urgency", "criticality", "confidence", "holdGate", "altCache", "forecast"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "bands": {
+      "type": "object",
+      "required": ["base", "floor", "ceiling"],
+      "properties": {
+        "base": { "$ref": "#/definitions/bandTriplet" },
+        "floor": { "$ref": "#/definitions/bandTriplet" },
+        "ceiling": { "$ref": "#/definitions/bandTriplet" }
+      }
+    },
+    "scarcity": {
+      "type": "object",
+      "required": ["soldOutFactor", "amplePlateauSeats"],
+      "properties": {
+        "soldOutFactor": { "type": "number", "minimum": 0, "maximum": 1 },
+        "amplePlateauSeats": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "urgency": {
+      "type": "object",
+      "required": ["insideWindowFactor", "insideWindowMinutes", "amplePlateauMinutes"],
+      "properties": {
+        "insideWindowFactor": { "type": "number", "minimum": 0, "maximum": 1 },
+        "insideWindowMinutes": { "type": "integer", "minimum": 0 },
+        "amplePlateauMinutes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "criticality": {
+      "type": "object",
+      "required": ["hardConstraintFactor"],
+      "properties": { "hardConstraintFactor": { "type": "number", "minimum": 0, "maximum": 1 } }
+    },
+    "confidence": {
+      "type": "object",
+      "required": ["floor", "span"],
+      "properties": {
+        "floor": { "type": "number", "minimum": 0, "maximum": 1 },
+        "span": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "holdGate": {
+      "type": "object",
+      "required": ["minHoldConversion"],
+      "properties": { "minHoldConversion": { "type": "number", "minimum": 0, "maximum": 1 } }
+    },
+    "altCache": {
+      "type": "object",
+      "required": ["prefetchAtOrAbove", "ttlMs"],
+      "properties": {
+        "prefetchAtOrAbove": { "enum": ["prepare", "hold-gate", "pre-authorise"] },
+        "ttlMs": { "type": "integer", "minimum": 1000 }
+      }
+    },
+    "forecast": {
+      "type": "object",
+      "required": ["ttlMs", "batchRescoreIntervalMs", "eventRescoreDebounceMs"],
+      "properties": {
+        "ttlMs": { "type": "integer", "minimum": 1000 },
+        "batchRescoreIntervalMs": { "type": "integer", "minimum": 1000 },
+        "eventRescoreDebounceMs": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "definitions": {
+    "bandTriplet": {
+      "type": "object",
+      "required": ["prepare", "holdGate", "preAuthorise"],
+      "properties": {
+        "prepare": { "type": "number", "minimum": 0, "maximum": 100 },
+        "holdGate": { "type": "number", "minimum": 0, "maximum": 100 },
+        "preAuthorise": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    }
+  }
+}

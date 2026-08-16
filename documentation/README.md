@@ -17,6 +17,7 @@ Read in order. Each answers one question a judge will ask.
 | [`02-data-sources-and-apis.md`](design/02-data-sources-and-apis.md) | Every external dependency, what it costs, and which ones we cannot actually get |
 | [`03-action-policy.md`](design/03-action-policy.md) | The full decision path from detection to settlement, and what silence means at each step |
 | [`04-infrastructure-and-cost.md`](design/04-infrastructure-and-cost.md) | What it costs to run, and why there is no GPU on the critical path |
+| [`05-cancellation-risk-model.md`](design/05-cancellation-risk-model.md) | **Supersedes `01` §2.** The real, self-trained model that replaced the Lumo vendor call — data, features, serving, and the threshold-gated alt pre-cache |
 
 ## architecture/
 
@@ -38,6 +39,7 @@ The LangGraph agent specifications: design documents and runtime prompts in one 
 |---|---|
 | [`SUBMISSION.md`](project/SUBMISSION.md) | What was submitted, what runs, and what is honestly not built |
 | [`DEPLOYMENT.md`](project/DEPLOYMENT.md) | How to deploy `zkd-app`, and why a serverless host breaks the engine |
+| [`PILOT_TESTING.md`](project/PILOT_TESTING.md) | How to run the real model + app together and exercise the pipeline end to end |
 
 ---
 

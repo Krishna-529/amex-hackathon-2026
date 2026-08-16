@@ -36,6 +36,7 @@ async function getSabreToken(): Promise<string | null> {
         Authorization: `Basic ${combined}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
+      signal: AbortSignal.timeout(10000),
       body: 'grant_type=client_credentials',
       cache: 'no-store',
     });
@@ -65,6 +66,7 @@ export const sabre: Supplier = {
       const res = await fetch(`${API}/v1/shop/flights?${q}`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: 'no-store',
+        signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) return { offers: [], status: 'error' };
 

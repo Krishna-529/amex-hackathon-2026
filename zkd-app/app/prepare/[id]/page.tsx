@@ -67,8 +67,10 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
         <h1>{detail.code} looks like it will cancel</h1>
         <p>
           The forecast puts it at{' '}
-          <b style={{ color: 'var(--risk)' }}>{fc ? `${fc.pct}%` : '—'}</b>
-          {fc ? ` — over the ${fc.thresholds.preAuthorise}% mark ` : ' — over the mark '}
+          <b style={{ color: 'var(--risk)' }}>{fc ? `risk score ${Math.round(fc.riskScore ?? fc.pct)}/100` : '—'}</b>
+          {fc
+            ? ` — its real chance of cancellation, ${fc.pct}%, crossed the ${fc.thresholds.preAuthorise}% mark `
+            : ' — over the mark '}
           where we come and ask you early rather than in a hurry. It has <b>not</b> been cancelled.
           Nothing here is booked, and nothing is charged unless it actually is.
         </p>
@@ -79,10 +81,11 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
             <h3 style={{ color: 'var(--risk)' }}>Why we are asking now</h3>
             {fc ? (
               <>
-                <div className="kv"><span className="k">Cancellation forecast</span><span className="v">{fc.pct}%</span></div>
+                <div className="kv"><span className="k">Risk score</span><span className="v">{Math.round(fc.riskScore ?? fc.pct)}/100</span></div>
+                <div className="kv"><span className="k">Real calibrated probability</span><span className="v">{fc.pct}%</span></div>
                 <div className="kv">
                   <span className="k">Where it comes from</span>
-                  <span className="v">{fc.source === 'lumo' ? 'Lumo — live' : 'Lumo — mocked, no key yet'}</span>
+                  <span className="v">In-house model {fc.modelVersion} — live</span>
                 </div>
                 <div className="kv">
                   <span className="k">Ask-early threshold for this flight</span>
