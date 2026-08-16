@@ -215,6 +215,21 @@ export async function pace(budgetSeconds: number): Promise<void> {
   await new Promise((r) => setTimeout(r, paceFor(budgetSeconds)));
 }
 
+/**
+ * The minimum pause only — no budget scaling.
+ *
+ * For the two saga steps that actually touch live, third-party inventory
+ * (flight, hotel): every millisecond spent here between the previous commit
+ * and this one's revalidate-and-hold is a real window for the seat or room to
+ * be taken by someone else, not narrative pacing that can be spent freely.
+ * `pace()` can add up to ~650ms of pure waiting in front of those steps for no
+ * reason but rhythm; this keeps the same minimum "don't land in one poll"
+ * floor without adding to that window on the steps where it is not free.
+ */
+export async function paceFloor(): Promise<void> {
+  await new Promise((r) => setTimeout(r, FLOOR));
+}
+
 /** Measured decide/execute durations, for the UI's actual-vs-budget display. */
 export function timings(run: PipelineRun): { decideSeconds: number; actSeconds: number } {
   const firstCommit = run.journal.find((e) => e.kind === 'commit');

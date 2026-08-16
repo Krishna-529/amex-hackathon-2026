@@ -14,6 +14,7 @@
  */
 
 import { duffelStays, liteapi, marketContext } from './providers';
+import { marketExceedsTolerance } from './tolerance';
 import type {
   HotelHold, HotelOffer, HotelRevalidationResult, HotelSearchParams,
   HotelSupplier, HotelSupplierId, HotelSupplierStatus,
@@ -24,6 +25,7 @@ import type { HotelRules } from '../preferences/adapt';
 export * from './types';
 export { marketContext } from './providers';
 export type { MarketContext } from './providers';
+export { marketExceedsTolerance, MAKCORPS_VETO_TOLERANCE } from './tolerance';
 
 /** Makcorps is absent by construction — it is a guard, not a portfolio source. */
 const SUPPLIERS: HotelSupplier[] = [duffelStays, liteapi];
@@ -202,6 +204,17 @@ export function toHotelOpt(o: HotelOffer, checkinLocal = '15:00'): HotelOpt {
  *
  * Only consulted when no live source answered. Returns a reason to STOP, or
  * null to proceed — it can never approve, only withhold.
+ *
+ * The bar is deliberately high, not the member's exact cap. Makcorps prices
+ * *arbitrary* future dates with no occupancy control (see
+ * server/hotels/providers.ts marketContext) — a sample that happened to land
+ * on a peak-season or holiday night can read several times more expensive than
+ * tonight's real rate. A veto firing at the exact cap would then block the
+ * whole search on a number that was never about tonight in the first place:
+ * the agent would refuse to even look, when a live source might have answered
+ * affordably. This guard exists to catch genuinely implausible situations — a
+ * five-figure cap against a six-figure market — not to fine-tune a budget.
+ * Fine-grained budgeting is what a real, dated quote is for.
  */
 export async function affordabilityVeto(
   cityId: string,
@@ -211,12 +224,7 @@ export async function affordabilityVeto(
 
   const ctx = await marketContext(cityId, cap.currency);
   if (!ctx) return null;
+  if (!marketExceedsTolerance(ctx.band.median, ctx.currency, cap)) return null;
 
-  // Compared in the cap's own currency. marketContext is asked for that
-  // currency, so if it answered in another we cannot compare and must not
-  // block — the same refusal to guess an FX rate the rest of the repo makes.
-  if (ctx.currency !== cap.currency) return null;
-  if (ctx.band.median <= cap.amount) return null;
-
-  return `Hotel prices in this city are running around ${ctx.band.median} ${ctx.currency}, above the ${cap.amount} ${cap.currency} you have authorised. That figure is indicative only — it comes from a source that cannot price tonight specifically — so nothing was booked and this is yours to decide.`;
+  return `Hotel prices in this city are running several times over the ${cap.amount} ${cap.currency} you have authorised (indicative median ${ctx.band.median} ${ctx.currency}). That figure is for an arbitrary date, not necessarily tonight, so nothing was booked and this is yours to decide.`;
 }

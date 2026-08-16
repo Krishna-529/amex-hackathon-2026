@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "verify:prefs": "node --experimental-strip-types server/preferences/verify.ts",
     "verify:pipeline": "node --experimental-strip-types server/pipeline/verify.ts",
-    "verify": "npm run typecheck && npm run verify:prefs && npm run verify:pipeline"
+    "verify:hotels": "node --experimental-strip-types server/hotels/verify.ts",
+    "verify": "npm run typecheck && npm run verify:prefs && npm run verify:pipeline && npm run verify:hotels"
   },
   "dependencies": {
     "next": "16.2.12",

@@ -47,9 +47,14 @@
  * permitted to call an intent a confirmation.
  */
 
+// Explicit .ts on these two directory imports (Next's bundler resolver
+// follows a directory to its index either way): Node's own ESM loader under
+// `node --experimental-strip-types` cannot resolve a bare directory import, and
+// this file is now exercised directly by server/pipeline/verify.ts.
 import { revalidateOffer, type Offer } from '../suppliers';
 import { holdHotel, revalidateHotel, type HotelOffer } from '../hotels';
 import * as journal from './journal';
+import { fallbackNote } from './fallbackNote';
 import type { PipelineRun } from './types';
 import type { Alt, Flight, Booking } from '../domain/types';
 import type { Step } from '../domain/types';
@@ -117,8 +122,16 @@ export async function runSaga(input: SagaInput): Promise<SagaOutcome> {
 
   for (const step of steps) {
     // Pace the reveal so a timeline of instant intents still reads as work
-    // happening. This only ever delays an already-finished step.
-    await journal.pace(step.budget);
+    // happening — but only for the steps where the wait is free. `flight` and
+    // `hotel` are committing against live third-party inventory that a real
+    // competitor could claim in the interim, so they get only the minimum
+    // "don't land in one poll" floor, not the full budget-scaled pause. This
+    // only ever delays an already-finished step; it never masks real latency.
+    if (step.name === 'flight' || step.name === 'hotel') {
+      await journal.paceFloor();
+    } else {
+      await journal.pace(step.budget);
+    }
 
     let result: StepResult;
     try {
@@ -154,11 +167,7 @@ export async function runSaga(input: SagaInput): Promise<SagaOutcome> {
     }
 
     const rolledBack = await compensateAll(run, done);
-    return {
-      state: 'FAILED_FALLBACK',
-      note: `We could not complete this: ${result.error}. Anything already reserved has been released, and nothing has been charged to you.`,
-      rolledBack,
-    };
+    return { state: 'FAILED_FALLBACK', note: fallbackNote(result.error, rolledBack), rolledBack };
   }
 
   return {

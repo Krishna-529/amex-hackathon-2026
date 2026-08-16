@@ -16,6 +16,19 @@ export async function getOrSet<T>(key: string, ttlMs: number, fn: () => Promise<
   return value;
 }
 
+/**
+ * Evicts a cached entry so the next `getOrSet` re-derives it.
+ *
+ * Exists for OAuth tokens specifically: a token cached here can be rejected by
+ * the vendor before its own TTL expires (revoked, clock skew, a vendor-side
+ * rotation) and the caller has no way to say "that one was bad, get me a real
+ * one" without this. Additive — nothing else in the codebase calls it yet, and
+ * nothing else needs to.
+ */
+export function invalidate(key: string): void {
+  store.delete(key);
+}
+
 let aviationstackCalls = 0;
 const AVIATIONSTACK_SOFT_CEILING = 60; // stay well under the 100/month free cap
 

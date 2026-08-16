@@ -24,7 +24,7 @@
  * sandbox so production is never one typo away.
  */
 
-import { getOrSet } from '../cache';
+import { getOrSet, invalidate } from '../cache';
 import { withBudget, noteOutcome } from '../governor';
 import type { Money } from '../suppliers/types';
 import type { CabOpt } from '../domain/types';
@@ -90,6 +90,41 @@ async function uberToken(): Promise<string | null> {
   }).catch(() => null);
 }
 
+/**
+ * Every Uber request goes through here rather than calling `fetch` with a
+ * captured token, specifically so a stale-but-cached token can be recovered
+ * from mid-run.
+ *
+ * `uberToken()` caches for 25 minutes, but that is our guess at the token's
+ * life, not the vendor's guarantee — a token can be rejected before its TTL if
+ * it was revoked, clock-skewed, or rotated on Uber's side. Without this, that
+ * shows up as a plain 401 partway through HOLD_PENDING or the saga's ground
+ * step, `noteOutcome` reads it as a provider failure and starts exponential
+ * backoff, and the member's cab search is throttled for up to a minute over
+ * what was actually a one-line cache problem.
+ *
+ * On a 401, the cached token is evicted and exactly one fresh attempt is made.
+ * A second 401 after a genuinely new token means the credential itself is bad,
+ * not merely stale — that one is allowed to fall through to the caller's
+ * normal error handling (and does get to trip the governor's backoff, correctly).
+ */
+async function uberFetch(url: URL | string, init: RequestInit = {}, retrying = false): Promise<Response> {
+  const token = await uberToken();
+  if (!token) throw new Error('no uber credentials configured');
+
+  const res = await fetch(url, {
+    ...init,
+    headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+
+  if (res.status === 401 && !retrying) {
+    invalidate('uber:token');
+    return uberFetch(url, init, true);
+  }
+  return res;
+}
+
 type UberPrice = {
   product_id?: string;
   display_name?: string;
@@ -110,6 +145,9 @@ function seatsFor(displayName: string): number {
 }
 
 async function uberSearch(p: GroundSearchParams): Promise<{ offers: GroundOffer[]; status: GroundStatus }> {
+  // Fast no-key path before spending anything — uberFetch would also refuse,
+  // but there is no reason to enter withBudget's accounting for a call that
+  // was never going to happen.
   const token = await uberToken();
   if (!token) return { offers: [], status: 'no-key' };
 
@@ -128,10 +166,10 @@ async function uberSearch(p: GroundSearchParams): Promise<{ offers: GroundOffer[
       timeUrl.searchParams.set('start_latitude', String(p.fromLat));
       timeUrl.searchParams.set('start_longitude', String(p.fromLon));
 
-      const headers = { Authorization: `Bearer ${token}`, 'Accept-Language': 'en_US' };
+      const langHeader = { 'Accept-Language': 'en_US' };
       const [priceRes, timeRes] = await Promise.all([
-        fetch(priceUrl, { headers, cache: 'no-store' }),
-        fetch(timeUrl, { headers, cache: 'no-store' }),
+        uberFetch(priceUrl, { headers: langHeader }),
+        uberFetch(timeUrl, { headers: langHeader }),
       ]);
       if (!priceRes.ok) {
         noteOutcome('uber', { ok: false, status: priceRes.status });
@@ -316,11 +354,10 @@ export async function injectSandboxScenario(
   if (!token) return { ok: false, detail: 'no uber credentials configured' };
 
   try {
-    const res = await fetch(`${host}/v1.2/sandbox/products/${encodeURIComponent(productId)}`, {
+    const res = await uberFetch(`${host}/v1.2/sandbox/products/${encodeURIComponent(productId)}`, {
       method: 'PUT',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(scenario),
-      cache: 'no-store',
     });
     return res.ok
       ? { ok: true, detail: `sandbox product ${productId} set to ${JSON.stringify(scenario)}` }

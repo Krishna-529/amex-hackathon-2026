@@ -11,6 +11,7 @@
  */
 
 import { applyHardRules, rankAlts, type ScoreContext } from './score.ts';
+import { fallbackNote } from './fallbackNote.ts';
 import type { PartyAlt } from '../domain/altsForParty';
 import type { Alt, Flight } from '../domain/types';
 import type { RebookingRules } from '../preferences/adapt';
@@ -241,6 +242,35 @@ console.log('\nUnknown arrival scores neutral, never best');
   check('a source with no arrival time does not win on arrival',
     ranked[0].alt.id === 'k', `winner=${ranked[0].alt.id}`);
   check('and says so', ranked.find((r) => r.alt.id === 'u')!.score.notes.some((n) => /not published/.test(n)));
+}
+
+console.log('\nfallbackNote never claims a release that did not happen');
+{
+  // Everything released cleanly — the reassuring blanket line is fine here.
+  const clean = fallbackNote('seat was taken', [
+    { component: 'authorise', ok: true },
+    { component: 'flight', ok: true },
+  ]);
+  check('clean rollback says everything was released', /has been released/.test(clean), clean);
+  check('clean rollback does not tell the member to hold off', !/do not book/.test(clean), clean);
+
+  // This is the exact scenario the reviewer described: flight committed, hotel
+  // failed, and compensating the flight itself failed. The double-charge risk
+  // is a member reading "nothing has been charged, you're clear" and buying a
+  // second ticket while the un-rolled-back flight is still live with the airline.
+  const stuck = fallbackNote('hotel sold out', [
+    { component: 'authorise', ok: true },
+    { component: 'flight', ok: false },
+  ]);
+  check('a failed compensation is NOT described as released', !/has been released/.test(stuck), stuck);
+  check('names which component is stuck', /flight/.test(stuck), stuck);
+  check('tells the member explicitly not to self-serve', /do not book/.test(stuck), stuck);
+  check('still confirms no charge (that part is true regardless)', /has not been charged|Nothing has been charged/.test(stuck), stuck);
+
+  // Nothing had committed yet (failed on the very first step) — vacuously
+  // "everything released" is correct, not a bug in the .every() on [].
+  const nothingDone = fallbackNote('seat was taken', []);
+  check('no prior commits reads as cleanly released', /has been released/.test(nothingDone), nothingDone);
 }
 
 console.log(failures === 0 ? '\nAll scorer checks passed.\n' : `\n${failures} CHECK(S) FAILED\n`);
