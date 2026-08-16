@@ -17,9 +17,11 @@
  * spin up fresh isolates per request and these setTimeout chains would not
  * survive between invocations. Not solved here — acceptable for a prototype.
  */
-import {
-  DECIDE_STEPS, ACT_STEPS, DECIDE_TOTAL, PLAY, FLOOR,
-} from '@/lib/recovery';
+// ACT_STEPS is deliberately no longer imported: the act path is real work now,
+// narrated by server/pipeline/narrate.ts. Those constants remain exported from
+// lib/recovery.ts as the declared latency BUDGET the pipeline is measured
+// against — see the note at the top of that file.
+import { DECIDE_STEPS, DECIDE_TOTAL, PLAY, FLOOR } from '@/lib/recovery';
 import { confirmWindow, windowRationale } from '@/lib/confirmWindow';
 import { isInternational } from '../airportDirectory';
 import { revalidateOffer, type Offer } from '../suppliers';
@@ -29,6 +31,7 @@ import { DEFAULT_PER_TRANSACTION_CAP } from '../myca';
 import { money } from '@/lib/time';
 import * as store from '../domain/store';
 import { ensureSeeded } from '../domain/seed';
+import * as pipeline from '../pipeline';
 import type {
   DisruptionEvent, RecoveryTask, DisruptionResolution, Flight, Booking, Step, PreAuthRecord,
 } from '../domain/types';
@@ -62,7 +65,21 @@ export type RecoveryView = {
   cost: PartyCost;
   note: string | null;
   resolution: DisruptionResolution | null;
+  /**
+   * Additive, so every existing consumer keeps compiling and rendering.
+   * Rides inside this view rather than on a fourth endpoint: the recovery page
+   * already polls this at 1500ms, and a separate poll would be a second request
+   * per member per 1.5s for data this one can carry.
+   */
+  pipeline: ReturnType<typeof pipelineSummary> | null;
+  /** measured, unlike the ACT_TOTAL/MACHINE_TOTAL budget constants the UI shows beside them */
+  timings: { decideSeconds: number; actSeconds: number };
 };
+
+/** Indirection so RecoveryView can name the summary type without a circular import. */
+function pipelineSummary(flightId: string, passengerId: string) {
+  return pipeline.summaryFor(flightId, passengerId);
+}
 
 const ZERO_COST: PartyCost = {
   partySize: 1, fare: 0, rooms: 0, hotel: 0, vehicles: 0, cab: 0, total: 0,
@@ -102,6 +119,13 @@ export function detectDisruption(flightId: string): DisruptionEvent | null {
 
   const event: DisruptionEvent = { id: `de-${flightId}`, flightId, detectedAt: Date.now(), phase: 'DECIDING' };
   store.createDisruptionEvent(event);
+
+  // Start the real search immediately, racing the decide timer below rather
+  // than waiting for it. This function is synchronous and its return value is
+  // the response body for POST /api/disruptions, so the pipeline entry point is
+  // void-called and catches everything internally — nothing in there may take
+  // the trigger endpoint down with it.
+  pipeline.onDisruptionDetected(flightId);
 
   const decideDelayMs = Math.max(FLOOR, DECIDE_TOTAL * PLAY);
   setTimeout(() => finishDecide(flightId), decideDelayMs);
@@ -152,7 +176,18 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
     task.note = 'You authorised this in advance, so there was no window to wait for — we acted the moment the airline filed.';
     task.phase = 'acting';
     store.setRecoveryTask(task);
-    scheduleAct(flight.id, passenger.id);
+    // Pre-authorisation IS consent, given earlier and for exactly this plan, so
+    // this crosses the gate straight away. `task.resolution` is deliberately
+    // left as it was — this branch has never set it, and changing that here
+    // would alter what every existing consumer sees for pre-authorised
+    // recoveries, which is not this change's business.
+    void pipeline.execute(task, {
+      kind: 'approved',
+      at: Date.now(),
+      altId: preAuth.altId,
+      hotelId: preAuth.hotelId,
+      cabId: preAuth.cabId,
+    });
     return;
   }
 
@@ -164,12 +199,24 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
   // market seat we would have to buy, and never default to a market alt that
   // cannot actually seat everyone on this PNR.
   const partyAlts = altsForParty(flight.candidates.alts, task.partySize);
-  const defaultAlt = partyAlts.find((a) => a.kind === 'carrier-protected' && a.ok)
+
+  // Prefer what the pipeline actually scored, if it has finished. It reads
+  // synchronously and returns null when it has not — so a slow supplier delays
+  // nothing and the heuristic below still decides. The pipeline's answer is
+  // strictly better informed (it applied the member's hard rules and their
+  // optimisation strategy), but it is never allowed to be a blocker.
+  const preferred = pipeline.preferredPlan(flight.id, passenger.id);
+  const preferredAlt = preferred
+    ? partyAlts.find((a) => a.id === preferred.altId && a.ok)
+    : undefined;
+
+  const defaultAlt = preferredAlt
+    ?? partyAlts.find((a) => a.kind === 'carrier-protected' && a.ok)
     ?? partyAlts.find((a) => a.ok)
     ?? partyAlts[0];
   task.chosenAltId = defaultAlt?.id ?? '';
-  task.chosenHotelId = flight.candidates.hotels[0]?.id ?? '';
-  task.chosenCabId = flight.candidates.cabs[0]?.id ?? '';
+  task.chosenHotelId = preferred?.hotelId || flight.candidates.hotels[0]?.id || '';
+  task.chosenCabId = preferred?.cabId || flight.candidates.cabs[0]?.id || '';
 
   // Autopilot has no one to wait for. The derived window below exists to give
   // a human enough time to notice a push, think and answer it — standing
@@ -272,7 +319,7 @@ function finalizeResolution(task: RecoveryTask, resolution: DisruptionResolution
     task.chosenCabId = resolution.cabId;
     task.phase = 'acting';
     store.setRecoveryTask(task);
-    scheduleAct(task.flightId, task.passengerId);
+    void pipeline.execute(task, resolution);
     return;
   }
 
@@ -281,77 +328,13 @@ function finalizeResolution(task: RecoveryTask, resolution: DisruptionResolution
   task.chosenCabId = resolution.cabId;
   task.phase = 'acting';
   store.setRecoveryTask(task);
-  scheduleAct(task.flightId, task.passengerId);
+  // The act path is the pipeline's now. `phase = 'acting'` is still set here
+  // and immediately before, so the UI's transition is unchanged; what differs
+  // is that the steps which follow are real work rather than a scripted reveal.
+  void pipeline.execute(task, resolution);
 }
 
-function renderActStepBody(raw: Step, task: RecoveryTask, flight: Flight, booking: Booking): string {
-  const alt = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
-  const hotel = flight.candidates.hotels.find((h) => h.id === task.chosenHotelId);
-  const cab = flight.candidates.cabs.find((c) => c.id === task.chosenCabId);
-  const cost = costOf(flight, task);
-  const n = task.partySize;
-  switch (raw.live) {
-    case 'seat': {
-      if (!alt) return raw.s;
-      if (n <= 1) return `${alt.code} at ${alt.dep}, seat ${booking.seat}. The airline cancelled, so the fare difference is theirs — you pay nothing.`;
-      const seatList = booking.seats.map((s) => s.seat).join(', ');
-      return `${alt.code} at ${alt.dep}, ${n} seats — ${seatList}. The airline cancelled, so the fare difference is theirs — you pay nothing.`;
-    }
-    case 'van': {
-      if (n <= 1) {
-        return `A single-use card locked to ${cost.total ? money(cost.total) : '₹0'} and today's date — exactly the plan you were shown, and it cannot be reused or overspent.`;
-      }
-      // Issued one card per ticket rather than a single aggregate charge — the
-      // cap was already checked against the party total before this step ever
-      // runs, so splitting the charge here does not touch the cap decision.
-      const per = cost.total ? money(Math.round(cost.total / n)) : '₹0';
-      return `${n} single-use cards, one per ticket, each locked to ${per} and today's date — exactly the plan you were shown, and none can be reused or overspent.`;
-    }
-    case 'hotel': {
-      if (!hotel) return raw.s;
-      if (cost.rooms > 1) return `${hotel.name}, ${cost.rooms} rooms, check-in ${hotel.checkin}. ${hotel.why}.`;
-      return `${hotel.name}, check-in ${hotel.checkin}. ${hotel.why}.`;
-    }
-    case 'cab': {
-      if (!cab) return raw.s;
-      const legs = flight.candidates.cabLegs;
-      const vehicleLabel = cost.vehicles > 1 ? `${cost.vehicles} × ${cab.kind}` : cab.kind;
-      if (legs.length >= 2) return `${vehicleLabel} booked for both legs — ${legs[0].from} → ${legs[0].to} at ${legs[0].pickup}, and back at ${legs[1].pickup}.`;
-      if (legs.length === 1) return `${vehicleLabel} booked — ${legs[0].from} → ${legs[0].to} at ${legs[0].pickup}.`;
-      return raw.s;
-    }
-    case 'onward': {
-      const next = store.getNextLeg(booking.id);
-      if (!next) return raw.s;
-      return `${next.flight.code} to ${next.flight.to} re-checked and still valid — a no-show on this leg can silently void the rest of an itinerary.`;
-    }
-    default:
-      return raw.s;
-  }
-}
 
-function scheduleAct(flightId: string, passengerId: string) {
-  const flight = store.getFlight(flightId);
-  const booking = store.getBookingsForFlight(flightId).find((b) => b.passengerId === passengerId);
-  if (!flight || !booking) return;
-  // Omit the "onward leg" step entirely when this passenger has no connection —
-  // unlike the old single-flight version, this is no longer unconditional.
-  const steps = ACT_STEPS.filter((s) => s.live !== 'onward' || store.getNextLeg(booking.id) !== null);
-
-  let i = 0;
-  const run = () => {
-    const task = store.getRecoveryTask(flightId, passengerId);
-    if (!task) return;
-    if (i >= steps.length) { task.phase = 'booked'; store.setRecoveryTask(task); return; }
-    const raw = steps[i];
-    const rendered: Step = { ...raw, s: renderActStepBody(raw, task, flight, booking) };
-    task.shown = [...task.shown, rendered];
-    store.setRecoveryTask(task);
-    i += 1;
-    setTimeout(run, Math.max(FLOOR, raw.d * PLAY));
-  };
-  run();
-}
 
 /**
  * The last check before anything is spent.
@@ -499,6 +482,8 @@ export function getRecoveryView(flightId: string, passengerId: string): Recovery
       shown: [], secondsLeft: 0, windowSeconds: 0, windowBoundBy: 'ceiling', partySize: 1,
       chosenAltId: '', chosenHotelId: '', chosenCabId: '', rejectedAltIds: [],
       owedNow: 0, cost: ZERO_COST, note: null, resolution: null,
+      pipeline: pipelineSummary(flightId, passengerId),
+      timings: { decideSeconds: 0, actSeconds: 0 },
     };
   }
 
@@ -512,6 +497,7 @@ export function getRecoveryView(flightId: string, passengerId: string): Recovery
     ? Math.max(1, Math.round((task.windowExpiresAt - event.detectedAt) / 1000))
     : 0;
   const cost = costOf(flight, task);
+  const summary = pipelineSummary(flightId, passengerId);
 
   return {
     taskId: task.id, flightId, detectedAt: event.detectedAt, phase: task.phase,
@@ -519,5 +505,7 @@ export function getRecoveryView(flightId: string, passengerId: string): Recovery
     chosenAltId: task.chosenAltId, chosenHotelId: task.chosenHotelId, chosenCabId: task.chosenCabId,
     rejectedAltIds: task.rejectedAltIds,
     owedNow: cost.total, cost, note: task.note, resolution: task.resolution,
+    pipeline: summary,
+    timings: summary?.timings ?? { decideSeconds: 0, actSeconds: 0 },
   };
 }

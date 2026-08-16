@@ -55,7 +55,28 @@ export const DECIDE_STEPS: Step[] = [
   },
 ];
 
-/** everything after consent — this is the irreversible half */
+/**
+ * Everything after consent — the irreversible half.
+ *
+ * These are now a **declared budget, not a script.** The act path is executed
+ * by server/pipeline/saga.ts against real suppliers, and the durations the
+ * member sees are measured wall-clock time from the journal.
+ *
+ * They stay exported because four things depend on them, and none of those
+ * dependencies is cosmetic:
+ *
+ *   - lib/confirmWindow.ts derives EXECUTION_BUDGET_SECONDS (11) from
+ *     MACHINE_TOTAL (11.41s), and the member's entire decision window — the
+ *     WAIT gate itself — is derived from that.
+ *   - app/how-it-works/page.tsx quotes WARM/DECIDE/ACT totals.
+ *   - app/recovery/[id]/page.tsx shows them beside the measured figures, so a
+ *     reader can compare actual against budget.
+ *   - zkd-android/src/screens/RecoveryScreen.tsx does the same, in a separate app.
+ *
+ * The saga also paces its journal emissions against each step's `d` here, so a
+ * timeline of near-instant intent records still reads as work happening. That
+ * only ever delays an already-finished step, never a slow one.
+ */
 export const ACT_STEPS: Step[] = [
   {
     n: 'Payment authorised',
