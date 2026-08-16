@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { snapshot } from '@/server/governor';
-import { refreshIntervalFor, refreshRationale } from '@/lib/refreshInterval';
-import { sustainableIntervalMs } from '@/server/governor';
+import { refreshRationale } from '@/lib/refreshInterval';
+import { altsRefreshPlan } from '@/server/engine/altsCache';
 import * as store from '@/server/domain/store';
 import { ensureSeeded } from '@/server/domain/seed';
 
@@ -13,11 +13,16 @@ import { ensureSeeded } from '@/server/domain/seed';
  * no itinerary, no money. The one member-adjacent thing here is a flight id and
  * how often we re-check it, which is already public on /api/flights.
  *
- * This endpoint exists because the two components it reports on are otherwise
- * invisible until they bite. "Why is this seat count four minutes old" is
- * answered by the rate limiter far more often than by anything else, and an ops
- * view that cannot show that is guessing. It is also the fastest way to see a
- * free tier draining before demo day rather than after.
+ * This exists because the two components it reports on are otherwise invisible
+ * until they bite. "Why is this seat count four minutes old" is answered by the
+ * rate limiter far more often than by anything else, and an ops view that
+ * cannot show that is guessing. It is also the fastest way to notice a free
+ * tier draining before demo day rather than after.
+ *
+ * The cadence numbers come from `altsRefreshPlan` — the same function the cache
+ * actually schedules against, not a reimplementation of it. A health endpoint
+ * that computes its own answer is a health endpoint that can disagree with the
+ * system it reports on.
  */
 
 export const dynamic = 'force-dynamic';
@@ -26,63 +31,20 @@ export async function GET() {
   ensureSeeded();
 
   const flights = store.listFlights();
-  // Every flight being kept warm divides the same provider allowance. Sizing
-  // the cadence against one watcher when there are five is how a free tier
-  // quietly runs out.
-  const watchers = Math.max(1, flights.length);
+  const watched = flights.filter((f) => f.altsAsOf !== undefined).length;
 
   const cadence = flights.map((f) => {
-    const disrupted = store.getDisruptionEvent(f.id) !== undefined;
-    // Alts, not Offers, so this is a plain sum rather than seatsAcross(). Only
-    // bookable ones count — a seat we are not allowed to sell is not inventory.
-    const seats = f.candidates.alts
-      .filter((a) => a.ok)
-      .reduce((n, a) => n + a.seats, 0);
-
-    // The FASTEST sustainable source sets the cadence, not the slowest.
-    //
-    // Taking the max would let Skyscanner's 20/day throttle Duffel's 500/day —
-    // and Skyscanner is live:false, so it can never win a booking anyway. The
-    // portfolio would go stale to protect a source that only ever contributes
-    // breadth.
-    //
-    // Using the min is safe because throttling is enforced per supplier, not
-    // here: each one wraps its own call in withBudget and returns
-    // `rate-limited` when it cannot afford this tick. So a fast cadence simply
-    // means the cheap sources refresh often and the expensive ones decline —
-    // which is the behaviour we want, and costs nothing, since a refused permit
-    // is a local check with no network call behind it.
-    const floor = Math.min(
-      sustainableIntervalMs('duffel', watchers, 1),
-      sustainableIntervalMs('kiwi', watchers, 1),
-      sustainableIntervalMs('skyscanner', watchers, 1),
-    );
-
-    const soonestExpiry = f.candidates.alts
-      .map((a) => a.expiresAt)
-      .filter((e): e is number => e !== null && e > Date.now())
-      .sort((a, b) => a - b)[0];
-
-    const plan = refreshIntervalFor({
-      minutesToDeparture: Math.max(0, (new Date(f.depISO).getTime() - Date.now()) / 60_000),
-      severity: disrupted ? 'disrupted' : (f.forecast?.band ?? 'watch'),
-      seatsAvailable: seats,
-      watchers,
-      rateLimitFloorMs: floor,
-      offerExpiresInMs: soonestExpiry ? soonestExpiry - Date.now() : null,
-      // A real open window lives on a RecoveryTask; treat any unresolved task
-      // in `waiting` as a member currently looking at this plan.
-      hasOpenConsentWindow: store
-        .getRecoveryTasksForFlight(f.id)
-        .some((t) => !t.resolution && t.phase === 'waiting'),
-    });
-
+    const plan = altsRefreshPlan(f);
     return {
       flightId: f.id,
       code: f.code,
-      disrupted,
+      disrupted: store.getDisruptionEvent(f.id) !== undefined,
       altsAsOf: f.altsAsOf ?? null,
       ageMs: f.altsAsOf ? Date.now() - f.altsAsOf : null,
+      /** true when the cached candidates are past their own computed interval */
+      stale: f.altsAsOf ? Date.now() - f.altsAsOf > plan.ms : true,
+      altsHeld: f.candidates.alts.length,
+      altsBookable: f.candidates.alts.filter((a) => a.ok).length,
       intervalMs: plan.ms,
       targetMs: plan.targetMs,
       boundBy: plan.boundBy,
@@ -92,8 +54,8 @@ export async function GET() {
   });
 
   return NextResponse.json({
-    watchers,
-    budgets: snapshot(watchers),
+    watchers: Math.max(1, watched),
+    budgets: snapshot(Math.max(1, watched)),
     cadence,
     generatedAt: Date.now(),
   });
