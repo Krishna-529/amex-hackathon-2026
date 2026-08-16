@@ -9,6 +9,7 @@ import type {
   Passenger, Flight, Booking, Itinerary, PreAuthRecord, PastFlight,
   DisruptionEvent, RecoveryTask, Credential, Traveller, SeatAssignment,
 } from './types';
+import type { PipelineRun } from '../pipeline/types';
 
 export const flights = new Map<string, Flight>();
 export const passengers = new Map<string, Passenger>();
@@ -18,6 +19,8 @@ export const preAuths = new Map<string, PreAuthRecord>();          // key: `${fl
 export const pastFlights = new Map<string, PastFlight[]>();        // key: passengerId
 export const disruptionEvents = new Map<string, DisruptionEvent>(); // key: flightId — one active event per flight
 export const recoveryTasks = new Map<string, RecoveryTask>();      // key: `${flightId}:${passengerId}`
+/** One rebooking-pipeline run per passenger per flight. Same keying as recoveryTasks. */
+export const pipelineRuns = new Map<string, PipelineRun>();        // key: `${flightId}:${passengerId}`
 export const credentials = new Map<string, Credential>();          // key: email.toLowerCase()
 export const travellers = new Map<string, Traveller>();
 
@@ -227,4 +230,25 @@ export function setRecoveryTask(task: RecoveryTask) {
 
 export function getRecoveryTasksForFlight(flightId: string): RecoveryTask[] {
   return [...recoveryTasks.values()].filter((t) => t.flightId === flightId);
+}
+
+/**
+ * Pipeline runs live here rather than in a second store, so they inherit the
+ * same process-lifetime caveat documented at the top of this file rather than
+ * introducing a second, differently-broken persistence story.
+ */
+export function getPipelineRun(flightId: string, passengerId: string): PipelineRun | undefined {
+  return pipelineRuns.get(`${flightId}:${passengerId}`);
+}
+
+export function setPipelineRun(run: PipelineRun) {
+  pipelineRuns.set(`${run.flightId}:${run.passengerId}`, run);
+}
+
+export function getPipelineRunsForFlight(flightId: string): PipelineRun[] {
+  return [...pipelineRuns.values()].filter((r) => r.flightId === flightId);
+}
+
+export function listPipelineRuns(): PipelineRun[] {
+  return [...pipelineRuns.values()].sort((a, b) => b.startedAt - a.startedAt);
 }

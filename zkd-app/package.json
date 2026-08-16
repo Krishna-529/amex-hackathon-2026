@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start -p 5176",
     "typecheck": "tsc --noEmit",
-    "verify:prefs": "node --experimental-strip-types server/preferences/verify.ts"
+    "verify:prefs": "node --experimental-strip-types server/preferences/verify.ts",
+    "verify:pipeline": "node --experimental-strip-types server/pipeline/verify.ts",
+    "verify": "npm run typecheck && npm run verify:prefs && npm run verify:pipeline"
   },
   "dependencies": {
     "next": "16.2.12",
