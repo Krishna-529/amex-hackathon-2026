@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev -p 5176",
     "build": "next build",
-    "start": "next start -p 5176"
+    "start": "next start -p 5176",
+    "typecheck": "tsc --noEmit",
+    "verify:prefs": "node --experimental-strip-types server/preferences/verify.ts"
   },
   "dependencies": {
     "next": "16.2.12",
