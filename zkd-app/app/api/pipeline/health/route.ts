@@ -39,9 +39,20 @@ export async function GET() {
       .filter((a) => a.ok)
       .reduce((n, a) => n + a.seats, 0);
 
-    // Whichever registered flight source is slowest to sustain sets the floor —
-    // a portfolio is only as fresh as its laggard.
-    const floor = Math.max(
+    // The FASTEST sustainable source sets the cadence, not the slowest.
+    //
+    // Taking the max would let Skyscanner's 20/day throttle Duffel's 500/day —
+    // and Skyscanner is live:false, so it can never win a booking anyway. The
+    // portfolio would go stale to protect a source that only ever contributes
+    // breadth.
+    //
+    // Using the min is safe because throttling is enforced per supplier, not
+    // here: each one wraps its own call in withBudget and returns
+    // `rate-limited` when it cannot afford this tick. So a fast cadence simply
+    // means the cheap sources refresh often and the expensive ones decline —
+    // which is the behaviour we want, and costs nothing, since a refused permit
+    // is a local check with no network call behind it.
+    const floor = Math.min(
       sustainableIntervalMs('duffel', watchers, 1),
       sustainableIntervalMs('kiwi', watchers, 1),
       sustainableIntervalMs('skyscanner', watchers, 1),

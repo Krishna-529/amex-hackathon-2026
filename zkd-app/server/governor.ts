@@ -147,8 +147,11 @@ export const BUDGETS: Record<ProviderId, Budget> = {
     basis: 'Duffel Stays — spends from the shared `duffel` ledger, see LEDGER_OF',
   },
   makcorps: {
-    tps: 0.2, burst: 2, daily: 5, monthly: 30, reserveFraction: 0, minIntervalMs: 15_000,
-    basis: 'Makcorps free tier — 30/month. Health endpoint only; never on the recovery path',
+    // 30/month is 1/day, not 5 — a daily cap that outruns the monthly one by 5x
+    // would pace as if there were 150 calls a month and exhaust the real budget
+    // in the first week.
+    tps: 0.2, burst: 2, daily: 1, monthly: 30, reserveFraction: 0, minIntervalMs: 15_000,
+    basis: 'Makcorps free tier — 30/month ≈ 1/day. Market-context guard only, never polled',
   },
   uber: {
     tps: 1, burst: 3, daily: 100, monthly: 2000, reserveFraction: 0.20, minIntervalMs: 3000,
@@ -159,8 +162,12 @@ export const BUDGETS: Record<ProviderId, Budget> = {
     basis: 'Mocked aggregator — no network call',
   },
   aviationstack: {
-    tps: 0.1, burst: 1, daily: 4, monthly: 100, reserveFraction: 0.40, minIntervalMs: 30_000,
-    basis: 'AviationStack free tier — 100/month. Replaces the soft ceiling in server/cache.ts',
+    // 100/month is 3/day, not 4 — at 4 the daily pace implies 120/month and the
+    // key dies before the month does. The 40% reserve leaves ~1/day for
+    // background polling and the rest for confirming a status on the critical
+    // path, which is the right way round: this is the tightest budget we hold.
+    tps: 0.1, burst: 1, daily: 3, monthly: 100, reserveFraction: 0.40, minIntervalMs: 30_000,
+    basis: 'AviationStack free tier — 100/month ≈ 3/day. Replaces the soft ceiling in server/cache.ts',
   },
   lumo: {
     tps: 2, burst: 5, daily: null, monthly: null, reserveFraction: 0.25, minIntervalMs: 1000,
@@ -370,14 +377,29 @@ export function noteOutcome(
  * applied *after* its own clamps, never before, so adaptive refresh can never
  * become a way to increase call volume.
  *
- * Three constraints, whichever binds hardest:
+ * ── Daily paces; monthly hard-stops ───────────────────────────────────────
+ *
+ * Only the **daily** allowance sets the rhythm. Pacing off the monthly one as
+ * well sounds more careful and is actually pathological: on the 1st of a month
+ * a 500-call budget spread evenly over 30 days permits 0.01 calls/minute, so
+ * every source reports "effectively unpollable" and the adaptive interval does
+ * nothing but sit at its ceiling — which is exactly the failure this smoke-test
+ * surfaced. Worse, it is conservative in a way that never converges: the
+ * interval stays enormous all month because usage never catches up to it.
+ *
+ * The monthly cap still binds, just at a different layer — `tryAcquire` refuses
+ * calls past it. So monthly is a wall, daily is a metronome, and a provider
+ * whose month is genuinely spent returns MAX_REFRESH_MS here, which means
+ * "stop polling this" rather than "poll slowly".
+ *
+ * Two constraints then, whichever binds harder:
  *
  *   burst — a duty-cycled share of raw throughput, since refresh is not the
  *           only caller on this tap.
- *   daily/monthly — the refresh-visible remainder spread across the time left
- *           in the window. This is what makes a small quota produce an honest
- *           answer: Makcorps at 30/month yields intervals measured in hours,
- *           which correctly means "this is not a pollable source."
+ *   daily — the refresh-visible remainder spread across the time left in the
+ *           UTC day. This is what makes a small quota produce an honest answer:
+ *           AviationStack at ~3/day yields intervals measured in hours, which
+ *           correctly means "this is not something you poll."
  *
  * `watchers` divides the allowance, so ten concurrent recoveries slow all ten
  * down rather than the first one starving the rest.
@@ -395,15 +417,19 @@ export function sustainableIntervalMs(
   const w = Math.max(1, watchers);
   const c = Math.max(1, callsPerRefresh);
 
+  // A spent month is a wall, not a slow lane — stop rather than trickle.
+  if (budget.monthly !== null) {
+    const monthCeil = ceilingFor(budget, 'refresh', budget.monthly) ?? 0;
+    if (l.monthUsed >= monthCeil) return MAX_REFRESH_MS;
+  }
+
   const callsPerMin: number[] = [budget.tps * 60 * REFRESH_DUTY_CYCLE];
 
   if (budget.daily !== null) {
     const ceil = ceilingFor(budget, 'refresh', budget.daily) ?? 0;
-    callsPerMin.push(Math.max(0, ceil - l.dayUsed) / Math.max(1, msUntilNextDay(now) / 60_000));
-  }
-  if (budget.monthly !== null) {
-    const ceil = ceilingFor(budget, 'refresh', budget.monthly) ?? 0;
-    callsPerMin.push(Math.max(0, ceil - l.monthUsed) / Math.max(1, msUntilNextMonth(now) / 60_000));
+    const remaining = Math.max(0, ceil - l.dayUsed);
+    if (remaining === 0) return MAX_REFRESH_MS;
+    callsPerMin.push(remaining / Math.max(1, msUntilNextDay(now) / 60_000));
   }
 
   const refreshesPerMin = Math.min(...callsPerMin) / c;

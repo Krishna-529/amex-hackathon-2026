@@ -9,15 +9,20 @@
  *
  *   target = BASE · urgency(TTD) · severity · scarcity · window
  *   target = min(target, offerExpiresIn / 2)            // Nyquist, see below
- *   ms     = clamp(max(target, rateLimitFloor), MIN, MAX)
+ *   ms     = max(clamp(target, MIN, MAX), rateLimitFloor)
  *
  * ── The clamp order is load-bearing ────────────────────────────────────────
  *
- * `max(target, rateLimitFloor)` happens BEFORE the MIN clamp, never after.
- * Reversed, a provider floor of 45 s would be pulled back down to the 20 s
- * minimum, and adaptive refresh would become a way to *increase* call volume
- * against a free tier — the exact failure this pairing exists to prevent. The
- * limiter is an invariant applied last, not one candidate among several.
+ * MIN and MAX bound the *target* — what we would like. The rate-limit floor is
+ * applied afterwards and is deliberately **unbounded above**: it may exceed
+ * MAX_REFRESH_MS.
+ *
+ * Getting this backwards (clamping after the floor) is not a rounding detail,
+ * it silently defeats the component. A provider that can sustain one call every
+ * three hours would be polled hourly regardless, and adaptive refresh would
+ * overspend a free tier faster than the flat TTL it replaced. The ceiling is a
+ * freshness preference; the budget is a constraint; a constraint that yields to
+ * a preference is decoration.
  *
  * ── urgency ────────────────────────────────────────────────────────────────
  *
@@ -137,20 +142,31 @@ export function refreshIntervalFor(inputs: RefreshInputs): RefreshInterval {
 
   const targetMs = target;
 
-  // The limiter is applied after the target is settled and before the bounds.
-  // Nothing below may pull the interval back under it — see the header.
+  // MIN/MAX bound what we *want*, not what the provider permits.
   let ms = target;
-  if (inputs.rateLimitFloorMs > ms) {
-    ms = inputs.rateLimitFloorMs;
-    boundBy = 'rate-limit';
-  }
-
   if (ms < MIN_REFRESH_MS) {
     ms = MIN_REFRESH_MS;
     boundBy = 'floor';
   } else if (ms > MAX_REFRESH_MS) {
     ms = MAX_REFRESH_MS;
     boundBy = 'ceiling';
+  }
+
+  // The limiter is applied LAST and is unbounded above — it can and must push
+  // past MAX_REFRESH_MS.
+  //
+  // Clamping it would invert the whole component: a provider that sustains one
+  // call every three hours would be polled hourly anyway, and "adaptive
+  // refresh" would become a way to overspend a free tier faster than the flat
+  // TTL it replaced. The ceiling is a freshness *preference*; the budget is a
+  // constraint, and a constraint that yields to a preference is decoration.
+  //
+  // The honest consequence is that data can legitimately be hours old. That is
+  // reported as `rate-limit` rather than hidden, so the UI can say the number
+  // is stale instead of quietly showing a stale number.
+  if (inputs.rateLimitFloorMs > ms) {
+    ms = inputs.rateLimitFloorMs;
+    boundBy = 'rate-limit';
   }
 
   return {
