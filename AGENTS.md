@@ -41,6 +41,7 @@ carrier, and stop safely when it cannot.
 | `tools/` | One-off scripts that are not part of either app |
 | `zkd-app/` | Next.js web app. Routes: `/flights`, `/flights/[id]`, `/prepare/[id]`, `/recovery/[id]`, `/profile`, `/settings`, `/history`, `/how-it-works`, `/ops` |
 | `zkd-android/` | Expo / React Native Android app (subset of the web app: 4 screens) |
+| `zkd-risk-model/` | The real, self-trained cancellation-prediction model — data, features, training, serving, AWS Terraform |
 | `ZKD Website/` | Production builds of the three demo sites + `serve.js` (ports 5173/5174/5175) |
 | `README.md`, `context.md`, `memory.md` | Kept at the root deliberately — landing page, fast orientation, and the running decision record |
 | `iropssim.py` | Monte Carlo simulator behind every `sim`-tier number. Stays at the root because the metrics site cites `python iropssim.py` as its reproduction command |
@@ -48,10 +49,12 @@ carrier, and stop safely when it cannot.
 ## House rules
 
 - No GPU is on the critical path; supplier API rate limits are the binding constraint, not compute.
-- The disruption forecast is **bought, not built** — Lumo (thinklumo.com), mocked until a commercial
-  key exists and advisory until back-tested. Never present a mocked number as a vendor one; every
-  forecast carries `source: 'lumo' | 'mock'`. Thresholds adapt per flight; they are not fixed at
-  25/55/80. The confirmation window is derived from supplier offer expiry, not a flat 90 seconds.
+- The disruption forecast is **built, not bought** (2026-08-14) — a real, self-trained model in
+  `zkd-risk-model/`, no vendor call, no mock fallback. Every forecast carries
+  `source: 'internal-ml'` and a `modelVersion`; see `documentation/design/05-cancellation-risk-model.md`.
+  Thresholds adapt per flight, externalized to `zkd-app/config/risk-thresholds.json`; they are not
+  fixed at 25/55/80. The confirmation window is derived from supplier offer expiry, not a flat 90
+  seconds.
 - No live supplier integrations exist; Duffel / LiteAPI sandboxes are the intended proving ground.
 - Safety rests on the WAIT / consent gate and a default-deny policy layer. Quote numbers with
   their evidence tier (`verified` / `calc` / `sim` / `assumed` / `budget` / `deck`).

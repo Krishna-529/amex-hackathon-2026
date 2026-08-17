@@ -1,0 +1,17 @@
+[
+  "carrier_hist_cancel_rate",
+  "route_hist_cancel_rate",
+  "origin_hist_cancel_rate",
+  "dest_hist_cancel_rate",
+  "origin_month_hist_cancel_rate",
+  "month",
+  "day_of_week",
+  "hour_of_day",
+  "is_redeye",
+  "is_weekend",
+  "distance_km",
+  "sched_duration_min",
+  "origin_hour_density",
+  "prior_leg_cancelled",
+  "international"
+]

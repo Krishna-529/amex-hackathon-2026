@@ -1,0 +1,21 @@
+{
+  "_comment": "Synthetic-market reference data for server/suppliers/mockFlights.ts — the fallback generator used when a real supplier (Duffel/Sabre) has no key or returns empty for a route. Carrier codes, names and typical fleet are real-world facts (public airline registries); the OFFERS built from this table are not — every offer is clearly flagged live:false at the point it is produced. Fares are illustrative bands, not filed tariffs.",
+  "domestic": [
+    { "code": "AI", "name": "Air India", "country": "India", "aircraft": ["A320neo", "A321neo", "B787-8", "B777-300ER"], "fareIndexPerKm": 5.8, "minFare": 2800 },
+    { "code": "6E", "name": "IndiGo", "country": "India", "aircraft": ["A320neo", "A321neo", "ATR72-600"], "fareIndexPerKm": 4.6, "minFare": 2200 },
+    { "code": "UK", "name": "Vistara", "country": "India", "aircraft": ["A320neo", "A321neo", "B787-9"], "fareIndexPerKm": 6.1, "minFare": 3100 },
+    { "code": "SG", "name": "SpiceJet", "country": "India", "aircraft": ["B737-800", "Q400"], "fareIndexPerKm": 4.3, "minFare": 2100 },
+    { "code": "QP", "name": "Akasa Air", "country": "India", "aircraft": ["B737-8"], "fareIndexPerKm": 4.4, "minFare": 2150 },
+    { "code": "I5", "name": "AirAsia India", "country": "India", "aircraft": ["A320neo"], "fareIndexPerKm": 4.2, "minFare": 2000 }
+  ],
+  "international": [
+    { "code": "BA", "name": "British Airways", "country": "United Kingdom", "aircraft": ["B787-9", "A350-1000", "B777-200ER"], "fareIndexPerKm": 9.5, "minFare": 32000 },
+    { "code": "EK", "name": "Emirates", "country": "United Arab Emirates", "aircraft": ["A380-800", "B777-300ER"], "fareIndexPerKm": 8.9, "minFare": 28000 },
+    { "code": "LH", "name": "Lufthansa", "country": "Germany", "aircraft": ["A340-600", "B747-8", "A350-900"], "fareIndexPerKm": 9.1, "minFare": 30000 },
+    { "code": "SQ", "name": "Singapore Airlines", "country": "Singapore", "aircraft": ["A350-900", "B787-10"], "fareIndexPerKm": 9.3, "minFare": 31000 },
+    { "code": "QR", "name": "Qatar Airways", "country": "Qatar", "aircraft": ["A350-1000", "B777-300ER"], "fareIndexPerKm": 8.7, "minFare": 27000 },
+    { "code": "AF", "name": "Air France", "country": "France", "aircraft": ["B777-300ER", "A350-900"], "fareIndexPerKm": 9.0, "minFare": 29500 }
+  ],
+  "cabinsByRank": ["Economy", "Premium Economy", "Business", "First"],
+  "cabinMultiplier": { "Economy": 1, "Premium Economy": 1.7, "Business": 3.4, "First": 5.8 }
+}

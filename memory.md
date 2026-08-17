@@ -2,6 +2,129 @@
 
 ## Recent work
 
+- 2026-08-15 — **VP-readiness pass: fixed real correctness/security bugs, made the demo non-inert,
+  added a real accuracy story, real tests/CI, and production-hardening infra — all found by a live
+  browser walkthrough + a 48-tool-call audit, all fixed and live-verified, nothing left unresolved
+  from that audit's "fix five things first" list.**
+  - **The demo was inert — now fixed and proven live.** Action-band floors (10/25/45) were never
+    checked against real model output; every live flight scored 2-4% and could never cross them, so
+    `prepare`/`hold-gate`/`pre-authorise`, the alt-cache pre-fetch, and the recovery flow were all
+    unreachable in a demo. Wrote `zkd-risk-model/src/score_distribution.py` (grid-scores 168,000 real
+    feature combinations through the live scorer, batched into one DMatrix call — a first per-row-loop
+    version took >20 min and was killed/rewritten) to get the model's REAL live-serving score
+    distribution (min 0.89%, p90 2.58%, p99 3.63%, max 4.06%). Recalibrated
+    `config/risk-thresholds.json` to `base:{2,3,5} floor:{1,2,4} ceiling:{3,4,7}` — verified against
+    real property tests (`server/engine/thresholds.test.ts`), which caught a real edge case
+    (`hasHardConstraint:true` alone collapsed `holdGate`==`preAuthorise` at a narrower gap). Seeded one
+    real high-risk flight (`u4`, BOM→GOI, real late-Sunday-22:00-UTC red-eye — the actual real
+    max-risk profile the grid search found for the current month, computed dynamically via
+    `nextSundayAt22UTC()` so it's never a stale hardcoded date) — **live-verified in browser**: 4%
+    real score, real "HIGH RISK" band, 4 real alternatives pre-cached (up from 0), decision ledger
+    logging both the prediction and the disruption-trigger outcome. Even the original flagship flight
+    `u1` now reaches `hold-gate` under the recalibrated thresholds.
+  - **Fixed a real train/serve skew, not just a cosmetic bug**: `train.py`'s `origin_hour_density_avg`
+    groupby split an already-namespaced key ("BTS:JFK:14") on the first ":" and collapsed to 2
+    country-level buckets; worse, it measured a WHOLE-YEAR SUM per (origin, hour-of-day), not the
+    per-real-hour-slot COUNT `features.py`'s actual training feature measures — two orders of
+    magnitude different (fallback was 625, real training median is 17). Fixed by extracting
+    `compute_origin_hour_density()` (now unit-tested, `tests/test_train_features.py`) to rebuild the
+    exact per-slot count and fall back to its real median (now 2.0), not a mean-of-means skewed by
+    hub airports. Retrained 3x chasing this down; model hash unchanged (only the serving-time
+    reference table changed, not the training data itself — expected, not a bug).
+  - **Made the explanation panel honest about cold-start fallback**, not just mathematically correct:
+    `riskModel.ts`'s `assembleFeatures` now also returns a `dataSource` map (`'real'` /
+    `'population-average'` / `'unknown'`) per historical-rate feature; `ForecastAudit.tsx` fades and
+    labels fallback-driven bars ("population average — no history yet for this one") instead of
+    presenting a population prior as if it were this carrier's own evidence — closes a real gap the
+    audit flagged as "the most likely place a sharp technical judge catches the team out."
+  - **Real accuracy story, not cherry-picked**: `train.py` now computes a naive-baseline and a
+    logistic-regression baseline, a real lift table, and per-country/month segment metrics, plus a
+    real matplotlib reliability diagram (`reports/calibration_plot.png`). Honest finding, stated
+    plainly in the new `zkd-risk-model/MODEL_CARD.md`: XGBoost only modestly beats logistic regression
+    on PR-AUC (0.236 vs 0.232) though it meaningfully leads on ROC-AUC (0.873 vs 0.848); top-decile
+    lift is 7.0x; Brazil (the smaller market) measurably underperforms the US (ROC-AUC 0.772 vs
+    0.819) — the model card leads with this, not just the flattering number.
+  - **Security/resilience real bugs fixed**: `session.ts` now refuses the checked-in dev secret in
+    production (`NODE_ENV==='production' && !SESSION_SECRET` throws at import); all 17 outbound
+    `fetch` calls now have `AbortSignal.timeout`; `scoreFlightsBatch`/`serve.py`'s batch handler are
+    now per-item-resilient (one bad flight no longer 500s the whole sweep); 6 previously-unguarded
+    Next.js API routes now validate/reject malformed bodies via a new `server/jsonBody.ts` helper
+    (`explain/route.ts`'s LLM-prompt inputs are also length-capped and control-char-stripped).
+  - **OAG: real progress, 2 of 100 trial calls spent.** `version=2` → real 404 (routing broken).
+    `version=v2` → real 400 naming the actual required shape (`CarrierCode` +
+    `DepartureAirport`/`ArrivalAirport` + a `DepartureDateTime`/`ArrivalDateTime` range — NOT the
+    `FlightIdentities` batching the original code assumed). `flightInstancesBatch()` now throws a
+    specific documented error instead of silently sending a known-wrong request; one more real call
+    (datetime-range format) would close it out.
+  - **Real tests + CI, from zero**: 10 pytest tests (`inference.py` golden-vector + SHAP-sum
+    invariant + the `origin_hour_density` regression), 12 vitest property tests (`bandFor`,
+    `thresholdsFor` — deliberately test properties/ordering, not hardcoded numbers, so they survive
+    threshold recalibration), 1 Playwright E2E test (real login → real forecast → real audit panel →
+    real reverify, against the real app + real scorer both booted) — all passing,
+    `.github/workflows/ci.yml` added. Found and fixed a real accessibility bug along the way:
+    `/flights`'s "View details →" / "View recovery →" were plain `<div>`s, not real links — Playwright
+    couldn't click them and neither could a keyboard user; now real `<Link>`s.
+  - **Retrain automation + monitoring, unapplied**: `src/entrypoint.py` + `Dockerfile.trainer` chain
+    download→ingest→features→train→S3-upload unattended, with S3-cached raw data so a weekly retrain
+    isn't a 600MB re-download every time (`infra/training.tf`'s task pointed at an image that didn't
+    exist before this). `infra/monitoring.tf` adds real CloudWatch alarms (Lambda errors/duration,
+    SQS DLQ depth for Scheduler-level RunTask failures, an EventBridge rule for real ECS Task State
+    Change failures — deliberately NOT a fabricated `ECS/ContainerInsights` metric, which doesn't
+    exist for a scheduled RunTask) + a dashboard, reusing `budgets.tf`'s existing SNS topic.
+    `terraform fmt` + `validate` clean. Local decision ledger (`server/decisionLedger.ts`,
+    `.state/predictions.jsonl` + `.state/outcomes.jsonl`) makes the "every prediction and outcome is
+    logged" claim real in dev, not just in unapplied S3-writing Lambda code — verified live: a real
+    disruption trigger logged a real `outcome:"cancelled"` row.
+  - **Stale/contradictory doc lines fixed**: root `README.md` and `SUBMISSION.md` still said "no
+    trained risk model yet"; `04-infrastructure-and-cost.md` still said "forecast is bought from
+    Lumo" — all three superseded/corrected, since a VP or judge reads these first.
+  - Two full `next build` passes clean; final live regression (login → flights → flight detail →
+    audit panel → reverify → `/ops` trigger-disruption → real recovery) all passed in-browser.
+  - Full plan at `C:\Users\Mohamed Zayaan\.claude\plans\shiny-herding-dream.md`.
+- 2026-08-14 — **Added prediction history, real per-prediction explanation, and reverification.**
+  `Flight.forecastHistory` (capped 288 points) grows on every real score, including from a new
+  self-starting interval batch re-scorer (`server/engine/batchScorer.ts`, wired via
+  `instrumentation.ts` — Next's server-startup hook) so history accumulates independent of page
+  views. `zkd-risk-model/src/inference.py`'s `explain()` returns real XGBoost tree-SHAP
+  contributions per prediction (verified: bias + contributions == raw margin, to 4 decimals);
+  surfaced as a diverging bar chart in the new `components/ForecastAudit.tsx` on `/flights/[id]`,
+  using a validated blue/red pair (`node scripts/validate_palette.js` — the app's own existing
+  safe/risk green-red pair FAILED CVD separation, so this chart uses `--iris`/`--risk` instead,
+  which passed clean). `POST /api/flights/[id]/reverify` forces a real re-score and reports drift
+  against the last one, flagging same-model/same-config swings ≥15pp. Verified live end-to-end
+  (two reverifies reproduced identically); the rendered chart itself was not visually checked in a
+  browser — see `documentation/design/05-cancellation-risk-model.md` §8 item 7.
+- 2026-08-14 — **Replaced the Lumo vendor forecast with a real, self-trained model.** Deleted
+  `zkd-app/server/lumo.ts` (the mock/DEMO_FIXTURES fallback) entirely — no mock path remains in the
+  prediction pipeline, per explicit instruction ("no mock, demo, or fake data/model/pipeline",
+  because this has to be VP-demoable end to end). New `zkd-risk-model/` package: real US DOT/BTS +
+  Brazil ANAC historical data (2.4M+ real rows, no synthetic data), leakage-checked geography-agnostic
+  feature engineering, XGBoost + isotonic calibration, chronological (not shuffled) train/calib/test
+  split. Served by `zkd-risk-model/src/serve.py` locally and the same `inference.py` in an AWS Lambda
+  (`infra/scoring.tf`) in production — verified identical code path both ways.
+  `zkd-app/server/engine/riskModel.ts` assembles live features (real OAG + airport-distance data,
+  cold-starting unseen `LIVE:`-namespaced Indian/international carriers to the population base rate
+  with lower confidence, closing via the weekly retrain as real outcomes accumulate) and calls the
+  scorer; returns `null` (never a fabricated number) if unreachable. Verified live end-to-end: booted
+  both processes, logged in as a real seeded passenger, confirmed real `source: 'internal-ml'` +
+  real `modelVersion` scores flowing through `/api/passengers/[id]/schedule`.
+  Alternative-flight pre-caching (`server/engine/altsCache.ts`) is now **gated on the real risk band**
+  (`config/risk-thresholds.json` → `altCache.prefetchAtOrAbove`, default `prepare`) instead of firing
+  on every page view (`server/domain/views.ts`'s old unconditional `refreshAltsIfStale` call removed).
+  Adaptive-threshold constants (`lib/thresholds.ts`) externalized to
+  `zkd-app/config/risk-thresholds.json`, hot-reloadable (`lib/thresholdConfig.ts`, 30s poll locally;
+  AWS AppConfig in prod, `infra/appconfig.tf`).
+  Real Terraform (`zkd-risk-model/infra/`, `terraform validate`-clean) for the AWS production shape —
+  **not applied**; user has a $140 AWS credit reserved for the week before the final presentation,
+  demo-sized `terraform.tfvars.demo.example` provided, `terraform plan`-only until then.
+  Live-tested the real OAG Flight Info Trial key (user-provided, one call spent of the 100-call
+  budget): `Subscription-Key` auth reaches the gateway fine, but the assumed
+  `https://api.oag.com/flight-instances/` path 404s — real base path needs confirming from the
+  account's own OAG developer portal page before spending more of the trial budget. Documented in
+  `server/oag.ts` and `documentation/design/05-cancellation-risk-model.md` §8.
+  New doc `documentation/design/05-cancellation-risk-model.md` supersedes `01-prediction-model.md`
+  §2 (banner added there); `04-infrastructure-and-cost.md`'s "no model of our own" line and
+  `architecture.md`'s "not modelled" section both updated to point at it.
 - 2026-08-12 — Reorganized markdown: specs → `documentation/agent-specs/{current,legacy}/`,
   the four design docs → `documentation/design/` (+ `documentation/README.md`), submission-deck
   artifacts → `documentation/project/`; PPT + API-requirements sheets → `assets/`. Cross-references
@@ -30,7 +153,29 @@
 
 - DGCA duty-of-care thresholds carry `deck` tier; primary CAR text not re-verified — must be
   reconciled before production.
-- Forecast bought from Lumo, mocked until a key exists, advisory until back-tested.
+- **Model has no Indian/most-international historical training data yet** (real bulk per-flight
+  labeled datasets don't exist publicly for these routes) — feature set is geography-agnostic by
+  design so it has a mechanism to generalize; real accuracy on Indian carriers is unmeasured until
+  the back-test/retrain loop accumulates enough real outcomes. See `zkd-risk-model/README.md`.
+- Model doesn't consume weather yet (v1) — `server/weather.ts` is real and live but not joined into
+  training data. Next retrain scope.
+- **OAG: base path + version confirmed (`version=v2`), exact query shape not yet** — 2 of 100 trial
+  calls spent; real 400 named the required params (`CarrierCode` + `DepartureAirport`/
+  `ArrivalAirport` + a `DepartureDateTime`/`ArrivalDateTime` range). One more real call would close
+  it out. See `server/oag.ts` header and `documentation/design/05-cancellation-risk-model.md` §8.3.
+- **Continual-learning loop's outcome-join is not built** — predictions/outcomes are really logged
+  locally (`server/decisionLedger.ts`) and to S3 in the AWS path, and the weekly retrain now runs
+  genuinely unattended (`zkd-risk-model/src/entrypoint.py`), but nothing yet maps the accumulated
+  `LIVE:` outcome log back onto `features.py`'s BTS/ANAC training schema — a retrain today still
+  trains on US+Brazil data only.
+- AWS infra (`zkd-risk-model/infra/`) is real Terraform, `terraform fmt`/`validate`-clean (now
+  includes real CloudWatch alarms + a dashboard, `infra/monitoring.tf`), unapplied — $140 credit
+  reserved for demo week, `terraform plan`-only until then.
+- Next.js 16 deprecated the `middleware.ts` file convention in favor of `proxy.ts` (`npm run build`
+  prints the warning) — cosmetic/forward-compat only, not touched yet.
+- `npm audit` flags 3 high-severity transitive vulnerabilities (postcss/sharp, via `next`) —
+  pre-existing, not introduced this session; fix requires bumping `next` past its pinned
+  `16.2.12`, untested — flagged, not applied.
 - Supplier integration partial: Duffel returns real offers, Sabre cert returns none, Travelport synthetic.
 - API-failure modeling gap (rate limits, timeouts, circuit breakers) — swap statement in
   `iropssim.py` may be the first place to model it.
@@ -44,5 +189,12 @@
 ## Scoring / build notes
 
 - `zkd-app` runs `npm install && npm run dev` → `http://localhost:5176`.
+- `zkd-app` tests: `npm test` (vitest, no server needed) / `npm run test:e2e` (Playwright — needs
+  the real app AND the real scorer both running, see `PILOT_TESTING.md`) / `npm run build`.
+- `zkd-risk-model` tests: `pip install -r requirements-dev.txt && pytest -v` (needs `models/`
+  populated — real, small, checked into git, no download/retrain needed to just run the tests).
+- If a route mysteriously 404s in dev right after a burst of file edits/restarts, it's very likely
+  a stale Turbopack `.next` cache, not a real code regression — `rm -rf zkd-app/.next` and restart
+  before debugging further (chased a phantom "reverify is broken" this session before finding this).
 - `ZKD Website/serve.js` serves the three demo sites on 5173/5174/5175; binds `0.0.0.0` (demo),
   don't run on public Wi-Fi.

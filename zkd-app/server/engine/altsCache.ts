@@ -13,15 +13,23 @@ import { searchInventory } from '../suppliers';
 import { fetchProfile } from '../myca';
 import { offersToAlts, carrierProtectedAlt } from '../domain/altsFromOffers';
 import { maxPartyOnFlight } from './forecast';
+import { getThresholdConfig } from '@/lib/thresholdConfig';
+import { effectiveAltTtlMs } from './rescoreTiming';
 import * as store from '../domain/store';
 import type { Flight } from '../domain/types';
 
-const TTL_MS = 10 * 60 * 1000;
-
 const inFlight = new Map<string, Promise<void>>();
 
+/** config/risk-thresholds.json's altCache.ttlMs, read live and scaled down as
+ *  departure approaches (rescoreTiming.ts's effectiveAltTtlMs — inventory
+ *  churns faster close in, so the same absolute staleness matters more) —
+ *  this is the same TTL that gates when a stale cache is worth refreshing at
+ *  all; a hardcoded constant here would silently defeat the config file's
+ *  whole stated purpose ("ops can retune... without a redeploy") even though
+ *  every other alt-cache knob already goes through it. */
 export function isAltsStale(flight: Flight): boolean {
-  return !flight.altsAsOf || Date.now() - flight.altsAsOf > TTL_MS;
+  const ttlMs = effectiveAltTtlMs(flight, getThresholdConfig());
+  return !flight.altsAsOf || Date.now() - flight.altsAsOf > ttlMs;
 }
 
 /**
@@ -39,11 +47,11 @@ export function refreshAlts(flightId: string): Promise<void> {
 }
 
 async function compute(flightId: string): Promise<void> {
-  const flight = store.getFlight(flightId);
+  const flight = await store.getFlight(flightId);
   if (!flight) return;
 
   const date = flight.depISO.slice(0, 10);
-  const partySize = maxPartyOnFlight(flightId);
+  const partySize = await maxPartyOnFlight(flightId);
 
   const [{ offers }, profile] = await Promise.all([
     searchInventory({ origin: flight.from, destination: flight.to, departureDate: date }),
@@ -64,6 +72,10 @@ async function compute(flightId: string): Promise<void> {
 
   flight.candidates.alts = protectedAlt ? [protectedAlt, ...market] : market;
   flight.altsAsOf = Date.now();
+  // Persist — see forecast.ts's applyScore for why createFlight() (an
+  // upsert-on-id) is the write-back call here rather than a mutation on a
+  // shared in-memory reference.
+  await store.createFlight(flight);
 }
 
 /**

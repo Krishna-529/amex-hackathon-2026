@@ -16,6 +16,26 @@ type RawRate = {
   roomTypes: { offerRetailRate: { amount: number; currency: string } }[];
 };
 
+/**
+ * OpenFlights stores country names, LiteAPI wants ISO-3166 alpha-2. Only the
+ * countries the demo can actually reach are mapped; anything else falls
+ * through to the two-letter prefix, which LiteAPI rejects cleanly rather
+ * than silently searching the wrong country. Shared by app/api/hotels/route.ts
+ * and server/engine/groundCache.ts so there is one mapping, not two.
+ */
+export function countryCodeFor(country: string): string {
+  const map: Record<string, string> = {
+    India: 'IN', 'United Kingdom': 'GB', 'United States': 'US', France: 'FR', Germany: 'DE',
+    Netherlands: 'NL', Singapore: 'SG', 'United Arab Emirates': 'AE', Australia: 'AU', Japan: 'JP',
+  };
+  return map[country] ?? country.slice(0, 2).toUpperCase();
+}
+
+export function nationalityCode(nationality: string): string {
+  const map: Record<string, string> = { Indian: 'IN', British: 'GB', American: 'US' };
+  return map[nationality] ?? 'IN';
+}
+
 export async function searchHotels(params: {
   cityName: string;
   countryCode: string;
@@ -29,7 +49,7 @@ export async function searchHotels(params: {
 
   try {
     const listUrl = `https://api.liteapi.travel/v3.0/data/hotels?countryCode=${encodeURIComponent(params.countryCode)}&cityName=${encodeURIComponent(params.cityName)}`;
-    const listRes = await fetch(listUrl, { headers: { 'X-API-Key': key }, cache: 'no-store' });
+    const listRes = await fetch(listUrl, { headers: { 'X-API-Key': key }, cache: 'no-store', signal: AbortSignal.timeout(10000) });
     if (!listRes.ok) return [];
     const listJson = (await listRes.json()) as { data: RawHotel[] };
     const candidates = (listJson.data ?? []).slice(0, 8);
@@ -38,6 +58,7 @@ export async function searchHotels(params: {
     const ratesRes = await fetch('https://api.liteapi.travel/v3.0/hotels/rates', {
       method: 'POST',
       headers: { 'X-API-Key': key, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(10000),
       body: JSON.stringify({
         hotelIds: candidates.map((h) => h.id),
         checkin: params.checkin,

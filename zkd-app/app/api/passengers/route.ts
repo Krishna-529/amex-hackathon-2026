@@ -7,8 +7,9 @@ import { ensureSeeded } from '@/server/domain/seed';
 // tiers to anyone — never a passport, contact detail or PNR — and stays open
 // only because /ops needs it.
 export async function GET() {
-  ensureSeeded();
+  await ensureSeeded();
+  const passengers = await store.listPassengers();
   return NextResponse.json(
-    store.listPassengers().map((p) => ({ id: p.id, displayName: p.displayName, consent: p.consent })),
+    passengers.map((p) => ({ id: p.id, displayName: p.displayName, consent: p.consent })),
   );
 }

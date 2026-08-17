@@ -84,10 +84,13 @@ airport overnight.
 
 ## Known limitations, stated plainly
 
-- **No commercial forecast key yet.** The disruption forecast is bought from Lumo rather than
-  built; without a key it runs on a labelled mock. It is advisory until back-tested against
-  outcomes on our own routes. Accuracy is not claimed, and the vendor's claims are not repeated
-  as ours.
+- **No Indian/international training data yet.** The disruption forecast is a real, self-trained
+  model (`zkd-risk-model/`, XGBoost on real US DOT/BTS + Brazil ANAC data — see
+  `documentation/design/05-cancellation-risk-model.md`), not a vendor call and not a mock. It has
+  not yet seen labeled outcomes for Indian/most-international routes, so those cold-start to the
+  population base rate with reduced confidence until the retrain loop accumulates real outcomes.
+  It remains advisory: it decides when we start preparing, never whether we spend the member's
+  money.
 - **No self-serve booking.** The member cannot book a flight, hotel, cab or cruise
   *through* the product — every PNR in the system is seeded, standing in for a
   booking made elsewhere (a travel agent, an airline site, a card concierge desk).

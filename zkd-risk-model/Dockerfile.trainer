@@ -1,0 +1,24 @@
+# Fargate Spot image for infra/training.tf's weekly retrain task.
+# Not the Lambda base (Dockerfile.scorer) — this runs as a real ECS task,
+# not a Lambda invocation, so a plain Python base image is the right one.
+# Build & push to the ecr_trainer_repo output before the first scheduled run
+# — see infra/README.md.
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends bash ca-certificates curl unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ src/
+
+# data/models/reports directories are created fresh in the container each
+# run — this is a stateless task; DATA_LAKE_BUCKET/MODEL_BUCKET (see
+# training.tf's environment block) are what make real data/model artifacts
+# persist across runs, not the container filesystem.
+RUN mkdir -p data/raw data/processed models reports
+
+CMD ["python", "src/entrypoint.py"]

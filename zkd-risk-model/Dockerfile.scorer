@@ -1,0 +1,11 @@
+# Lambda container image for infra/scoring.tf's batch_scorer / event_scorer.
+# Build & push: see zkd-risk-model/README.md.
+FROM public.ecr.aws/lambda/python:3.12
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/inference.py src/handler.py ${LAMBDA_TASK_ROOT}/
+COPY models/cancellation_model.json models/calibrator_isotonic.npz models/feature_columns.json models/entity_rates.json ${LAMBDA_TASK_ROOT}/models/
+
+CMD ["handler.batch_score"]

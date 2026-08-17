@@ -1,0 +1,61 @@
+{
+  "_comment": "Synthetic-market reference data for server/mockHotels.ts — the fallback used when LiteAPI has no key or returns empty for a city. Property/area names follow the same 'plausible, clearly-fictional' convention server/domain/seed.ts already uses for its own seeded rows (e.g. 'Andaz Delhi Aerocity'). Nightly rates are illustrative bands in INR, not filed tariffs. Keyed by the OpenFlights city name (server/airportDirectory.ts's Airport.city) so a destination IATA resolves straight to a row.",
+  "cities": {
+    "Chennai": [
+      { "name": "Taj Coromandel", "area": "Nungambakkam · 12 min from MAA", "star": 5, "nightlyRate": 9800 },
+      { "name": "ITC Grand Chola", "area": "Guindy · 18 min from MAA", "star": 5, "nightlyRate": 11200 },
+      { "name": "Ibis Chennai OMR", "area": "OMR · 25 min from MAA", "star": 3, "nightlyRate": 4200 },
+      { "name": "Radisson Blu Chennai Airport", "area": "GST Road · 6 min from MAA", "star": 4, "nightlyRate": 6800 }
+    ],
+    "Delhi": [
+      { "name": "Andaz Delhi Aerocity", "area": "Aerocity · 8 min from DEL T3", "star": 5, "nightlyRate": 12500 },
+      { "name": "Roseate House", "area": "Aerocity · 10 min from DEL T3", "star": 5, "nightlyRate": 10400 },
+      { "name": "The Leela Palace", "area": "Chanakyapuri · 40 min from DEL T3", "star": 5, "nightlyRate": 21000 },
+      { "name": "Novotel New Delhi Aerocity", "area": "Aerocity · 9 min from DEL T3", "star": 4, "nightlyRate": 7600 },
+      { "name": "Ibis New Delhi Aerocity", "area": "Aerocity · 9 min from DEL T3", "star": 3, "nightlyRate": 4600 }
+    ],
+    "Mumbai": [
+      { "name": "Taj Santacruz", "area": "Santacruz · 5 min from BOM T2", "star": 5, "nightlyRate": 13200 },
+      { "name": "The Leela Mumbai", "area": "Andheri East · 7 min from BOM T2", "star": 5, "nightlyRate": 15800 },
+      { "name": "Ibis Mumbai Airport", "area": "Kurla · 12 min from BOM", "star": 3, "nightlyRate": 4800 },
+      { "name": "Novotel Mumbai Juhu", "area": "Juhu · 15 min from BOM", "star": 4, "nightlyRate": 8100 }
+    ],
+    "Bangalore": [
+      { "name": "Ibis Bengaluru Airport", "area": "Airport area · 12 min", "star": 3, "nightlyRate": 4400 },
+      { "name": "Trinity Hometel", "area": "Airport area · 15 min", "star": 3, "nightlyRate": 5200 },
+      { "name": "Taj Bangalore", "area": "Vittal Mallya Road · 40 min", "star": 5, "nightlyRate": 12800 },
+      { "name": "Radisson Blu Bengaluru", "area": "Marathahalli · 22 min", "star": 4, "nightlyRate": 7200 }
+    ],
+    "Goa": [
+      { "name": "Taj Fort Aguada Resort", "area": "Candolim · 35 min from GOI", "star": 5, "nightlyRate": 16400 },
+      { "name": "Novotel Goa Resort", "area": "Candolim · 32 min from GOI", "star": 4, "nightlyRate": 8900 },
+      { "name": "Ginger Goa Panjim", "area": "Panjim · 28 min from GOI", "star": 3, "nightlyRate": 4100 }
+    ],
+    "Kolkata": [
+      { "name": "ITC Sonar", "area": "EM Bypass · 20 min from CCU", "star": 5, "nightlyRate": 9600 },
+      { "name": "Novotel Kolkata Hotel & Residences", "area": "New Town · 25 min from CCU", "star": 4, "nightlyRate": 6400 }
+    ],
+    "Hyderabad": [
+      { "name": "Taj Krishna", "area": "Banjara Hills · 30 min from HYD", "star": 5, "nightlyRate": 10200 },
+      { "name": "Novotel Hyderabad Airport", "area": "Shamshabad · 5 min from HYD", "star": 4, "nightlyRate": 6900 }
+    ],
+    "London": [
+      { "name": "Sofitel London Heathrow", "area": "Terminal 5 · connected", "star": 5, "nightlyRate": 24000 },
+      { "name": "Hilton London Heathrow T4", "area": "Terminal 4 · connected", "star": 4, "nightlyRate": 16500 },
+      { "name": "Premier Inn London Heathrow T4", "area": "Terminal 4 · 5 min", "star": 3, "nightlyRate": 9800 }
+    ],
+    "Singapore": [
+      { "name": "Crowne Plaza Changi Airport", "area": "Terminal 3 · connected", "star": 5, "nightlyRate": 18500 },
+      { "name": "Aerotel Singapore", "area": "Terminal 1 · transit hotel", "star": 3, "nightlyRate": 8200 }
+    ],
+    "Dubai": [
+      { "name": "Le Meridien Dubai Airport", "area": "Garhoud · 5 min from DXB", "star": 5, "nightlyRate": 19500 },
+      { "name": "Premier Inn Dubai Airport", "area": "Garhoud · 6 min from DXB", "star": 4, "nightlyRate": 9200 }
+    ]
+  },
+  "genericFallback": [
+    { "name": "Ibis Airport Transit Hotel", "area": "Airport area", "star": 3, "nightlyRate": 4500 },
+    { "name": "Novotel Airport Hotel", "area": "Airport area", "star": 4, "nightlyRate": 7200 },
+    { "name": "Airport Grand Suites", "area": "Airport area", "star": 5, "nightlyRate": 12000 }
+  ]
+}

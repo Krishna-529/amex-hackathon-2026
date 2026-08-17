@@ -1,10 +1,11 @@
 import type {
   Alt, HotelOpt, CabOpt, CabLeg, Consent, PastFlight, DisruptionResolution, RecoveryTaskPhase,
-  FlightForecast, TravellerType,
+  FlightForecast, FlightForecastSnapshot, TravellerType,
 } from '@/server/domain/types';
 import type { PartyAlt } from '@/server/domain/altsForParty';
 import type { PartyCost } from '@/server/domain/pricing';
-import type { RecoveryView } from '@/server/engine/simulation';
+import type { ReverifyResult } from '@/server/engine/forecast';
+export type { ReverifyResult };
 import type { Classification } from './disruptionKind';
 import type { CareItem } from './entitlement';
 import type { Jurisdiction } from '@/server/airportDirectory';
@@ -64,7 +65,7 @@ export type CareResponse = {
 
 // --- Domain API (server-authoritative multi-flight/multi-passenger model) ---
 export type {
-  DisruptionResolution, RecoveryView, FlightForecast, Offer, SupplierId, SupplierStatus,
+  DisruptionResolution, FlightForecast, FlightForecastSnapshot, Offer, SupplierId, SupplierStatus,
   PartyAlt, PartyCost,
 };
 
@@ -91,6 +92,9 @@ export type FlightDetail = FlightSummary & {
   connectionSlackMinutes: number | null;
   hasHardConstraint: boolean;
   rescheduledToISO?: string;
+  /** every real score this flight has received, oldest first — what the
+   *  audit graph plots. Empty until the first refresh/reverify/batch tick. */
+  forecastHistory: FlightForecastSnapshot[];
   /** the viewer's own row only, never a co-passenger's */
   bookings: { id: string; passengerId: string; passengerName: string; seat: string; pnr: string; partySize: number }[];
 };

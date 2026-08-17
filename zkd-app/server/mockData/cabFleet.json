@@ -1,0 +1,11 @@
+{
+  "_comment": "Synthetic-market reference data for server/mockCabs.ts. No real ground-transfer supplier is wired (UBER_API_KEY in .env.example is unused) — this generator is the only source for candidates.cabs today, always flagged non-live.",
+  "vehicles": [
+    { "kind": "Hatchback", "seats": 3, "baseFare": 250, "perKm": 14 },
+    { "kind": "Sedan", "seats": 3, "baseFare": 350, "perKm": 18 },
+    { "kind": "SUV", "seats": 6, "baseFare": 550, "perKm": 24 },
+    { "kind": "Chauffeured luxury", "seats": 3, "baseFare": 1800, "perKm": 55 }
+  ],
+  "dutyOfCareAllowance": 900,
+  "notOkOverAllowance": 3000
+}

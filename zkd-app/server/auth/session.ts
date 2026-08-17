@@ -20,7 +20,14 @@ const MAX_AGE_S = 60 * 60 * 12; // 12h
  * read this repo forge a session for any passenger id. Set SESSION_SECRET in
  * any real deployment; this fallback exists so the prototype runs with zero
  * required env vars, matching every other provider adapter in this app.
+ * In production the fallback is refused outright rather than silently
+ * signing every session with a key anyone can read on GitHub.
  */
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+  throw new Error(
+    'SESSION_SECRET is required in production — refusing to sign sessions with the checked-in dev secret.'
+  );
+}
 const SECRET = process.env.SESSION_SECRET ?? 'zkd-dev-secret-not-for-production';
 
 export type Session = { pid: string; iat: number };
