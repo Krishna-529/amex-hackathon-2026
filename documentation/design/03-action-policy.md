@@ -7,7 +7,7 @@ figure traces to the latency budget in §4.
 
 ---
 
-## 1. The seven phases
+## 1. The eight phases
 
 | Phase | Trigger | What happens | Reversible? |
 |---|---|---|---|

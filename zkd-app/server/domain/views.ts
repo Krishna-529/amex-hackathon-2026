@@ -1,15 +1,15 @@
 /** Response-shaping helpers — turn domain entities into the API contract shapes in lib/apiTypes.ts. */
 import * as store from './store';
 import { refreshIfStale } from '../engine/forecast';
-import { refreshAltsIfStale } from '../engine/altsCache';
 import { altsForParty } from './altsForParty';
 import { costFor } from './pricing';
 import { DEFAULT_PER_TRANSACTION_CAP } from '../myca';
 import type { Flight, Booking } from './types';
 import type { FlightSummary, FlightDetail, DisruptionOpsView } from '@/lib/apiTypes';
 
-function travellerSummary(b: Booking) {
-  return store.getTravellersForBooking(b).map((t, i) => ({
+async function travellerSummary(b: Booking) {
+  const travellers = await store.getTravellersForBooking(b);
+  return travellers.map((t, i) => ({
     id: t.id,
     displayName: t.displayName,
     type: t.type,
@@ -17,15 +17,16 @@ function travellerSummary(b: Booking) {
   }));
 }
 
-export function toFlightSummary(flight: Flight, passengerId?: string): FlightSummary {
-  // Kick a refresh if the cached forecast/alts have aged out. Deliberately not
-  // awaited: a device asking for a flight gets whatever we hold now, and the
-  // next poll picks up the fresh numbers rather than blocking this response
-  // on a vendor.
+export async function toFlightSummary(flight: Flight, passengerId?: string): Promise<FlightSummary> {
+  // Kick a forecast refresh if it has aged out. Deliberately not awaited: a
+  // device asking for a flight gets whatever we hold now, and the next poll
+  // picks up the fresh number. Alternative-flight search is NOT kicked from
+  // here any more — it is gated on the forecast's own risk band inside
+  // refreshForecast/compute() (server/engine/forecast.ts), so a page view on
+  // a low-risk flight never spends a supplier search it doesn't need.
   refreshIfStale(flight);
-  refreshAltsIfStale(flight);
-  const event = store.getDisruptionEvent(flight.id);
-  const bookings = store.getBookingsForFlight(flight.id);
+  const event = await store.getDisruptionEvent(flight.id);
+  const bookings = await store.getBookingsForFlight(flight.id);
   const summary: FlightSummary = {
     id: flight.id, code: flight.code, from: flight.from, to: flight.to,
     depISO: flight.depISO, durationMin: flight.durationMin,
@@ -41,7 +42,7 @@ export function toFlightSummary(flight: Flight, passengerId?: string): FlightSum
       summary.booking = {
         id: b.id, seat: b.seat, pnr: b.pnr, cabin: b.cabin,
         partySize: store.partySize(b),
-        travellers: travellerSummary(b),
+        travellers: await travellerSummary(b),
       };
     }
   }
@@ -55,13 +56,14 @@ export function toFlightSummary(flight: Flight, passengerId?: string): FlightSum
  * viewer's own row — without this, every co-passenger's name, seat and PNR
  * would be visible to anyone who could reach this flight's id).
  */
-export function toFlightDetail(flight: Flight, viewerPassengerId: string): FlightDetail {
-  const bookings = store.getBookingsForFlight(flight.id);
+export async function toFlightDetail(flight: Flight, viewerPassengerId: string): Promise<FlightDetail> {
+  const bookings = await store.getBookingsForFlight(flight.id);
   const own = bookings.find((b) => b.passengerId === viewerPassengerId);
   const partySize = own ? store.partySize(own) : 1;
+  const summary = await toFlightSummary(flight, viewerPassengerId);
 
   return {
-    ...toFlightSummary(flight, viewerPassengerId),
+    ...summary,
     candidates: {
       ...flight.candidates,
       alts: altsForParty(flight.candidates.alts, partySize),
@@ -69,21 +71,23 @@ export function toFlightDetail(flight: Flight, viewerPassengerId: string): Fligh
     connectionSlackMinutes: flight.connectionSlackMinutes,
     hasHardConstraint: flight.hasHardConstraint,
     rescheduledToISO: flight.rescheduledToISO,
+    forecastHistory: flight.forecastHistory ?? [],
     bookings: own
-      ? [{ id: own.id, passengerId: own.passengerId, passengerName: store.getPassenger(own.passengerId)?.displayName ?? own.passengerId, seat: own.seat, pnr: own.pnr, partySize }]
+      ? [{ id: own.id, passengerId: own.passengerId, passengerName: (await store.getPassenger(own.passengerId))?.displayName ?? own.passengerId, seat: own.seat, pnr: own.pnr, partySize }]
       : [],
   };
 }
 
-export function toDisruptionOpsView(flightId: string): DisruptionOpsView | null {
-  const event = store.getDisruptionEvent(flightId);
-  const flight = store.getFlight(flightId);
+export async function toDisruptionOpsView(flightId: string): Promise<DisruptionOpsView | null> {
+  const event = await store.getDisruptionEvent(flightId);
+  const flight = await store.getFlight(flightId);
   if (!event || !flight) return null;
-  const tasks = store.getRecoveryTasksForFlight(flightId).map((t) => {
+  const rawTasks = await store.getRecoveryTasksForFlight(flightId);
+  const tasks = await Promise.all(rawTasks.map(async (t) => {
     const alt = flight.candidates.alts.find((a) => a.id === t.chosenAltId);
     return {
       passengerId: t.passengerId,
-      passengerName: store.getPassenger(t.passengerId)?.displayName ?? t.passengerId,
+      passengerName: (await store.getPassenger(t.passengerId))?.displayName ?? t.passengerId,
       phase: t.phase,
       secondsLeft: t.phase === 'waiting' ? Math.max(0, Math.ceil((t.windowExpiresAt - Date.now()) / 1000)) : 0,
       partySize: t.partySize,
@@ -91,6 +95,6 @@ export function toDisruptionOpsView(flightId: string): DisruptionOpsView | null 
       owedNow: costFor(flight, t, t.partySize, DEFAULT_PER_TRANSACTION_CAP).total,
       resolution: t.resolution,
     };
-  });
+  }));
   return { flightId, flightCode: flight.code, detectedAt: event.detectedAt, phase: event.phase, tasks };
 }

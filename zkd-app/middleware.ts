@@ -14,12 +14,37 @@ import { NextResponse, type NextRequest } from 'next/server';
  * edge bundle cannot include. Keep this literal in sync with SESSION_COOKIE.
  */
 const SESSION_COOKIE = 'zkd_session';
+/** Duplicated from server/auth/opsSession.ts for the same edge-runtime
+ *  reason SESSION_COOKIE is duplicated above — keep in sync with OPS_COOKIE. */
+const OPS_COOKIE = 'zkd_ops_session';
 
 export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  if (pathname.startsWith('/ops')) {
+    if (pathname === '/ops/login') return NextResponse.next();
+    if (req.cookies.has(OPS_COOKIE)) return NextResponse.next();
+    return NextResponse.redirect(new URL('/ops/login', req.url));
+  }
+
   if (req.cookies.has(SESSION_COOKIE)) return NextResponse.next();
   return NextResponse.redirect(new URL('/login', req.url));
 }
 
+/**
+ * The trailing `|.*\..*` excludes any path with a file extension — every
+ * static asset under public/ (fonts, brand icons, favicon) — not just the
+ * two that happened to get named here before. Without it, an unauthenticated
+ * request for e.g. /fonts/geist.woff2 gets redirected to /login and the
+ * browser tries to parse the login page's HTML as a font.
+ *
+ * `/ops` now runs through middleware() above (previously excluded entirely)
+ * so an unauthenticated request for the operator console gets redirected to
+ * /ops/login instead of rendering the page and 401ing on first fetch. `api`
+ * stays excluded: it cannot verify cookie signatures here (see the module
+ * comment) and each route already self-guards via requireSession/
+ * requireOperator, which is the real boundary either way.
+ */
 export const config = {
-  matcher: ['/((?!api|login|ops|_next|favicon.svg).*)'],
+  matcher: ['/((?!api|login|_next|.*\\..*).*)'],
 };

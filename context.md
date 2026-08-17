@@ -22,7 +22,7 @@ safely when it cannot.
 |---|---|
 | Agent architecture | Four collaborative agents (Supervisor/Negotiator, Flight Reshop, Hotel Re-accommodation, Ground Transfer) on LangGraph |
 | Canon facts | `## A2. FROZEN ARCHITECTURAL FACTS` identical in all four `*.pdf`; never edit one copy |
-| Risk model | Bought, not built: Lumo (thinklumo.com) supplies the disruption forecast, mocked until a commercial key exists and advisory until back-tested. Thresholds adapt to seat scarcity, urgency, connection criticality and forecast confidence |
+| Risk model | **Built, not bought (2026-08-14).** Self-trained XGBoost on real US DOT/BTS + Brazil ANAC historical data (`zkd-risk-model/`), no vendor call, no mock fallback — see `documentation/design/05-cancellation-risk-model.md`. Thresholds adapt to seat scarcity, urgency, connection criticality and forecast confidence, externalized to `zkd-app/config/risk-thresholds.json` (hot-reloadable) |
 | Latency budget | ~11 s total recovery; ~95% is supplier API wait time; thinking ~0.6 s; no GPU on critical path |
 | Consent/safety | WAIT window derived from supplier offer expiry (~5-20 min, floor 2 min) with re-validation before spend; Autopilot (silence proceeds) vs Ask-me-first (silence stops unless the fix is free); default-deny policy layer; consumed flight and hotel options cannot be re-proposed |
 | Suppliers | Duffel + LiteAPI sandboxes intended proving ground; no live integrations; payment mocked behind Amex vPayment contract test |
@@ -39,6 +39,7 @@ safely when it cannot.
 - `documentation/design/` — four docs read in order (prediction, data/APIs, action policy, infra & cost)
 - `documentation/project/` — submission, architecture validation plan, architecture narrative
 - `zkd-app/` — Next.js web app; routes `/flights` `/flights/[id]` `/prepare/[id]` `/recovery/[id]` `/profile` `/settings` `/history` `/how-it-works`
+- `zkd-risk-model/` — the real, self-trained cancellation model (data, features, training, serving, AWS Terraform) — see its own README.md
 - `zkd-android/` — Expo/RN Android app, subset (Flights, Flight detail, Recovery, Profile)
 - `iropssim.py` + `iropssim-output.json` — 250k-case fixed-seed Monte Carlo
 - `ZKD Website/` — production builds of the three demo sites + `serve.js` (5173/5174/5175)
@@ -55,7 +56,9 @@ thresholds carry `deck` until primary CAR text is re-retrieved.
 
 - No self-serve booking: flight/hotel/cab/cruise origination and PNR creation are not built —
   every PNR is seeded, standing in for a booking made elsewhere. Cruise is not modelled at all.
-- No commercial Lumo key; forecast is mocked and labelled as such, and not yet back-tested
+- Cancellation model (`zkd-risk-model/`) is real and self-trained but has no Indian/most-international
+  historical training data yet, and no weather feature in v1 — see
+  `documentation/design/05-cancellation-risk-model.md` §8 for the full, honest list.
 - Sabre cert returns no inventory, so multi-source rests on Duffel plus synthetic Travelport
 - Payment mocked
 - Confirmation-window floor is assumed, not measured from push telemetry

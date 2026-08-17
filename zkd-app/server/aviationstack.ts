@@ -44,7 +44,7 @@ export async function lookupFlightStatus(flightIata: string): Promise<FlightStat
     try {
       noteAviationstackCall();
       const url = `http://api.aviationstack.com/v1/flights?access_key=${encodeURIComponent(key)}&flight_iata=${encodeURIComponent(flightIata)}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
       if (!res.ok) return null;
       const json = (await res.json()) as { data: RawFlight[] };
       const match = json.data?.find((f) => f.flight_date === today) ?? json.data?.[0];

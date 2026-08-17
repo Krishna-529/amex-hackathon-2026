@@ -78,6 +78,7 @@ export async function fetchProfile(memberId: string): Promise<MycaProfile> {
     const res = await fetch(`https://api.myca.americanexpress.com/v1/members/${encodeURIComponent(memberId)}/travel-profile`, {
       headers: { Authorization: `Bearer ${key}` },
       cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return mockProfile();
     const json = (await res.json()) as Partial<MycaProfile>;

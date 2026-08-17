@@ -1,0 +1,29 @@
+{
+  "name": "zkd-execute",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The EXECUTE plane. Sole holder of payment/booking-write credentials, sole owner of side effects. Hosts the Temporal worker that runs the recovery saga's activities. zkd-app (PLAN) never imports this package — it only holds a generic @temporalio/client and zkd-shared's types, and starts a workflow by name. See documentation/architecture/execution-plane.md.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/worker.ts",
+    "start": "tsx src/worker.ts",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@temporalio/activity": "^1.13.0",
+    "@temporalio/common": "^1.13.0",
+    "@temporalio/worker": "^1.13.0",
+    "@temporalio/workflow": "^1.13.0",
+    "tsx": "^4.19.0",
+    "zkd-shared": "file:../zkd-shared"
+  },
+  "devDependencies": {
+    "@temporalio/client": "^1.13.0",
+    "@temporalio/testing": "^1.13.0",
+    "@types/node": "^22",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
+  }
+}

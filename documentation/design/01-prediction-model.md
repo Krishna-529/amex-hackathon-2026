@@ -33,6 +33,13 @@ safety claim rests on the WAIT gate, not on the prediction.
 
 ## 2. We buy the forecast rather than building one
 
+> **Superseded 2026-08-14 — see `05-cancellation-risk-model.md`.** The section below describes the
+> original Lumo-vendor design and is kept for provenance. The system now runs a real, self-trained
+> model (`zkd-risk-model/`) instead — no vendor call, no mock fallback. Sections 3–12 of this
+> document (what we predict for, adaptive thresholds, the action bands, the hold gate, the
+> confirmation window, honest limitations) are unaffected by this change and remain current.
+
+
 Predicting flight disruption is an existing industry with vendors trained on far more history
 than we could assemble. Building our own gradient-boosted model on scraped DGCA data would take
 months to reach a worse answer, and would duplicate a product we can simply call.
@@ -118,6 +125,67 @@ drift somewhere absurd, and returned **with its inputs** so the decision ledger 
 a band fired. An adaptive threshold nobody can replay after the fact is not auditable.
 
 The scarcity input is real, not notional: it is the seat count across every supplier in §7.
+
+---
+
+## 4a. Rescore and cache-refresh cadence
+
+A forecast and its cached alternatives are only as good as how recently they were checked. The
+old design used one flat clock for everything: every flight re-scored every 10 minutes
+(`server/engine/batchScorer.ts`), every alt/hotel/cab cache held for 10 minutes
+(`server/engine/altsCache.ts`/`groundCache.ts`), regardless of whether the flight was 45 minutes
+from departure or three days out. That is neither cheap for the far-out case nor safe for the
+near-in one — the cost of staleness is not constant, the same reasoning §4 already applies to
+*what we do*, applied here to *when we look*.
+
+**Three rescore tiers, not one** (`server/engine/rescoreTiming.ts`'s `tierFor`, driving three
+independent loops in `batchScorer.ts`, each still one real HTTP batch call per tick regardless of
+how many flights are in it):
+
+| Tier | Membership | Default cadence | Why |
+|---|---|---|---|
+| **Critical** | Inside 180 min of departure, OR already at hold-gate/pre-authorise | 90 s | Least runway left to catch a swing before the carrier files |
+| **Standard** | Everything else with a real signal | 10 min | Unchanged original default |
+| **Dormant** | Beyond 24h out AND still at watch (or never scored) | 30 min | No signal yet, no urgency — don't spend a Lambda invocation every 10 min on it |
+
+A flight migrates tiers automatically tick to tick as departure approaches or its own last-known
+band changes — there is no separate promotion/demotion state to keep in sync, and no per-flight
+scheduling: each tier's loop still costs exactly one HTTP call per tick, so tightening the
+critical tier's cadence is a Lambda-invocation-count change, not a per-flight or per-supplier-call
+one.
+
+**Alt/ground cache TTL scales with time-to-departure too** (`rescoreTiming.ts`'s
+`effectiveAltTtlMs`), on the same multiplicative-factor pattern as §4's scarcity/urgency/
+criticality: inventory churns faster close to departure, so the same 10-minute-old snapshot is a
+bigger real gap 45 minutes out than it is 2 days out.
+
+| Time to departure | TTL vs baseline |
+|---|---|
+| ≤ 60 min | 33% (≈ 3.3 min) |
+| ≤ 180 min | 50% (≈ 5 min) |
+| ≤ 480 min | 75% (≈ 7.5 min) |
+| beyond | 100% (10 min baseline) |
+
+Floored at 3 minutes so a very-close-in flight can't be scaled to an effectively-zero TTL that
+would defeat the in-flight-request dedup's purpose (a real supplier search on every scoring tick).
+This only ever *tightens* the existing risk-score gate (§ altCache.prefetchAtOrAboveRiskScore) —
+it cannot cause a cost blowup across the low-risk majority of the fleet, since a flight has to
+already be above the prefetch gate for its cache to be refreshed at all.
+
+**Event-driven override, not just polling.** `forecast.eventRescoreDebounceMs` was defined from
+the start but had no caller — an AviationStack status change never triggered an out-of-cycle
+rescore; a disrupted flight waited out whatever the next batch tick or page-view TTL happened to
+produce. `server/engine/forecast.ts`'s `triggerEventRescore`, now wired into
+`app/api/flight-status/route.ts`, fires an immediate rescore the moment a real disruption-shaped
+classification appears (§3), debounced per flight (30 s default) so a status feed that flaps
+between polls cannot turn into a rescore storm.
+
+All five numbers above (`criticalRescoreIntervalMs`, `criticalWindowMinutes`,
+`dormantRescoreIntervalMs`, `dormantWindowMinutes`, the four alt-cache TTL-scaling factors) are
+config-driven, not hardcoded — same `config/risk-thresholds.json` / AWS AppConfig path as every
+other threshold in this document, ops-tunable without a redeploy. Test coverage:
+`server/engine/rescoreTiming.test.ts` (pure tier/TTL math), `batchScorer.test.ts` (fleet
+partitioning), `forecastEventRescore.test.ts` (debounce behavior).
 
 ---
 

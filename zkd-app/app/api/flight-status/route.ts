@@ -3,6 +3,7 @@ import { lookupFlightStatus } from '@/server/aviationstack';
 import { classify } from '@/lib/disruptionKind';
 import * as store from '@/server/domain/store';
 import { ensureSeeded } from '@/server/domain/seed';
+import { triggerEventRescore } from '@/server/engine/forecast';
 import type { FlightStatusResponse } from '@/lib/apiTypes';
 
 /**
@@ -15,9 +16,9 @@ import type { FlightStatusResponse } from '@/lib/apiTypes';
  * booked time comes from our own record rather than the caller's claim.
  */
 export async function GET(req: NextRequest) {
-  ensureSeeded();
+  await ensureSeeded();
   const flightId = req.nextUrl.searchParams.get('flightId');
-  const flight = flightId ? store.getFlight(flightId) : undefined;
+  const flight = flightId ? await store.getFlight(flightId) : undefined;
 
   const flightIata =
     req.nextUrl.searchParams.get('flightIata') ?? flight?.code.replace(/\s+/g, '') ?? '';
@@ -43,6 +44,14 @@ export async function GET(req: NextRequest) {
           connectionSlackMinutes,
         })
       : null;
+
+  // A real disruption-shaped signal on a flight we track is exactly what
+  // forecast.eventRescoreDebounceMs exists for: rescore now rather than
+  // waiting for the next batchScorer.ts tick, debounced per flight so a
+  // status feed that flaps between polls can't turn into a rescore storm.
+  if (flight && classification && classification.kind !== 'none') {
+    triggerEventRescore(flight.id);
+  }
 
   const body: FlightStatusResponse = {
     status: match ? 'ok' : 'empty',

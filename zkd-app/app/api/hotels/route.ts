@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { searchHotels } from '@/server/liteapi';
+import { searchHotels, countryCodeFor, nationalityCode } from '@/server/liteapi';
+import { generateMockHotels } from '@/server/mockHotels';
 import { airport } from '@/server/airportDirectory';
 import { fetchProfile } from '@/server/myca';
 import type { HotelsResponse } from '@/lib/apiTypes';
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (!ap) return NextResponse.json({ hotels: [], source: 'empty' } satisfies HotelsResponse);
 
   const profile = await fetchProfile('demo');
-  const hotels = await searchHotels({
+  let hotels = await searchHotels({
     cityName: ap.city,
     countryCode: countryCodeFor(ap.country),
     checkin,
@@ -27,26 +28,11 @@ export async function GET(req: NextRequest) {
     currency: profile.payment.billingCurrency,
     guestNationality: nationalityCode(profile.traveller.nationality),
   });
+  // LiteAPI has no key or returned nothing for this city — fall back to the
+  // synthetic generator (server/mockHotels.ts) rather than an empty result;
+  // each row's own `why` text says it's generated, not a live rate.
+  if (hotels.length === 0) hotels = generateMockHotels(iata, profile.payment.billingCurrency, `${checkin}:${checkout}`);
 
   const body: HotelsResponse = { hotels, source: hotels.length > 0 ? 'ok' : 'empty' };
   return NextResponse.json(body);
-}
-
-/**
- * OpenFlights stores country names, LiteAPI wants ISO-3166 alpha-2. Only the
- * countries the demo can actually reach are mapped; anything else falls through
- * to the two-letter prefix, which LiteAPI rejects cleanly rather than silently
- * searching the wrong country.
- */
-function countryCodeFor(country: string): string {
-  const map: Record<string, string> = {
-    India: 'IN', 'United Kingdom': 'GB', 'United States': 'US', France: 'FR', Germany: 'DE',
-    Netherlands: 'NL', Singapore: 'SG', 'United Arab Emirates': 'AE', Australia: 'AU', Japan: 'JP',
-  };
-  return map[country] ?? country.slice(0, 2).toUpperCase();
-}
-
-function nationalityCode(nationality: string): string {
-  const map: Record<string, string> = { Indian: 'IN', British: 'GB', American: 'US' };
-  return map[nationality] ?? 'IN';
 }

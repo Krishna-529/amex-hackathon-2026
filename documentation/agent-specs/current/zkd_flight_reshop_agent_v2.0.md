@@ -115,7 +115,7 @@ each file documents the duty-of-care interaction that belongs to it.
 **Shared state.**
 `TripState { disruption · pnr · consent_tier · travel_window · constraints · candidates[] · portfolio[] · policy_decisions[] · holds[] · confirmed[] · rejected_by_member[] · claims[] · escalation? }`
 
-**The seven-phase lifecycle.** Every recovery walks these phases in order:
+**The eight-phase lifecycle.** Every recovery walks these phases in order:
 
 | Phase | What happens | Reversible? |
 |---|---|---|
@@ -123,11 +123,12 @@ each file documents the duty-of-care interaction that belongs to it.
 | **WARM** | Context assembly; per-route coordinator runs **one** reshop for the whole affected group; portfolio built and priced. | Yes — no hold, no spend |
 | **ASK** | Conditional consent captured **against the outcome, never a flight number**. | Yes |
 | **WAIT** | Hold gate evaluated. Either candidates stay warm, or a speculative hold is taken from the coordinator block. | Yes — an unconfirmed hold expires free |
+| **RE-CHECK** | Member confirms, or the derived window closes. Re-validate the chosen offer with its supplier; cascade to the next candidate if it is gone. | Yes — this is the last reversible step |
 | **ACT** | Min-cost allocation across the portfolio → OPA → Temporal saga. | **No — this is the boundary** |
 | **VERIFY** | Onward segments checked intact after disposal. | — |
 | **CLAIM** | Duty of care claimed from the carrier; only the uncovered remainder is settled. | — |
 
-**The WAIT gate is the central safety claim. Nothing irreversible happens to its left.** Everything to
+**ACT is the central safety claim. Nothing irreversible happens to its left.** Everything to
 its right is triggered by the carrier actually acting — which is precisely what makes the re-route
 free and keeps the statutory entitlement intact.
 
@@ -255,7 +256,10 @@ candidate set held in memory — zero extra supplier calls.** Unroutable states 
 never hang, never expire in silence.
 
 **Human override — "take the wheel".** Under Tier A the member may intervene at any moment: during
-the 90-second quiet window, or by rejecting a presented plan. On intervention
+the derived confirmation window (the supplier's own offer-expiry guarantee minus the ~11s execution
+budget and 20s network margin, clamped between a 2-minute floor and a 20-minute ceiling — see
+`documentation/design/03-action-policy.md` §3.1 and `lib/confirmWindow.ts`), or by rejecting a
+presented plan. On intervention
 (`{MEMBER_INTERVENTION}`):
 - The member's input becomes a **new hard constraint**, gating at OPA like any other.
 - The rejected option is appended to `rejected_by_member[]` and **must never be re-proposed**. This is
@@ -271,10 +275,15 @@ the 90-second quiet window, or by rejecting a presented plan. On intervention
   minutes to choose without losing the seat.
 - Nothing is confirmed and nothing is paid while an intervention is outstanding.
 
-**Consent mechanics under Tier A.** Notify → **90-second quiet window** → proceed if silent. Payment
-is a **vPayment VAN locked to an amount and to a date** — it cannot be reused or overspent, so even a
-compromised agent cannot exceed the plan it presented. The quiet window maps onto the **RBI Additional
-Factor of Authentication e-mandate** framework as a recognised pre-debit notification. Three modes
+**Consent mechanics under Tier A.** Notify → **derived confirmation window** → proceed if silent. The
+window is not a fixed duration — it is the supplier's own offer-expiry guarantee minus the ~11s
+execution budget and 20s network margin, clamped between a 2-minute floor and a 20-minute ceiling
+(`documentation/design/03-action-policy.md` §3.1, `lib/confirmWindow.ts`). Below the 2-minute floor
+there is no silent window at all: the member's standing consent tier (autopilot vs. ask-me-first)
+decides alone. Payment is a **vPayment VAN locked to an amount and to a date** — it cannot be reused or
+overspent, so even a compromised agent cannot exceed the plan it presented. The window maps onto the
+**RBI Additional Factor of Authentication e-mandate** framework as a recognised pre-debit notification.
+Three modes
 occur within Tier A: **zeroCharge** (the carrier owes all of it), **wallet** (settled from the linked
 wallet via the VAN), and **cannotBook** (consent held, inventory gone — the honest failure).
 
@@ -603,7 +612,7 @@ DEL → GAU. Window 03 Dec 04:00 → 05 Dec 23:00, slack **26 h**, wide. 6E-2117
 ### P5 · TAKE THE WHEEL — the member rejects the ranked-first candidate
 
 Any of the above, at the moment the notification fires. The member taps **take the wheel** inside the
-90-second quiet window, or rejects the presented plan.
+derived confirmation window, or rejects the presented plan.
 
 - **Flight agent receives:** a re-issued `reshop` task carrying the rejected `offer_id` in
   `hard_constraints.exclude_offer_ids`, plus whatever preference the member stated, converted to a

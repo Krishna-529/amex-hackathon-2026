@@ -1,0 +1,133 @@
+# Full local stack for the ZKD Concierge three-plane architecture — real
+# Temporal, real OPA, real Postgres, both planes. This is what actually gets
+# demoed; no cloud account required. See documentation/architecture/execution-plane.md.
+#
+# Host ports are deliberately non-default: this machine already runs an
+# UNRELATED project's "zkd-concierge" compose stack (temporal:7233,
+# postgres:5432, temporal-ui:8081, from Placement_Project/amex-hackathon-2026)
+# — this stack uses different host ports throughout so the two can run
+# side by side without a collision. Container-to-container traffic inside
+# this stack's own network is unaffected either way.
+
+name: zkd-concierge-execution-plane
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: zkdapp
+      POSTGRES_PASSWORD: zkdapp
+      POSTGRES_DB: zkdapp
+    ports:
+      - "5433:5432" # host 5433 — 5432 is already taken locally, see note above
+    volumes:
+      - zkd_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zkdapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: zkdapp
+      POSTGRES_PWD: zkdapp
+      POSTGRES_SEEDS: postgres
+      # No DYNAMIC_CONFIG_FILE_PATH override — the auto-setup image ships its
+      # own default dynamic config; pointing at a path that only exists in
+      # temporalio's separately-published docker-compose repo (which we are
+      # not using) makes the server fail to start.
+    ports:
+      - "7234:7233" # host 7234 — 7233 is already taken locally
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: "http://localhost:8082"
+    ports:
+      - "8082:8080" # host 8082 — 8081 is already taken locally
+
+  opa:
+    image: openpolicyagent/opa:latest
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policy"]
+    volumes:
+      - ./policy:/policy:ro
+    ports:
+      - "8181:8181"
+    # No healthcheck: the OPA image is a static binary with no shell (no
+    # /bin/sh, no wget/curl), so a CMD-SHELL check fails before it can even
+    # run — confirmed via `docker inspect`'s Health.Log. OPA starts in well
+    # under a second in practice; consumers depend on `service_started`.
+
+  zkd-execute:
+    build:
+      # Context is the repo root, not ./zkd-execute — zkd-execute depends on
+      # zkd-shared via a `file:../zkd-shared` reference, which has to be
+      # inside the Docker build context to be COPYable.
+      context: .
+      dockerfile: zkd-execute/Dockerfile
+    depends_on:
+      - temporal
+      - opa
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_TASK_QUEUE: execute
+      OPA_URL: http://opa:8181
+      PORT: 8080
+      # Real write scopes — populate a .env file for docker-compose if you
+      # have a real Duffel test-mode token; every other supplier here runs
+      # the realistic mock regardless (no production key has ever existed
+      # for LiteAPI/Uber/Amex VPayment in this project).
+      DUFFEL_ACCESS_TOKEN: ${DUFFEL_ACCESS_TOKEN:-}
+    ports:
+      - "8083:8080"
+    healthcheck:
+      # node:22-slim has neither wget nor curl — use Node's own native fetch
+      # (exec form, no shell needed either).
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  zkd-app:
+    build:
+      context: . # same reason as zkd-execute — zkd-app also depends on ../zkd-shared
+      dockerfile: zkd-app/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      opa:
+        condition: service_started
+      zkd-execute:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://zkdapp:zkdapp@postgres:5432/zkdapp
+      TEMPORAL_ADDRESS: temporal:7233
+      OPA_URL: http://opa:8181
+      # Local/demo-only value — a real deployment sets this from a real
+      # secret store (see zkd-risk-model/infra/secrets.tf's app_secrets).
+      SESSION_SECRET: ${SESSION_SECRET:-local-demo-session-secret-do-not-use-in-prod}
+    ports:
+      # package.json's start script is `next start -p 5176` (hardcoded, this
+      # app's established local port — see README) — it does not read $PORT,
+      # so the container actually listens on 5176, not the 3000 zkd-risk-model/
+      # infra/app.tf's ALB target group assumes for the AWS deployment. Local
+      # compose maps to what the app really does; that Terraform assumption
+      # is the ML team's module to reconcile separately if/when this is
+      # actually deployed there.
+      - "3001:5176"
+
+volumes:
+  zkd_postgres_data:

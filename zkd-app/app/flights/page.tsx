@@ -67,7 +67,7 @@ export default function FlightsPage() {
             <span className="tt">
               {preAuth
                 ? `You've told us what to do if ${next.code} cancels`
-                : `${next.code} looks like it will cancel — ${next.forecast.pct}%`}
+                : `${next.code} looks like it will cancel — risk score ${Math.round(next.forecast.riskScore ?? next.forecast.pct)}/100`}
             </span>
             <span className="bd">
               {preAuth
@@ -156,20 +156,20 @@ export default function FlightsPage() {
                     ? "We rebooked you and moved tonight's hotel — you paid nothing."
                     : 'We have alternatives ready and are waiting on the go-ahead.'}
                 </div>
-                <div className="go">View recovery →</div>
+                {active && <Link className="go" href={`/recovery/${active.id}`} style={{ display: 'block' }}>View recovery →</Link>}
               </>
             ) : (
               <>
                 <div className={`n ${active?.forecast?.tone ?? 'low'}`}>
-                  {active?.forecast ? `${active.forecast.pct}%` : '—'}
+                  {active?.forecast ? Math.round(active.forecast.riskScore ?? active.forecast.pct) : '—'}
                 </div>
-                <div className="lb">chance of cancellation</div>
+                <div className="lb">risk score</div>
                 <div className="say">
                   {active?.forecast
                     ? BAND_SAY[active.forecast.band]
                     : 'Checking this flight against the disruption forecast.'}
                 </div>
-                <div className="go">View details →</div>
+                {active && <Link className="go" href={`/flights/${active.id}`} style={{ display: 'block' }}>View details →</Link>}
               </>
             )}
           </div>

@@ -3,16 +3,26 @@ import * as store from '@/server/domain/store';
 import { ensureSeeded } from '@/server/domain/seed';
 import { verifyPassword, DUMMY_HASH } from '@/server/auth/passwords';
 import { setSessionCookie } from '@/server/auth/session';
+import { checkRateLimit } from '@/server/rateLimit';
 
 export async function POST(req: NextRequest) {
-  ensureSeeded();
+  await ensureSeeded();
+
+  // The dummy-hash compare below defends against email-enumeration timing,
+  // not brute force — without this, a script can still try unlimited
+  // password guesses against a known email at network speed.
+  const limited = checkRateLimit(req, 'login', { capacity: 8, refillPerMinute: 8 });
+  if (!limited.allowed) {
+    return NextResponse.json({ error: 'too many attempts, try again shortly' }, { status: 429 });
+  }
+
   const body = (await req.json().catch(() => null)) as { email?: unknown; password?: unknown } | null;
 
   if (typeof body?.email !== 'string' || typeof body?.password !== 'string' || !body.email || !body.password) {
     return NextResponse.json({ error: 'email and password are required' }, { status: 400 });
   }
 
-  const cred = store.findCredentialByEmail(body.email);
+  const cred = await store.findCredentialByEmail(body.email);
   // Verify against a real hash even on an unknown email, so the response time
   // for "no such account" is indistinguishable from "wrong password" — a fast
   // 401 on unknown emails would let an attacker enumerate accounts by timing.
@@ -22,7 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Those details do not match an account.' }, { status: 401 });
   }
 
-  const passenger = store.getPassenger(cred.passengerId);
+  const passenger = await store.getPassenger(cred.passengerId);
   if (!passenger) {
     return NextResponse.json({ error: 'Those details do not match an account.' }, { status: 401 });
   }

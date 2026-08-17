@@ -25,12 +25,17 @@ import { isInternational } from '../airportDirectory';
 import { revalidateOffer, type Offer } from '../suppliers';
 import { altsForParty } from '../domain/altsForParty';
 import { costFor, type PartyCost } from '../domain/pricing';
-import { DEFAULT_PER_TRANSACTION_CAP } from '../myca';
+import { DEFAULT_PER_TRANSACTION_CAP, fetchProfile } from '../myca';
 import { money } from '@/lib/time';
 import * as store from '../domain/store';
 import { ensureSeeded } from '../domain/seed';
+import { logOutcome, logSagaStep } from '../decisionLedger';
+import { planRecovery } from './planningGraph';
+import type { SignalInput } from '@/lib/disruptionKind';
+import { startRecoverySaga, awaitExistingSaga } from './actExecutor';
+import { deriveIdempotencyKey, type PolicyInput, type RecoveryIntent } from 'zkd-shared';
 import type {
-  DisruptionEvent, RecoveryTask, DisruptionResolution, Flight, Booking, Step, PreAuthRecord,
+  DisruptionEvent, RecoveryTask, DisruptionResolution, Flight, Booking, Step, PreAuthRecord, Passenger,
 } from '../domain/types';
 
 export type ResolveAction =
@@ -47,6 +52,9 @@ export type RecoveryView = {
   flightId: string;
   detectedAt: number;
   phase: 'deciding' | 'waiting' | 'choosing' | 'acting' | 'booked' | 'handed';
+  /** the real, audit-grade outcome (zkd-shared's TerminalState) — null while
+   *  still in flight. `phase` is presentation; this is the source of truth. */
+  terminal: import('zkd-shared').TerminalState | null;
   shown: Step[];
   secondsLeft: number;
   /** how long the window was in total, so a progress bar has a denominator */
@@ -69,6 +77,53 @@ const ZERO_COST: PartyCost = {
   currency: DEFAULT_PER_TRANSACTION_CAP.currency, cap: DEFAULT_PER_TRANSACTION_CAP.amount, overCap: false,
 };
 
+/**
+ * The planning graph's classify node needs a SignalInput
+ * (lib/disruptionKind.ts) — this project's disruption detection today is
+ * either "the /ops console filed a cancellation" or "the flight's own
+ * rescheduledToISO is set" (see domain/types.ts's Flight.rescheduledToISO:
+ * "true once the carrier moves the flight"), so both real signals already
+ * live on the Flight record itself rather than needing new plumbing. A
+ * future live status poller would set the same field the same way.
+ */
+function signalFor(flight: Flight): SignalInput {
+  const bookedDepartureAt = new Date(flight.depISO).getTime();
+  if (flight.rescheduledToISO) {
+    return {
+      status: 'scheduled',
+      bookedDepartureAt,
+      scheduledDepartureAt: new Date(flight.rescheduledToISO).getTime(),
+      delayMinutes: null,
+      connectionSlackMinutes: flight.connectionSlackMinutes,
+    };
+  }
+  return {
+    status: 'cancelled',
+    bookedDepartureAt,
+    scheduledDepartureAt: null,
+    delayMinutes: null,
+    connectionSlackMinutes: flight.connectionSlackMinutes,
+  };
+}
+
+/**
+ * A reschedule the connection survives (task.needsRebooking === false, set
+ * by the planning graph's classify node) keeps the original ticket — the
+ * consented/autopiloted action is only re-timing the hotel and transfers,
+ * never a new seat. 03-action-policy.md §2.1: "Opening a consent window for
+ * a free hotel re-timing would be asking permission to spend nothing" — this
+ * is what makes that rule real instead of aspirational.
+ */
+function buildResolution(kind: 'autopilot' | 'approved', task: RecoveryTask, flight: Flight): DisruptionResolution {
+  if (!task.needsRebooking) {
+    const shiftMinutes = flight.rescheduledToISO
+      ? Math.round((new Date(flight.rescheduledToISO).getTime() - new Date(flight.depISO).getTime()) / 60_000)
+      : 0;
+    return { kind: 're-timed', at: Date.now(), hotelId: task.chosenHotelId, cabId: task.chosenCabId, shiftMinutes };
+  }
+  return { kind, at: Date.now(), altId: task.chosenAltId, hotelId: task.chosenHotelId, cabId: task.chosenCabId };
+}
+
 function isPlanIntact(flight: Flight, pre: PreAuthRecord): boolean {
   return !!(
     flight.candidates.alts.find((a) => a.id === pre.altId)?.ok
@@ -89,50 +144,57 @@ function costOf(flight: Flight, task: Pick<RecoveryTask, 'chosenAltId' | 'chosen
 }
 
 /** The single entry point for "a disruption was detected on this flight." */
-export function detectDisruption(flightId: string): DisruptionEvent | null {
-  ensureSeeded();
-  const existing = store.getDisruptionEvent(flightId);
+export async function detectDisruption(flightId: string): Promise<DisruptionEvent | null> {
+  await ensureSeeded();
+  const existing = await store.getDisruptionEvent(flightId);
   if (existing) return existing;
 
-  const flight = store.getFlight(flightId);
+  const flight = await store.getFlight(flightId);
   if (!flight) return null;
   // riskPct/riskBand are already computed and cached by store.createFlight() —
   // this is confirming a real disruption on a flight that was already being
   // watched, not the first time its risk is known.
 
   const event: DisruptionEvent = { id: `de-${flightId}`, flightId, detectedAt: Date.now(), phase: 'DECIDING' };
-  store.createDisruptionEvent(event);
+  await store.createDisruptionEvent(event);
+  logOutcome(flightId, 'cancelled');
 
   const decideDelayMs = Math.max(FLOOR, DECIDE_TOTAL * PLAY);
-  setTimeout(() => finishDecide(flightId), decideDelayMs);
+  setTimeout(() => { void finishDecide(flightId); }, decideDelayMs);
   return event;
 }
 
-function finishDecide(flightId: string) {
-  const event = store.getDisruptionEvent(flightId);
-  const flight = store.getFlight(flightId);
+async function finishDecide(flightId: string): Promise<void> {
+  const event = await store.getDisruptionEvent(flightId);
+  const flight = await store.getFlight(flightId);
   if (!event || !flight) return;
   event.phase = 'READY';
   event.decidedAt = Date.now();
+  // createDisruptionEvent upserts on flightId — see store.ts's header
+  // comment on why re-calling the create* function is the persistence call
+  // for this in-place mutation, same pattern as Flight caching below.
+  await store.createDisruptionEvent(event);
 
-  for (const booking of store.getBookingsForFlight(flightId)) {
+  for (const booking of await store.getBookingsForFlight(flightId)) {
     void createTaskForBooking(event, flight, booking);
   }
 }
 
 async function createTaskForBooking(event: DisruptionEvent, flight: Flight, booking: Booking) {
-  const passenger = store.getPassenger(booking.passengerId);
+  const passenger = await store.getPassenger(booking.passengerId);
   if (!passenger) return;
-  const preAuth = store.getPreAuth(flight.id, passenger.id);
+  const preAuth = await store.getPreAuth(flight.id, passenger.id);
   const planIntact = preAuth ? isPlanIntact(flight, preAuth) : false;
 
   const task: RecoveryTask = {
-    id: store.nextTaskId(),
+    id: await store.nextTaskId(),
     disruptionEventId: event.id,
     flightId: flight.id,
     bookingId: booking.id,
     passengerId: passenger.id,
     phase: 'waiting',
+    terminal: null,
+    needsRebooking: true,
     partySize: store.partySize(booking),
     windowExpiresAt: 0,
     windowBoundBy: 'floor',
@@ -151,8 +213,8 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
     task.chosenCabId = preAuth.cabId;
     task.note = 'You authorised this in advance, so there was no window to wait for — we acted the moment the airline filed.';
     task.phase = 'acting';
-    store.setRecoveryTask(task);
-    scheduleAct(flight.id, passenger.id);
+    await store.setRecoveryTask(task);
+    await scheduleAct(flight.id, passenger.id);
     return;
   }
 
@@ -160,16 +222,19 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
     task.note = 'You had authorised a plan, but part of it is no longer available. We are not substituting something you never saw — over to you.';
   }
 
-  // Party-aware default: prefer what the carrier owes the whole party over a
-  // market seat we would have to buy, and never default to a market alt that
-  // cannot actually seat everyone on this PNR.
-  const partyAlts = altsForParty(flight.candidates.alts, task.partySize);
-  const defaultAlt = partyAlts.find((a) => a.kind === 'carrier-protected' && a.ok)
-    ?? partyAlts.find((a) => a.ok)
-    ?? partyAlts[0];
-  task.chosenAltId = defaultAlt?.id ?? '';
-  task.chosenHotelId = flight.candidates.hotels[0]?.id ?? '';
-  task.chosenCabId = flight.candidates.cabs[0]?.id ?? '';
+  // Layer A's read-only planning graph (server/engine/planningGraph.ts):
+  // classifies the disruption, then one specialist per leg proposes a
+  // candidate — carrier-owed seats first (party-aware, via altsForParty),
+  // never a market alt that can't seat the whole party. A reschedule the
+  // connection survives comes back with needsRebooking=false and no chosen
+  // seat at all — nothing to consent to, only hotel/ground re-timing.
+  const plan = await planRecovery({
+    flight, partySize: task.partySize, rejectedAltIds: task.rejectedAltIds, signal: signalFor(flight),
+  });
+  task.needsRebooking = plan.needsRebooking;
+  task.chosenAltId = plan.chosenAltId ?? '';
+  task.chosenHotelId = plan.chosenHotelId ?? '';
+  task.chosenCabId = plan.chosenCabId ?? '';
 
   // Autopilot has no one to wait for. The derived window below exists to give
   // a human enough time to notice a push, think and answer it — standing
@@ -183,16 +248,14 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
       // The per-transaction cap is the card's actual authorisation limit, not
       // a consent preference — the one rule autopilot cannot spend past.
       task.note = `This would cost ${money(cost.total)}, over your ${money(cost.cap)} single-transaction cap — so we stopped, regardless of your standing permission. Nothing was booked and nothing was charged. Your seats are still held.`;
-      store.setRecoveryTask(task);
-      finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
+      await store.setRecoveryTask(task);
+      await finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
       return;
     }
-    const switched = await revalidateChoice(task, flight);
+    const switched = task.needsRebooking ? await revalidateChoice(task, flight) : null;
     task.note = switched ?? "Autopilot is your standing permission, so we went ahead the moment the airline filed — there was no one to wait for.";
-    store.setRecoveryTask(task);
-    finalizeResolution(task, {
-      kind: 'autopilot', at: Date.now(), altId: task.chosenAltId, hotelId: task.chosenHotelId, cabId: task.chosenCabId,
-    });
+    await store.setRecoveryTask(task);
+    await finalizeResolution(task, buildResolution('autopilot', task, flight));
     return;
   }
 
@@ -213,14 +276,14 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
     // applies when a real window runs out unanswered.
     task.windowExpiresAt = 0;
     task.note = 'There was too little time left to ask, so your standing permission decided this one.';
-    store.setRecoveryTask(task);
+    await store.setRecoveryTask(task);
     void settleExpired(flight.id, passenger.id);
     return;
   }
 
   task.windowExpiresAt = win.expiresAt;
   task.note = windowRationale(win);
-  store.setRecoveryTask(task);
+  await store.setRecoveryTask(task);
   setTimeout(() => { void settleExpired(flight.id, passenger.id); }, win.seconds * 1000);
 }
 
@@ -231,9 +294,9 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
  * createTaskForBooking, with no window to expire.
  */
 async function settleExpired(flightId: string, passengerId: string) {
-  const task = store.getRecoveryTask(flightId, passengerId);
-  const flight = store.getFlight(flightId);
-  const passenger = store.getPassenger(passengerId);
+  const task = await store.getRecoveryTask(flightId, passengerId);
+  const flight = await store.getFlight(flightId);
+  const passenger = await store.getPassenger(passengerId);
   if (!task || !flight || !passenger || task.resolution || task.phase !== 'waiting') return;
 
   const cost = costOf(flight, task);
@@ -245,34 +308,42 @@ async function settleExpired(flightId: string, passengerId: string) {
     task.note = `This would cost ${money(cost.total)}, over your ${money(cost.cap)} single-transaction cap — so we stopped, regardless of your standing permission. Nothing was booked and nothing was charged. Your seats are still held.`;
     resolution = { kind: 'handed-over', at: Date.now() };
   } else if (cost.total === 0) {
-    const switched = await revalidateChoice(task, flight);
+    const switched = task.needsRebooking ? await revalidateChoice(task, flight) : null;
     task.note = switched ?? "You didn't answer. This costs you nothing, so we booked it rather than leave you stranded — there was no spend to ask about.";
-    resolution = { kind: 'autopilot', at: Date.now(), altId: task.chosenAltId, hotelId: task.chosenHotelId, cabId: task.chosenCabId };
+    resolution = buildResolution('autopilot', task, flight);
   } else {
     task.note = `You didn't answer, and this one would cost you ${money(cost.total)} — so we stopped. Nothing was booked and nothing was charged. Your seats are still held.`;
     resolution = { kind: 'handed-over', at: Date.now() };
   }
-  finalizeResolution(task, resolution);
+  await finalizeResolution(task, resolution);
 }
 
-function finalizeResolution(task: RecoveryTask, resolution: DisruptionResolution) {
-  if (task.resolution) { store.setRecoveryTask(task); return; } // first wins
+async function finalizeResolution(task: RecoveryTask, resolution: DisruptionResolution): Promise<void> {
+  if (task.resolution) { await store.setRecoveryTask(task); return; } // first wins
   task.resolution = resolution;
 
   if (resolution.kind === 'handed-over') {
+    // Both "take the wheel" and "this would cost, and standing permission
+    // doesn't cover it" land here — in both cases a feasible plan exists (or
+    // existed) but a human decides next, before anything was spent. That is
+    // exactly ESCALATED (03-action-policy.md §7's terminal-state table).
     task.phase = 'handed';
-    store.setRecoveryTask(task);
+    task.terminal = 'ESCALATED';
+    await store.setRecoveryTask(task);
     return;
   }
 
   // A reschedule the connection survives keeps the original ticket — only the
-  // hotel and transfers move. No new seat, and nothing to consent to.
+  // hotel and transfers move. No new seat, and nothing to consent to, and
+  // nothing crosses the ACT irreversibility boundary the real saga exists to
+  // guard — the existing narrated steps are an acceptable simplification for
+  // this specific free, no-new-booking path.
   if (resolution.kind === 're-timed') {
     task.chosenHotelId = resolution.hotelId;
     task.chosenCabId = resolution.cabId;
     task.phase = 'acting';
-    store.setRecoveryTask(task);
-    scheduleAct(task.flightId, task.passengerId);
+    await store.setRecoveryTask(task);
+    await scheduleAct(task.flightId, task.passengerId);
     return;
   }
 
@@ -280,11 +351,18 @@ function finalizeResolution(task: RecoveryTask, resolution: DisruptionResolution
   task.chosenHotelId = resolution.hotelId;
   task.chosenCabId = resolution.cabId;
   task.phase = 'acting';
-  store.setRecoveryTask(task);
-  scheduleAct(task.flightId, task.passengerId);
+  await store.setRecoveryTask(task);
+  await runRecoverySaga(task.flightId, task.passengerId);
 }
 
-function renderActStepBody(raw: Step, task: RecoveryTask, flight: Flight, booking: Booking): string {
+/**
+ * `nextLeg` is passed in rather than fetched here: this is called once per
+ * rendered step inside scheduleAct's run() loop, and getNextLeg is now an
+ * async store read — computing it once outside the loop (in scheduleAct)
+ * and threading it through avoids both an awkward async switch statement
+ * and a redundant query per step.
+ */
+function renderActStepBody(raw: Step, task: RecoveryTask, flight: Flight, booking: Booking, nextLeg: { booking: Booking; flight: Flight } | null): string {
   const alt = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
   const hotel = flight.candidates.hotels.find((h) => h.id === task.chosenHotelId);
   const cab = flight.candidates.cabs.find((c) => c.id === task.chosenCabId);
@@ -321,37 +399,206 @@ function renderActStepBody(raw: Step, task: RecoveryTask, flight: Flight, bookin
       return raw.s;
     }
     case 'onward': {
-      const next = store.getNextLeg(booking.id);
-      if (!next) return raw.s;
-      return `${next.flight.code} to ${next.flight.to} re-checked and still valid — a no-show on this leg can silently void the rest of an itinerary.`;
+      if (!nextLeg) return raw.s;
+      return `${nextLeg.flight.code} to ${nextLeg.flight.to} re-checked and still valid — a no-show on this leg can silently void the rest of an itinerary.`;
     }
     default:
       return raw.s;
   }
 }
 
-function scheduleAct(flightId: string, passengerId: string) {
-  const flight = store.getFlight(flightId);
-  const booking = store.getBookingsForFlight(flightId).find((b) => b.passengerId === passengerId);
+async function scheduleAct(flightId: string, passengerId: string): Promise<void> {
+  const flight = await store.getFlight(flightId);
+  const bookings = await store.getBookingsForFlight(flightId);
+  const booking = bookings.find((b) => b.passengerId === passengerId);
   if (!flight || !booking) return;
   // Omit the "onward leg" step entirely when this passenger has no connection —
   // unlike the old single-flight version, this is no longer unconditional.
-  const steps = ACT_STEPS.filter((s) => s.live !== 'onward' || store.getNextLeg(booking.id) !== null);
+  const nextLeg = await store.getNextLeg(booking.id);
+  const steps = ACT_STEPS.filter((s) => s.live !== 'onward' || nextLeg !== null);
 
   let i = 0;
-  const run = () => {
-    const task = store.getRecoveryTask(flightId, passengerId);
+  const run = async (): Promise<void> => {
+    const task = await store.getRecoveryTask(flightId, passengerId);
     if (!task) return;
-    if (i >= steps.length) { task.phase = 'booked'; store.setRecoveryTask(task); return; }
+    if (i >= steps.length) { task.phase = 'booked'; task.terminal = 'CONFIRMED'; await store.setRecoveryTask(task); return; }
     const raw = steps[i];
-    const rendered: Step = { ...raw, s: renderActStepBody(raw, task, flight, booking) };
+    const rendered: Step = { ...raw, s: renderActStepBody(raw, task, flight, booking, nextLeg) };
     task.shown = [...task.shown, rendered];
-    store.setRecoveryTask(task);
+    await store.setRecoveryTask(task);
     i += 1;
-    setTimeout(run, Math.max(FLOOR, raw.d * PLAY));
+    setTimeout(() => { void run(); }, Math.max(FLOOR, raw.d * PLAY));
   };
-  run();
+  // Await only the first step: it should be visible immediately, same as
+  // before. Later steps are scheduled via setTimeout and stay fire-and-forget
+  // — scheduleAct's caller shouldn't block on the whole multi-step animation.
+  await run();
 }
+
+const CABIN_RANK: Record<string, number> = { Economy: 0, 'Premium Economy': 1, Business: 2, First: 3 };
+
+/**
+ * ACT, for real. This is the only place in zkd-app that starts a Temporal
+ * workflow — everything before it is reversible, everything from here on
+ * is the real saga running in zkd-execute (see
+ * documentation/architecture/execution-plane.md). Builds the
+ * RecoveryIntent boundary contract (zkd-shared), starts the saga keyed by
+ * an idempotency key derived from the business entity (never this run —
+ * 03-action-policy.md §6), and maps the real SagaResult onto the member-
+ * facing phase and the audit-grade terminal state.
+ */
+async function runRecoverySaga(flightId: string, passengerId: string): Promise<void> {
+  const flight = await store.getFlight(flightId);
+  const bookings = await store.getBookingsForFlight(flightId);
+  const booking = bookings.find((b) => b.passengerId === passengerId);
+  const passenger = await store.getPassenger(passengerId);
+  const task = await store.getRecoveryTask(flightId, passengerId);
+  if (!flight || !booking || !passenger || !task) return;
+
+  const alt = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
+  if (!alt) {
+    // The planning graph never should have chosen an id that isn't in the
+    // portfolio — if it happens anyway, this is a feasible-set-empty case,
+    // not a booking to attempt.
+    task.phase = 'handed';
+    task.terminal = 'ESCALATED';
+    task.note = 'No bookable candidate survived to the moment of booking — over to a human.';
+    await store.setRecoveryTask(task);
+    return;
+  }
+
+  const hotel = flight.candidates.hotels.find((h) => h.id === task.chosenHotelId) ?? null;
+  const cab = flight.candidates.cabs.find((c) => c.id === task.chosenCabId) ?? null;
+  const cost = costOf(flight, task);
+  const profile = await fetchProfile(passenger.id);
+
+  const idempotencyKey = deriveIdempotencyKey({
+    pnr: booking.pnr, segment: flight.id, memberId: passenger.id, intent: 'recover-cancellation',
+  });
+
+  const nameParts = passenger.legalName.split(' ');
+  const policyInput: PolicyInput = {
+    consent: passenger.consent,
+    originalFlightOperated: task.needsRebooking === false, // placeholder for the rare re-timed-but-still-charged edge case; the common re-timed path never reaches this function at all
+    offerId: alt.id,
+    rejectedOfferIds: task.rejectedAltIds,
+    cabinRank: CABIN_RANK[alt.cabin] ?? 0,
+    cabinEntitlementRank: CABIN_RANK[profile.preferences.cabinEntitlement] ?? 0,
+    fareDelta: cost.total,
+    fareDeltaCap: cost.cap,
+    departureAtMs: new Date(flight.rescheduledToISO ?? flight.depISO).getTime(),
+    // No explicit member-stated travel window exists in this build (Booking/
+    // Passenger carry no such field) — defaulting to a generous 7-day window
+    // rather than guessing a narrower one that could wrongly deny a real
+    // recovery. Documented gap, not a silent guess: see
+    // documentation/architecture/execution-plane.md.
+    travelWindowStartMs: Date.now() - 24 * 3600_000,
+    travelWindowEndMs: Date.now() + 7 * 24 * 3600_000,
+    seatsAvailable: alt.seats,
+    partySize: task.partySize,
+  };
+
+  const intent: RecoveryIntent = {
+    idempotencyKey,
+    pnr: booking.pnr,
+    originalBookingId: booking.id,
+    memberId: passenger.id,
+    partySize: task.partySize,
+    travellerIds: booking.travellerIds,
+    passenger: {
+      givenName: nameParts[0] ?? passenger.displayName,
+      familyName: nameParts.slice(1).join(' ') || passenger.displayName,
+      dob: passenger.dob,
+      gender: passenger.gender.toLowerCase().startsWith('f') ? 'f' : 'm',
+      email: passenger.contact.email,
+      phoneNumber: passenger.contact.phone,
+    },
+    consent: passenger.consent,
+    disposition: task.needsRebooking ? 'involuntary' : 'voluntary',
+    flight: {
+      supplier: (alt.supplier as RecoveryIntent['flight']['supplier']) ?? 'sabre',
+      supplierOfferId: alt.supplierOfferId ?? alt.id,
+      flightCode: alt.code,
+      from: flight.from,
+      to: flight.to,
+      departsAtMs: new Date(flight.rescheduledToISO ?? flight.depISO).getTime(),
+      cabin: alt.cabin,
+      price: { amount: alt.fare, currency: alt.currency },
+      expiresAtMs: alt.expiresAt,
+    },
+    hotel: hotel
+      ? { supplierOfferId: hotel.id, name: hotel.name, checkin: hotel.checkin, rooms: cost.rooms, rate: { amount: hotel.rate, currency: hotel.currency } }
+      : null,
+    ground: cab
+      ? {
+          supplierOfferId: cab.id, kind: cab.kind, vehicles: cost.vehicles,
+          legs: flight.candidates.cabLegs.map((l) => ({ from: l.from, to: l.to, pickupISO: l.pickup })),
+          extra: { amount: cab.extra, currency: cab.currency },
+        }
+      : null,
+    perTransactionCap: { amount: cost.cap, currency: cost.currency },
+    policyInput,
+    callbackUrl: null,
+    requestedAt: Date.now(),
+  };
+
+  try {
+    // A retry against the same business entity (same pnr/segment/member/
+    // intent — e.g. after a transient error, or this exact request racing
+    // itself) hits Temporal's own REJECT_DUPLICATE guard rather than a fresh
+    // start. That is correct — it MUST NOT silently start a second real
+    // booking (03-action-policy.md §6) — but the right response is to fetch
+    // the ORIGINAL attempt's real outcome, not treat "already started" as a
+    // failure and escalate a booking that may have already succeeded.
+    let result;
+    try {
+      result = await startRecoverySaga(intent);
+    } catch (e) {
+      if (e instanceof Error && /already started/i.test(e.message)) {
+        result = await awaitExistingSaga(idempotencyKey);
+      } else {
+        throw e;
+      }
+    }
+    for (const step of result.steps) logSagaStep({ idempotencyKey, ...step });
+
+    const rendered: Step[] = result.steps
+      .filter((s) => s.kind === 'forward' && s.outcome === 'ok')
+      .map((s) => ({ n: SAGA_STEP_LABEL[s.step] ?? s.step, d: 0, s: SAGA_STEP_LABEL[s.step] ?? s.step }));
+
+    const refreshed = await store.getRecoveryTask(flightId, passengerId);
+    if (!refreshed) return;
+    refreshed.shown = [...refreshed.shown, ...rendered];
+    refreshed.terminal = result.terminal;
+
+    if (result.terminal === 'CONFIRMED') {
+      refreshed.phase = 'booked';
+      refreshed.note = 'Booked, for real — the saga confirmed every step and disposed the original ticket last.';
+    } else {
+      refreshed.phase = 'handed';
+      refreshed.note = `The booking could not complete (${result.failureReason ?? 'saga failed'}) — everything that was reserved has been released. Over to a human.`;
+    }
+    await store.setRecoveryTask(refreshed);
+  } catch (e) {
+    // The execution plane itself was unreachable (Temporal down, etc.) —
+    // nothing was spent, because nothing ever started. Escalate rather than
+    // leave the member's task hanging in 'acting' forever.
+    const refreshed = await store.getRecoveryTask(flightId, passengerId);
+    if (!refreshed) return;
+    refreshed.phase = 'handed';
+    refreshed.terminal = 'ESCALATED';
+    refreshed.note = `Could not reach the booking system (${e instanceof Error ? e.message : 'unknown error'}) — nothing was booked or charged. Over to a human.`;
+    await store.setRecoveryTask(refreshed);
+  }
+}
+
+const SAGA_STEP_LABEL: Record<string, string> = {
+  reserveVAN: 'Payment authorised',
+  bookFlight: 'Seat booked',
+  bookHotel: 'Hotel moved',
+  bookGround: 'Cab re-booked',
+  disposeOriginal: 'Original ticket disposed',
+};
 
 /**
  * The last check before anything is spent.
@@ -410,7 +657,7 @@ export async function resolveTask(
   passengerId: string,
   action: ResolveAction,
 ): Promise<RecoveryTask | null> {
-  const task = store.getRecoveryTask(flightId, passengerId);
+  const task = await store.getRecoveryTask(flightId, passengerId);
   if (!task) return null;
   if (task.resolution) return task; // already resolved — no further action changes anything
 
@@ -425,7 +672,7 @@ export async function resolveTask(
     case 'choose': {
       // Reject server-side, not just in the UI: "we will not split your
       // party across flights" is a system guarantee, not a rendering choice.
-      const flight = store.getFlight(flightId);
+      const flight = await store.getFlight(flightId);
       const picked = flight && altsForParty(flight.candidates.alts, task.partySize).find((a) => a.id === action.altId);
       if (!picked?.fitsParty) {
         task.note = picked?.why ?? 'That option is no longer available.';
@@ -442,21 +689,21 @@ export async function resolveTask(
       break;
     }
     case 'swap-hotel': {
-      const flight = store.getFlight(flightId);
+      const flight = await store.getFlight(flightId);
       const hotel = flight?.candidates.hotels.find((h) => h.id === action.hotelId);
       task.chosenHotelId = action.hotelId;
       task.note = hotel ? `Room swapped to ${hotel.name}.` : task.note;
       break;
     }
     case 'swap-cab': {
-      const flight = store.getFlight(flightId);
+      const flight = await store.getFlight(flightId);
       const cab = flight?.candidates.cabs.find((c) => c.id === action.cabId);
       task.chosenCabId = action.cabId;
       task.note = cab ? `Cab swapped to ${cab.kind}.` : task.note;
       break;
     }
     case 'approve': {
-      const flight = store.getFlight(flightId);
+      const flight = await store.getFlight(flightId);
       if (!flight) return task;
 
       // The cap is the card's actual authorisation limit, not a consent
@@ -466,43 +713,43 @@ export async function resolveTask(
       const preApproveCost = costOf(flight, task);
       if (preApproveCost.overCap) {
         task.note = `This would cost ${money(preApproveCost.total)}, over your ${money(preApproveCost.cap)} single-transaction cap — so we could not go ahead. Nothing was booked and nothing was charged. Your seats are still held.`;
-        finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
-        return store.getRecoveryTask(flightId, passengerId) ?? task;
+        await finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
+        return (await store.getRecoveryTask(flightId, passengerId)) ?? task;
       }
 
-      const switched = await revalidateChoice(task, flight);
+      const switched = task.needsRebooking ? await revalidateChoice(task, flight) : null;
       task.note = switched ?? 'You approved it, so we went straight through.';
-      finalizeResolution(task, { kind: 'approved', at: Date.now(), altId: task.chosenAltId, hotelId: task.chosenHotelId, cabId: task.chosenCabId });
-      return store.getRecoveryTask(flightId, passengerId) ?? task;
+      await finalizeResolution(task, buildResolution('approved', task, flight));
+      return (await store.getRecoveryTask(flightId, passengerId)) ?? task;
     }
     case 'hand-over': {
       task.note = 'You took the wheel. We stopped immediately — nothing confirmed, nothing paid, and your held seats stay held.';
-      finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
-      return store.getRecoveryTask(flightId, passengerId) ?? task;
+      await finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
+      return (await store.getRecoveryTask(flightId, passengerId)) ?? task;
     }
   }
-  store.setRecoveryTask(task);
+  await store.setRecoveryTask(task);
   return task;
 }
 
 /** Assembles the response shape a passenger's device polls — everything app/recovery/[id]/page.tsx needs to render, computed here, not on the client. */
-export function getRecoveryView(flightId: string, passengerId: string): RecoveryView | null {
-  ensureSeeded();
-  const event = store.getDisruptionEvent(flightId);
+export async function getRecoveryView(flightId: string, passengerId: string): Promise<RecoveryView | null> {
+  await ensureSeeded();
+  const event = await store.getDisruptionEvent(flightId);
   if (!event) return null;
-  const flight = store.getFlight(flightId);
+  const flight = await store.getFlight(flightId);
   if (!flight) return null;
 
   if (event.phase === 'DECIDING') {
     return {
-      taskId: null, flightId, detectedAt: event.detectedAt, phase: 'deciding',
+      taskId: null, flightId, detectedAt: event.detectedAt, phase: 'deciding', terminal: null,
       shown: [], secondsLeft: 0, windowSeconds: 0, windowBoundBy: 'ceiling', partySize: 1,
       chosenAltId: '', chosenHotelId: '', chosenCabId: '', rejectedAltIds: [],
       owedNow: 0, cost: ZERO_COST, note: null, resolution: null,
     };
   }
 
-  const task = store.getRecoveryTask(flightId, passengerId);
+  const task = await store.getRecoveryTask(flightId, passengerId);
   if (!task) return null; // this passenger has no booking on this flight
 
   const secondsLeft = task.phase === 'waiting'
@@ -514,7 +761,7 @@ export function getRecoveryView(flightId: string, passengerId: string): Recovery
   const cost = costOf(flight, task);
 
   return {
-    taskId: task.id, flightId, detectedAt: event.detectedAt, phase: task.phase,
+    taskId: task.id, flightId, detectedAt: event.detectedAt, phase: task.phase, terminal: task.terminal,
     shown: task.shown, secondsLeft, windowSeconds, windowBoundBy: task.windowBoundBy, partySize: task.partySize,
     chosenAltId: task.chosenAltId, chosenHotelId: task.chosenHotelId, chosenCabId: task.chosenCabId,
     rejectedAltIds: task.rejectedAltIds,

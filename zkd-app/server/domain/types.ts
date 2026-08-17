@@ -22,13 +22,15 @@ export type Credential = { passengerId: string; email: string; passwordHash: str
 export type Band = 'low' | 'mid' | 'high';
 
 /**
- * The disruption forecast for a flight.
+ * The disruption forecast for a flight, from the real gradient-boosted
+ * model in zkd-risk-model/ (server/engine/riskModel.ts), not a vendor call
+ * or a mock. `thresholds` travels with the probability because a
+ * probability without the bar it is judged against cannot be turned into a
+ * decision, and that bar moves per flight (see lib/thresholds.ts).
  *
- * We buy this rather than computing it — there is no local model here to feed,
- * which is why there are no weather/rotation/congestion "signals" on a Flight
- * any more. `thresholds` travels with the probability because a probability
- * without the bar it is judged against cannot be turned into a decision, and
- * that bar moves per flight (see lib/thresholds.ts).
+ * There is no 'mock' source any more: when the model is unreachable or a
+ * flight cannot be scored, refreshForecast returns null and the caller
+ * shows "not available" — never a fabricated number labeled as real.
  */
 export type FlightForecast = {
   pct: number;
@@ -36,8 +38,45 @@ export type FlightForecast = {
   tone: Band;
   connectionRisk: number | null;
   confidence: number;
-  source: 'lumo' | 'mock';
+  source: 'internal-ml';
+  modelVersion: string;
+  /** Percentile rank (0-100) of pct against the real live-realistic score
+   *  distribution — see server/engine/riskModel.ts's ModelScore.riskScore
+   *  for why this is a rank, not a probability, and never a rescaled pct.
+   *  Drives alt-search pre-caching (config/risk-thresholds.json's
+   *  altCache.prefetchAtOrAboveRiskScore); pct/band/thresholds still drive
+   *  every member-facing banner, unchanged. */
+  riskScore?: number;
+  /** Real per-feature tree-SHAP contributions from this exact prediction —
+   *  see server/engine/riskModel.ts's ModelExplanation. Undefined on
+   *  forecasts computed by the batch/interval scorer (no explanation pass
+   *  there, see riskModel.ts); present on every on-demand/reverify score,
+   *  which is what the audit panel reads. */
+  explanation?: import('../engine/riskModel').ModelExplanation;
+  /** Which of `explanation`'s historical-rate features are this entity's
+   *  own real history vs a population-average cold-start fallback — see
+   *  server/engine/riskModel.ts's DataSourceMap. Same on-demand-only
+   *  availability as `explanation`. */
+  dataSource?: import('../engine/riskModel').DataSourceMap;
   thresholds: import('@/lib/thresholds').Thresholds;
+  asOf: number;
+};
+
+/**
+ * A lightweight point in a flight's prediction history — enough to draw the
+ * time-series graph without carrying a full explanation payload on every
+ * point (server/engine/forecast.ts appends one on every real compute()).
+ */
+export type FlightForecastSnapshot = {
+  pct: number;
+  /** 0-100 percentile rank, see FlightForecast.riskScore — what the
+   *  "Prediction history" chart plots. Absent on points recorded before
+   *  this field existed; the chart skips those as a gap, same as any other
+   *  missing model run. */
+  riskScore?: number;
+  band: import('@/lib/thresholds').Band;
+  confidence: number;
+  modelVersion: string;
   asOf: number;
 };
 
@@ -118,9 +157,19 @@ export type Flight = {
   hasHardConstraint: boolean;
   /** fetched from the forecaster, cached here; undefined until the first refresh */
   forecast?: FlightForecast;
+  /** every real forecast this flight has ever received, oldest first, capped
+   *  at FORECAST_HISTORY_CAP (server/engine/forecast.ts) — what the audit
+   *  graph plots. Undefined until the first compute(), same lazy-init
+   *  pattern as `forecast` above. Populated by both on-demand refreshes and
+   *  the interval batch re-scorer (server/engine/batchScorer.ts), so points
+   *  appear even if nobody views the flight. */
+  forecastHistory?: FlightForecastSnapshot[];
   /** epoch ms `candidates.alts` was last refreshed from real supplier inventory;
    *  undefined until the first fetch (server/engine/altsCache.ts) */
   altsAsOf?: number;
+  /** epoch ms `candidates.hotels`/`cabs`/`cabLegs` were last refreshed;
+   *  undefined until the first fetch (server/engine/groundCache.ts) */
+  groundAsOf?: number;
   candidates: {
     alts: Alt[];
     hotels: HotelOpt[];
@@ -219,6 +268,23 @@ export type DisruptionResolution =
   | { kind: 're-timed'; at: number; hotelId: string; cabId: string; shiftMinutes: number }
   | { kind: 'handed-over'; at: number };
 
+/**
+ * The MEMBER-FACING phase — a deliberately simplified projection of the real
+ * 8-phase / 4-terminal-state model in zkd-shared (WATCH..CLAIM, CONFIRMED/
+ * RELEASED/ESCALATED/ROLLED_BACK — see 03-action-policy.md §1/§7). A
+ * member's screen doesn't need to distinguish RE-CHECK from ACT; it needs
+ * "waiting on you", "working on it", "done", or "handed to a human". The
+ * authoritative 4-way outcome lives in `RecoveryTask.terminal` below, set
+ * from the real Temporal saga's result — this field is presentation, not
+ * the source of truth.
+ *
+ * No 'released' value here even though zkd-shared's TerminalState has
+ * RELEASED (03-action-policy.md §7 condition 5, "forecast decays below the
+ * hold gate"): nothing in this build monitors an active hold's forecast
+ * over time to trigger it — that's a genuine, documented gap (see
+ * documentation/architecture/execution-plane.md), not a state worth typing
+ * here with no producer.
+ */
 export type RecoveryTaskPhase = 'waiting' | 'choosing' | 'acting' | 'booked' | 'handed';
 
 export type RecoveryTask = {
@@ -228,6 +294,15 @@ export type RecoveryTask = {
   bookingId: string;
   passengerId: string;
   phase: RecoveryTaskPhase;
+  /** null while still in flight; set once the recovery reaches one of the
+   *  four terminal states (zkd-shared's TerminalState) — the real,
+   *  audit-grade outcome, independent of how `phase` renders it. */
+  terminal: import('zkd-shared').TerminalState | null;
+  /** from the planning graph's classification (03-action-policy.md §2.1) —
+   *  a reschedule the connection survives needs no new seat, only a hotel/
+   *  ground re-time, so this decides which DisruptionResolution kind gets
+   *  built once consent (or silence) resolves the task. */
+  needsRebooking: boolean;
   /** how many travellers this PNR covers — derived once at task creation from
    *  the Booking, since the Booking itself is the source of truth throughout. */
   partySize: number;

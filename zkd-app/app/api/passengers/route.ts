@@ -1,14 +1,19 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import * as store from '@/server/domain/store';
 import { ensureSeeded } from '@/server/domain/seed';
+import { requireOperator } from '@/server/auth/guard';
 
-// Deliberately open and deliberately minimal: /ops has no account of its own
-// and needs a picker of who exists. This exposes display names and consent
-// tiers to anyone — never a passport, contact detail or PNR — and stays open
-// only because /ops needs it.
-export async function GET() {
-  ensureSeeded();
+// /ops's picker of who exists. Deliberately minimal — display names and
+// consent tiers only, never a passport, contact detail or PNR — but "minimal
+// payload" isn't a substitute for an auth boundary, so this is gated the
+// same as the rest of the operator console.
+export async function GET(req: NextRequest) {
+  const g = await requireOperator(req);
+  if ('response' in g) return g.response;
+
+  await ensureSeeded();
+  const passengers = await store.listPassengers();
   return NextResponse.json(
-    store.listPassengers().map((p) => ({ id: p.id, displayName: p.displayName, consent: p.consent })),
+    passengers.map((p) => ({ id: p.id, displayName: p.displayName, consent: p.consent })),
   );
 }

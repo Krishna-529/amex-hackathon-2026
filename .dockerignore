@@ -1,0 +1,17 @@
+# Root .dockerignore — applies to every service in docker-compose.yml whose
+# build context is "." (zkd-app, zkd-execute). Keeps host-built artifacts and
+# unrelated sibling projects out of every image.
+**/node_modules
+**/.next
+**/.state
+**/*.tsbuildinfo
+**/test-results
+.git
+.claude
+zkd-android
+zkd-launcher
+zkd-sites
+zkd-website
+amex-travel-disruption-concierge
+Code
+zkd-risk-model

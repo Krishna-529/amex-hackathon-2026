@@ -6,9 +6,10 @@ WHAT CHANGED FROM v1.0 — re-grounded on the live design site (localhost:5173)
 and the shared proof registry, which supersede the Round 1 deck:
   · SCOPE narrowed to Tier A (full consent) + a human-override path. Tier C
     dropped; Tier B folded into "member takes the wheel".
-  · 7-phase lifecycle added: WATCH · WARM · ASK · WAIT · ACT · VERIFY · CLAIM.
-  · The WAIT gate is now the central safety claim: nothing irreversible
-    happens to its left.
+  · 8-phase lifecycle added: WATCH · WARM · ASK · WAIT · RE-CHECK · ACT ·
+    VERIFY · CLAIM.
+  · ACT is now the central safety claim: nothing irreversible happens left
+    of it.
   · PORTFOLIO + per-route coordinator + min-cost allocation added. Portfolio
     allocation is the largest measured lever (38.63 pts).
   · Three clocks separated: hold_TTL vs offer_expiry vs time_to_announcement.
@@ -72,8 +73,8 @@ the 7–21 Aug build; (2) the technical judge at the finale; (3) a reviewer chec
 **Length ceiling:** 1,900 words of prose, excluding tables, code blocks, schemas and diagrams.
 
 **The one thing this section must prove:** that an AI agent can be given real spend authority over a
-member's money without becoming a liability — because **nothing irreversible happens left of the WAIT
-gate**, the supervisor **routes but never acts**, and it **always halts**. If a reader finishes §1.2
+member's money without becoming a liability — because **nothing irreversible happens left of ACT**,
+the supervisor **routes but never acts**, and it **always halts**. If a reader finishes §1.2
 unable to state both the exact conditions under which the loop stops and why a failed prediction
 costs the member nothing, the section has failed.
 
@@ -111,7 +112,7 @@ each file documents the duty-of-care interaction that belongs to it.
 **Shared state.**
 `TripState { disruption · pnr · consent_tier · travel_window · constraints · candidates[] · portfolio[] · policy_decisions[] · holds[] · confirmed[] · rejected_by_member[] · claims[] · escalation? }`
 
-**The seven-phase lifecycle.** Every recovery walks these phases in order:
+**The eight-phase lifecycle.** Every recovery walks these phases in order:
 
 | Phase | What happens | Reversible? |
 |---|---|---|
@@ -119,11 +120,12 @@ each file documents the duty-of-care interaction that belongs to it.
 | **WARM** | Context assembly; per-route coordinator runs **one** reshop for the whole affected group; portfolio built and priced. | Yes — no hold, no spend |
 | **ASK** | Conditional consent captured **against the outcome, never a flight number**. | Yes |
 | **WAIT** | Hold gate evaluated. Either candidates stay warm, or a speculative hold is taken from the coordinator block. | Yes — an unconfirmed hold expires free |
+| **RE-CHECK** | Member confirms, or the derived window closes. Re-validate the chosen offer with its supplier; cascade to the next candidate if it is gone. | Yes — this is the last reversible step |
 | **ACT** | Min-cost allocation across the portfolio → OPA → Temporal saga. | **No — this is the boundary** |
 | **VERIFY** | Onward segments checked intact after disposal. | — |
 | **CLAIM** | Duty of care claimed from the carrier; only the uncovered remainder is settled. | — |
 
-**The WAIT gate is the central safety claim. Nothing irreversible happens to its left.** Everything to
+**ACT is the central safety claim. Nothing irreversible happens to its left.** Everything to
 its right is triggered by the carrier actually acting — which is precisely what makes the re-route
 free and keeps the statutory entitlement intact.
 
@@ -251,7 +253,10 @@ candidate set held in memory — zero extra supplier calls.** Unroutable states 
 never hang, never expire in silence.
 
 **Human override — "take the wheel".** Under Tier A the member may intervene at any moment: during
-the 90-second quiet window, or by rejecting a presented plan. On intervention
+the derived confirmation window (the supplier's own offer-expiry guarantee minus the ~11s execution
+budget and 20s network margin, clamped between a 2-minute floor and a 20-minute ceiling — see
+`documentation/design/03-action-policy.md` §3.1 and `lib/confirmWindow.ts`), or by rejecting a
+presented plan. On intervention
 (`{MEMBER_INTERVENTION}`):
 - The member's input becomes a **new hard constraint**, gating at OPA like any other.
 - The rejected option is appended to `rejected_by_member[]` and **must never be re-proposed**. This is
@@ -267,10 +272,15 @@ the 90-second quiet window, or by rejecting a presented plan. On intervention
   minutes to choose without losing the seat.
 - Nothing is confirmed and nothing is paid while an intervention is outstanding.
 
-**Consent mechanics under Tier A.** Notify → **90-second quiet window** → proceed if silent. Payment
-is a **vPayment VAN locked to an amount and to a date** — it cannot be reused or overspent, so even a
-compromised agent cannot exceed the plan it presented. The quiet window maps onto the **RBI Additional
-Factor of Authentication e-mandate** framework as a recognised pre-debit notification. Three modes
+**Consent mechanics under Tier A.** Notify → **derived confirmation window** → proceed if silent. The
+window is not a fixed duration — it is the supplier's own offer-expiry guarantee minus the ~11s
+execution budget and 20s network margin, clamped between a 2-minute floor and a 20-minute ceiling
+(`documentation/design/03-action-policy.md` §3.1, `lib/confirmWindow.ts`). Below the 2-minute floor
+there is no silent window at all: the member's standing consent tier (autopilot vs. ask-me-first)
+decides alone. Payment is a **vPayment VAN locked to an amount and to a date** — it cannot be reused or
+overspent, so even a compromised agent cannot exceed the plan it presented. The window maps onto the
+**RBI Additional Factor of Authentication e-mandate** framework as a recognised pre-debit notification.
+Three modes
 occur within Tier A: **zeroCharge** (the carrier owes all of it), **wallet** (settled from the linked
 wallet via the VAN), and **cannotBook** (consent held, inventory gone — the honest failure).
 
@@ -401,7 +411,7 @@ A **specification, not an essay.** Its length must not scale with how much you k
 | Subsection | Prose cap | Notes |
 |---|---|---|
 | Responsibility & authority boundary | 200 words | Lead with what it cannot do |
-| Lifecycle & the WAIT gate | 300 words + table | The safety argument lives here |
+| Lifecycle & the ACT boundary | 300 words + table | The safety argument lives here |
 | Classification & routing | 150 words + table | Table carries it |
 | Coordinator & portfolio | 300 words + table | Cite `sens-portfolio`, `api-call-collapse` |
 | Allocation objective | 250 words + table | Ordered priorities |
@@ -423,7 +433,7 @@ Emit exactly these headings, in this order:
 ```markdown
 ## 1.2 Supervisor & Cross-Agent Negotiation
 ### 1.2.1 Responsibility and authority boundary
-### 1.2.2 The seven-phase lifecycle and the WAIT gate
+### 1.2.2 The eight-phase lifecycle and the ACT boundary
 ### 1.2.3 Disruption classification and worker routing
 ### 1.2.4 Per-route coordinator and the option portfolio
 ### 1.2.5 The allocation objective
@@ -457,7 +467,7 @@ must scroll inside `.tw`, never the page body.
 
 **Mandatory content per subsection:**
 
-- **1.2.2** — the phase table, and an unambiguous statement of what the WAIT gate guarantees. Must
+- **1.2.2** — the phase table, and an unambiguous statement of what the ACT boundary guarantees. Must
   state that a failed prediction costs the member nothing, and why.
 - **1.2.3** — a routing table: disruption class × workers engaged × anchor derivation × outcome band.
   Cover at minimum: carrier cancellation with overnight window, cancellation same-day, delay crossing
@@ -539,7 +549,7 @@ carriers at peak pricing. Mode **wallet**.
 
 - **Supervisor must:** recognise consent is already standing with a declared per-transaction cap, so
   no new approval is needed inside the cap. Fire the notification with the price. Open the
-  **90-second quiet window**. On silence, proceed: VAN issued locked to the amount **and** today's
+  **derived confirmation window**. On silence, proceed: VAN issued locked to the amount **and** today's
   date. Flight, hotel and cab confirmed as one distributed transaction; original disposed last.
 - **Return:** an allocation whose member-paid fare difference is itemised, and a VAN request bounded by
   the presented plan — never more.
@@ -568,7 +578,7 @@ overnight. Mode **cannotBook**.
 ### P5 · TAKE THE WHEEL — a Tier A member intervenes mid-recovery
 
 Any of the above, at the moment the notification fires. The member taps **take the wheel** inside the
-90-second quiet window, or rejects the presented plan.
+derived confirmation window, or rejects the presented plan.
 
 - **Supervisor must:** halt the silent path immediately — nothing confirmed, nothing paid while an
   intervention is outstanding. Keep live holds live. Convert the member's stated preference into a
@@ -730,7 +740,9 @@ You have **no supplier tools**. Only:
   **read** the result; you never override it.
 - `request_hold(itinerary)` — ask the executor for tentative holds. **A request to Layer B, not an
   action you perform.** Only call it when the hold gate passes.
-- `notify(plan)` — fire the FCM hybrid notification and open the 90-second quiet window.
+- `notify(plan)` — fire the FCM hybrid notification and open the derived confirmation window (may be
+  zero if the offer's own expiry leaves no room after the execution and network margins, in which case
+  the consent tier decides alone).
 - `escalate(handoff_object)` — hand context to Pipeline 04.
 
 ## B3. DECISION RULES
@@ -745,9 +757,15 @@ price them. This phase carries the 42 s of prepared work that keeps the carrier-
 **ASK.** Capture consent **against the outcome**: *"shall we get you to X in time for Y?"* Never name
 a flight you may not win.
 
-**WAIT — the irreversibility boundary.** Evaluate the hold gate. If it fails, keep candidates
-**warm**: no hold, no spend, zero churn risk. If it passes, request a speculative hold **from the
-coordinator block**. If the prediction decays, release at zero cost.
+**WAIT.** Evaluate the hold gate. If it fails, keep candidates **warm**: no hold, no spend, zero churn
+risk. If it passes, request a speculative hold **from the coordinator block**. If the prediction
+decays, release at zero cost.
+
+**RE-CHECK — the irreversibility boundary starts here.** Triggered by the member confirming, or by the
+derived confirmation window closing on silence. Re-validate the chosen offer with its supplier before
+touching ACT: if it is gone, cascade to the next candidate in the portfolio rather than acting on a
+stale price. This is the last reversible step — nothing left of it, including WAIT, has committed
+money or inventory.
 
 **Derive the anchor.** The anchor city is **where the member physically is when the gap opens** — a
 function of which legs have already been flown. It is **not** the PNR origin and **not** the

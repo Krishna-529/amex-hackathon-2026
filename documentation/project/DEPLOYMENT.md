@@ -35,22 +35,30 @@ instead and ignores the root one, so keeping both is harmless.
 
 ### Environment variables
 
-None are required. The app builds and runs with no keys at all — every provider
-adapter falls back to a labelled mock, and the UI prints `mock` where it is
-showing one. Adding keys upgrades individual providers; missing keys never break
+**`RISK_MODEL_URL` is no longer optional (2026-08-14).** The disruption forecast is a real
+self-trained model now (`zkd-risk-model/`, see `documentation/design/05-cancellation-risk-model.md`),
+not a vendor call with a mock fallback — `server/lumo.ts` is deleted. Without `RISK_MODEL_URL`
+pointing at a running scorer (`zkd-risk-model/src/serve.py` locally, or the deployed Lambda/ALB
+endpoint in AWS), every flight shows "forecast not available" rather than a number — the app still
+builds and runs, but the risk gauge and pre-authorisation flow have nothing to act on. See
+`zkd-risk-model/README.md` for how to run the scorer.
+
+Every other provider still falls back to a labelled mock when its key is absent, and the UI prints
+`mock` where it is showing one. Adding keys upgrades individual providers; missing keys never break
 the build. Verified by building with `.env.local` removed.
 
 Optional, in rough order of value:
 
 | Variable | What it turns on |
 |---|---|
+| `RISK_MODEL_URL` | **Not optional** — the real cancellation forecast. Default assumed by the app if unset: `http://localhost:8090` |
 | `DUFFEL_ACCESS_TOKEN` | Real flight inventory with real offer expiries (which is what the confirmation window is derived from) |
-| `LUMO_API_KEY` | Real disruption forecasts instead of the labelled mock |
 | `AVIATIONSTACK_API_KEY` | Live flight status, and reschedule detection against the carrier's published schedule |
 | `LITEAPI_API_KEY` | Real hotel inventory |
 | `SABRE_CLIENT_ID` / `SABRE_CLIENT_SECRET` | A second inventory source (cert currently returns no results) |
 | `GEMINI_API_KEY` | Plain-language explanation text |
 | `MYCA_API_KEY` | Real card-member preferences instead of the mock profile |
+| `OAG_FLIGHT_INFO_TRIAL_PRIMARY_KEY` / `_SECONDARY_KEY` | Real OAG schedule/status data feeding the risk model's live features — see `server/oag.ts`, base path still needs confirming (§8 of `05-cancellation-risk-model.md`) |
 
 ---
 

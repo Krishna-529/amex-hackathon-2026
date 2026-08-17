@@ -215,6 +215,13 @@ majeure removes the cash component, never the duty of care.**
 - API failure: rate limits, timeouts, circuit-breaker opening.
 - Cross-route correlation (e.g. a Delhi closure disrupts every route into Delhi at once) — captured
   with a scarcity multiplier rather than a network model.
-- Diversions are classified but the recovery path for them is not built. The disruption forecast is
-  bought from Lumo and mocked until a key exists — advisory, never authorising. Live supplier
+- Diversions are classified but the recovery path for them is not built. Live supplier
   integration is partial: Duffel returns real offers, Sabre cert returns none, Travelport is synthetic.
+
+## Disruption forecast — built, not bought (2026-08-14)
+
+`documentation/design/05-cancellation-risk-model.md` supersedes this file's and `01`'s prior
+Lumo-vendor framing. The forecast is now a self-trained gradient-boosted model (`zkd-risk-model/`),
+served by `server/engine/riskModel.ts` — no vendor call, no mock fallback. It remains advisory in
+the same architectural sense as before (§ "WAIT gate" above): it moves work off the critical path
+and never authorises spend on its own.

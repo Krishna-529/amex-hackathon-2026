@@ -1,0 +1,24 @@
+# Demo-week profile — sized to fit a $140 AWS credit for roughly one week of
+# live runtime, not the always-on production numbers in
+# documentation/design/04-infrastructure-and-cost.md. Copy to
+# terraform.tfvars.demo (gitignored) and fill in the three secret-bearing
+# vars via environment variables, never in this file.
+#
+# Rough weekly cost at these settings: NAT ~$8, ALB ~$5, Fargate app
+# (1 task, 0.5 vCPU/1GB) ~$5, RDS db.t4g.micro single-AZ ~$3, DynamoDB/Lambda/
+# S3/Secrets Manager on-demand ~$2-5 at demo traffic. Call it $25-35/week —
+# leaves real headroom under $140 for OAG overage, retries, and running
+# `terraform apply`/`destroy` a few times while rehearsing.
+#
+# DO NOT `terraform apply` this until the week before the final
+# presentation. Run `terraform plan` only until then. `terraform destroy`
+# as soon as the demo is done — do not leave it running.
+
+environment                     = "demo"
+monthly_budget_usd              = 100   # hard alarm well under the $140 credit; cost_guard.tf degrades cadence automatically past this
+batch_rescore_interval_minutes  = 15    # wider than the prod default (10) — fewer Lambda invocations, still demonstrably "adaptive on a schedule"
+db_instance_class               = "db.t4g.micro"
+db_multi_az                     = false  # skip the standby instance — a demo does not need to survive an AZ failure
+app_desired_count               = 1
+app_cpu                          = "512"
+app_memory                       = "1024"

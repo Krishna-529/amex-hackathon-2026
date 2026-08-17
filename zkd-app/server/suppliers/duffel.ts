@@ -68,6 +68,7 @@ export const duffel: Supplier = {
       const res = await fetch(`${API}/air/offer_requests?return_offers=true`, {
         method: 'POST',
         headers: headers(token),
+        signal: AbortSignal.timeout(10000),
         body: JSON.stringify({
           data: {
             slices: [
@@ -103,6 +104,7 @@ export const duffel: Supplier = {
       const res = await fetch(`${API}/air/offers/${encodeURIComponent(offer.supplierOfferId)}`, {
         headers: headers(token),
         cache: 'no-store',
+        signal: AbortSignal.timeout(10000),
       });
       // Duffel expires offers rather than deleting them; either way it is gone.
       if (res.status === 404 || res.status === 410) return { state: 'gone' };

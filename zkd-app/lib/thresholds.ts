@@ -1,11 +1,12 @@
 /**
- * Adaptive action thresholds.
+ * Adaptive action thresholds — client-safe half.
  *
- * A fixed cutoff assumes the cost of waiting is constant. It is not: on a route
- * with two remaining seats, waiting for more certainty costs you the seat; on a
- * route with forty, it costs nothing. So the threshold moves with the cost of
- * being late, and demands more confidence when the forecast is less sure of
- * itself.
+ * This file holds the Band type and the pure UI lookups (labels, copy,
+ * glow colours) so client components can import them directly. The actual
+ * computation (thresholdsFor) reads config/risk-thresholds.json off disk via
+ * lib/thresholdConfig.ts, which pulls in Node's `fs` — that must stay
+ * server-only, so it lives in server/engine/thresholds.ts instead. Importing
+ * it from here would drag `fs` into the browser bundle.
  *
  * Every evaluation returns its own inputs so the decision ledger can reconstruct
  * why a band fired. An adaptive threshold nobody can replay is not auditable.
@@ -37,50 +38,9 @@ export type Thresholds = {
   preAuthorise: number;
   factors: { scarcity: number; urgency: number; criticality: number; confidence: number };
   inputs: ThresholdInputs;
+  /** the config version these bands were computed against — for the decision ledger */
+  configVersion: number;
 };
-
-/** Where the bands sit when nothing is unusual — seats plentiful, hours to spare. */
-const BASE = { prepare: 25, holdGate: 55, preAuthorise: 80 };
-
-/** Below this the thresholds cannot fall, so scarcity can never make us act on noise. */
-const FLOOR = { prepare: 10, holdGate: 25, preAuthorise: 45 };
-const CEILING = { prepare: 45, holdGate: 75, preAuthorise: 95 };
-
-export function thresholdsFor(input: ThresholdInputs): Thresholds {
-  const scarcity = scarcityFactor(input.seatsAvailable);
-  const urgency = urgencyFactor(input.minutesToDeparture);
-  const criticality = input.hasHardConstraint ? 0.85 : 1;
-  // A forecast that does not trust itself has to clear a higher bar.
-  const confidence = 0.7 + 0.3 * clamp01(input.confidence);
-
-  const shift = (scarcity * urgency * criticality) / confidence;
-
-  return {
-    prepare: bound(BASE.prepare * shift, FLOOR.prepare, CEILING.prepare),
-    holdGate: bound(BASE.holdGate * shift, FLOOR.holdGate, CEILING.holdGate),
-    preAuthorise: bound(BASE.preAuthorise * shift, FLOOR.preAuthorise, CEILING.preAuthorise),
-    factors: { scarcity, urgency, criticality, confidence },
-    inputs: input,
-  };
-}
-
-/**
- * Few seats left means the option disappears while we deliberate, so we act
- * earlier. Once inventory is deep the factor flattens — there is no more benefit
- * to hurrying.
- */
-function scarcityFactor(seats: number): number {
-  if (seats <= 0) return 0.6;
-  if (seats >= 20) return 1;
-  return 0.6 + 0.4 * (seats / 20);
-}
-
-/** Time is the other thing you cannot buy back. Inside an hour, act on less. */
-function urgencyFactor(minutes: number): number {
-  if (minutes <= 60) return 0.65;
-  if (minutes >= 480) return 1;
-  return 0.65 + 0.35 * ((minutes - 60) / 420);
-}
 
 export type Band = 'watch' | 'prepare' | 'hold-gate' | 'pre-authorise';
 
@@ -122,11 +82,3 @@ export const BAND_TONE: Record<Band, 'low' | 'mid' | 'high'> = {
   'hold-gate': 'high',
   'pre-authorise': 'high',
 };
-
-function clamp01(v: number) {
-  return Math.max(0, Math.min(1, v));
-}
-
-function bound(v: number, lo: number, hi: number) {
-  return Math.round(Math.max(lo, Math.min(hi, v)));
-}

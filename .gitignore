@@ -4,6 +4,10 @@ npm-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# --- Execution-plane decision ledgers (JSONL, local/dev only — see
+# zkd-app/server/.state above and zkd-execute/src/ledger.ts) ---
+zkd-execute/.state/
+
 # --- Dev/serve server logs (redirected stdout/stderr from local runs) ---
 dev.out.log
 dev.err.log
@@ -44,3 +48,25 @@ next-env.d.ts
 # --- Local working docs (personal tracking, not a submission deliverable —
 # unlike assets/data/round2-api-requirements.xlsx, which IS tracked) ---
 known-limitations.xlsx
+
+# --- zkd-risk-model: real historical training data is large and
+# re-downloadable (src/download_data.sh); never commit it. Trained model
+# artifacts and metrics reports ARE committed — see zkd-risk-model/README.md.
+zkd-risk-model/data/raw/
+zkd-risk-model/data/processed/
+zkd-risk-model/.venv/
+
+# --- OAG trial call-budget counter (process-local state, not source) ---
+zkd-app/server/.state/
+
+# --- Playwright (test run artifacts, not source) ---
+zkd-app/test-results/
+zkd-app/playwright-report/
+zkd-app/blob-report/
+
+# --- Terraform ---
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars

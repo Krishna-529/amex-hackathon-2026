@@ -6,6 +6,7 @@ import { hhmm, money } from '@/lib/time';
 import type { FlightSummary, DisruptionOpsView } from '@/lib/apiTypes';
 
 type PassengerRow = { id: string; displayName: string; consent: string };
+type RunningSaga = { workflowId: string; runId: string; startTime: string | null };
 
 const emptyForm = {
   code: '', from: '', to: '', depISO: '', durationMin: 120,
@@ -24,9 +25,19 @@ export default function OpsPage() {
   const { data: flights } = usePoll<FlightSummary[]>('/api/flights', 3000);
   const { data: passengers } = usePoll<PassengerRow[]>('/api/passengers', 8000);
   const { data: disruptions } = usePoll<DisruptionOpsView[]>('/api/disruptions', 2000);
+  const { data: sagas } = usePoll<RunningSaga[]>('/api/ops/sagas', 3000);
 
   const [form, setForm] = useState(emptyForm);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [warmingId, setWarmingId] = useState<string | null>(null);
+  const [haltingId, setHaltingId] = useState<string | null>(null);
+
+  const halt = (workflowId: string) => {
+    setHaltingId(workflowId);
+    fetch(`/api/ops/sagas/${encodeURIComponent(workflowId)}/halt`, { method: 'POST' }).finally(() =>
+      setHaltingId(null),
+    );
+  };
 
   const trigger = (flightId: string) => {
     setBusyId(flightId);
@@ -35,6 +46,18 @@ export default function OpsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ flightId }),
     }).finally(() => setBusyId(null));
+  };
+
+  /**
+   * Real candidates come from a real supplier search, gated on the real risk
+   * model crossing its prefetch threshold (server/engine/forecast.ts) — the
+   * point of that gate, not a bug. This bypasses it on demand: same real
+   * search, just without waiting for the scorer, useful whenever a demo (or
+   * an operator) wants a flight's alt/hotel/cab candidates warm right now.
+   */
+  const warm = (flightId: string) => {
+    setWarmingId(flightId);
+    fetch(`/api/flights/${flightId}/warm`, { method: 'POST' }).finally(() => setWarmingId(null));
   };
 
   const togglePassenger = (id: string) => {
@@ -84,9 +107,9 @@ export default function OpsPage() {
                 <td className="rt">{f.from} → {f.to}</td>
                 <td className="dt">{hhmm(new Date(f.depISO))}</td>
                 <td>
-                  {f.forecast ? `${f.forecast.pct}%` : '—'}{' '}
+                  {f.forecast ? `${Math.round(f.forecast.riskScore ?? f.forecast.pct)}/100` : '—'}{' '}
                   <span style={{ color: 'var(--mist2)' }}>
-                    ({f.forecast ? `${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
+                    ({f.forecast ? `${f.forecast.pct}% real · ${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
                   </span>
                 </td>
                 <td>{f.passengerCount}</td>
@@ -98,6 +121,14 @@ export default function OpsPage() {
                   )}
                 </td>
                 <td className="ar">
+                  <button
+                    disabled={warmingId === f.id}
+                    onClick={() => warm(f.id)}
+                    style={{ marginRight: 8 }}
+                    title="Real supplier search, right now — bypasses the risk-score prefetch gate"
+                  >
+                    {warmingId === f.id ? 'Warming…' : 'Warm candidates'}
+                  </button>
                   <button
                     disabled={f.disruptionPhase !== 'none' || busyId === f.id}
                     onClick={() => trigger(f.id)}
@@ -187,6 +218,45 @@ export default function OpsPage() {
           </div>
         ))
       )}
+
+      <div className="sect">Active sagas</div>
+      <div className="g" style={{ overflow: 'hidden', marginBottom: 8 }}>
+        <p className="why" style={{ padding: '8px 12px' }}>
+          Every in-flight Temporal execution actually spending real money right now — the kill switch:
+          halting one runs the exact same compensation path a real activity failure would (LIFO unwind,
+          nothing silently orphaned).
+        </p>
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>Workflow</th><th>Started</th><th className="ar">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(sagas ?? []).map((s) => (
+              <tr key={s.runId}>
+                <td className="fc">{s.workflowId}</td>
+                <td>{s.startTime ? new Date(s.startTime).toLocaleTimeString() : '—'}</td>
+                <td className="ar">
+                  <button
+                    disabled={haltingId === s.workflowId}
+                    onClick={() => halt(s.workflowId)}
+                    style={{ color: 'var(--risk)' }}
+                  >
+                    {haltingId === s.workflowId ? 'Halting…' : 'Halt'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {sagas && sagas.length === 0 && (
+              <tr><td colSpan={3} style={{ color: 'var(--mist2)' }}>No saga currently running.</td></tr>
+            )}
+            {!sagas && (
+              <tr><td colSpan={3} style={{ color: 'var(--mist2)' }}>Loading — or Temporal isn&apos;t reachable.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

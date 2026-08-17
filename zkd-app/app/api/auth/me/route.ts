@@ -6,7 +6,7 @@ import { requireSession } from '@/server/auth/guard';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const g = requireSession(req);
+  const g = await requireSession(req);
   if ('response' in g) return g.response;
   const { id, displayName, consent } = g.passenger;
   return NextResponse.json({ id, displayName, consent });
