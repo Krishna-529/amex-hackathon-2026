@@ -108,8 +108,20 @@ export type AltKind = 'carrier-protected' | 'market';
 export type Alt = {
   id: string;
   code: string;
+  /** local clock string for display, e.g. "18:40" */
   dep: string;
   arr: string;
+  /**
+   * The same two instants as epoch ms.
+   *
+   * `dep`/`arr` are rendered in the airport's own zone and cannot be compared
+   * or sorted — "06:40" in Delhi and "06:40" in London are not the same moment,
+   * and a scorer ranking on arrival needs the moment, not the clock face.
+   * Optional because seeded fixtures predate them; anything scoring on time
+   * must treat a missing value as unknown rather than as zero.
+   */
+  departsAt?: number;
+  arrivesAt?: number;
   cabin: string;
   seats: number;
   fare: number;

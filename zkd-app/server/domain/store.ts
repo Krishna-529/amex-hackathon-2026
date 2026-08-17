@@ -32,11 +32,21 @@ import type {
   Passenger, Flight, Booking, Itinerary, PreAuthRecord, PastFlight,
   DisruptionEvent, RecoveryTask, Credential, Traveller, SeatAssignment,
 } from './types';
+import type { PipelineRun } from '../pipeline/types';
 
 async function db() {
   await ensureReady();
   return sql;
 }
+
+/**
+ * Pipeline runs stay in-memory (not Postgres-backed like everything else in
+ * this file) — they're per-process orchestration state for one rebooking
+ * attempt, not a durable booking record, so they inherit the same
+ * process-lifetime caveat the rest of this store used to have before the
+ * Postgres migration, rather than needing a new migration of their own.
+ */
+export const pipelineRuns = new Map<string, PipelineRun>(); // key: `${flightId}:${passengerId}`
 
 // ---------------------------------------------------------------- flights --
 
@@ -364,4 +374,25 @@ export async function getRecoveryTasksForFlight(flightId: string): Promise<Recov
   const q = await db();
   const rows = await q<{ data: RecoveryTask }[]>`select data from recovery_tasks where flight_id = ${flightId}`;
   return rows.map((r) => r.data);
+}
+
+/**
+ * Pipeline runs live here rather than in a second store, so they inherit the
+ * same process-lifetime caveat documented at the top of this file rather than
+ * introducing a second, differently-broken persistence story.
+ */
+export function getPipelineRun(flightId: string, passengerId: string): PipelineRun | undefined {
+  return pipelineRuns.get(`${flightId}:${passengerId}`);
+}
+
+export function setPipelineRun(run: PipelineRun) {
+  pipelineRuns.set(`${run.flightId}:${run.passengerId}`, run);
+}
+
+export function getPipelineRunsForFlight(flightId: string): PipelineRun[] {
+  return [...pipelineRuns.values()].filter((r) => r.flightId === flightId);
+}
+
+export function listPipelineRuns(): PipelineRun[] {
+  return [...pipelineRuns.values()].sort((a, b) => b.startedAt - a.startedAt);
 }

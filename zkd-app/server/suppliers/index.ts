@@ -11,11 +11,25 @@
 import { duffel } from './duffel';
 import { sabre } from './sabre';
 import { travelport } from './travelport';
+import { kiwi } from './kiwi';
+import { skyscanner } from './skyscanner';
+import { travelfusion } from './travelfusion';
 import type { Offer, RevalidationResult, SearchParams, SearchResult, Supplier, SupplierId, SupplierStatus } from './types';
 
 export * from './types';
 
-const SUPPLIERS: Supplier[] = [duffel, sabre, travelport];
+/**
+ * Registration order is not significance order — `rank()` decides that and
+ * `preferOver` decides which duplicate survives. All this controls is who gets
+ * asked, and every source is asked concurrently.
+ *
+ * A source with no key reports `no-key` and contributes nothing, so an
+ * environment holding only a Duffel token degrades to Duffel automatically and
+ * one that later gains a Kiwi credential picks it up with no code change. That
+ * is the swap path the architecture promises, and it is why `no-key` is a
+ * first-class status rather than an error.
+ */
+const SUPPLIERS: Supplier[] = [duffel, kiwi, skyscanner, sabre, travelport, travelfusion];
 
 const byId = new Map<SupplierId, Supplier>(SUPPLIERS.map((s) => [s.id, s]));
 

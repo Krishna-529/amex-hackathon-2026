@@ -6,6 +6,8 @@ import type { PartyAlt } from '@/server/domain/altsForParty';
 import type { PartyCost } from '@/server/domain/pricing';
 import type { ReverifyResult } from '@/server/engine/forecast';
 export type { ReverifyResult };
+import type { RecoveryView } from '@/server/engine/simulation';
+export type { RecoveryView };
 import type { Classification } from './disruptionKind';
 import type { CareItem } from './entitlement';
 import type { Jurisdiction } from '@/server/airportDirectory';
