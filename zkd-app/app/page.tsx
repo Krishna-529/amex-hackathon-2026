@@ -33,8 +33,12 @@ type SearchFlight = {
   from: string;
   to: string;
   departureDate: string;
+  arrivalDate: string;
   departsLocal: string | null;
   arrivesLocal: string | null;
+  /** local calendar days between departure and arrival: +1 on most eastbound
+   *  long-haul, -1 across the dateline, 0 on a same-day hop */
+  arrivesDayOffset: number;
   departsUtc: string | null;
   durationMin: number | null;
   aircraft: string | null;
@@ -136,9 +140,11 @@ export default function Home() {
           aircraft: selected.aircraft ?? undefined,
           terminal: selected.terminal ?? undefined,
           cabin: cabinClass,
-          // End of the chosen day, in the arrival airport's rough local terms.
-          // Members think in days ("I must be there by Saturday"), not instants.
-          hardDeadlineISO: deadline ? `${deadline}T23:59:00Z` : null,
+          // Sent as a plain calendar day. The server resolves it to the end of
+          // that day in the DESTINATION's timezone — the browser can't, since
+          // it knows neither the arrival airport's zone nor that its own zone
+          // is the wrong one to use. See server/deadline.ts.
+          hardDeadlineDate: deadline || null,
           consent,
         }),
       });
@@ -294,6 +300,11 @@ export default function Home() {
                   <span className="amex-flight-code">{f.code}</span>
                   <span className="amex-flight-times">
                     {f.departsLocal ?? '—'} → {f.arrivesLocal ?? '—'}
+                    {f.arrivesDayOffset ? (
+                      <sup title={`Arrives ${f.arrivalDate} local time`}>
+                        {f.arrivesDayOffset > 0 ? `+${f.arrivesDayOffset}` : f.arrivesDayOffset}
+                      </sup>
+                    ) : null}
                   </span>
                   <span className="amex-flight-meta">
                     {f.durationMin ? `${Math.floor(f.durationMin / 60)}h ${f.durationMin % 60}m` : 'duration n/a'}
@@ -314,7 +325,11 @@ export default function Home() {
             <h2>Confirm {selected.code}</h2>
             <p className="amex-results-note">
               {selected.from} → {selected.to}, {selected.departureDate}, departing{' '}
-              {selected.departsLocal ?? '—'} · {cabinClass}
+              {selected.departsLocal ?? '—'}
+              {selected.arrivesDayOffset
+                ? `, arriving ${selected.arrivesLocal ?? '—'} on ${selected.arrivalDate}`
+                : ''}{' '}
+              · {cabinClass}
             </p>
 
             <div className="amex-booking-grid">
@@ -323,7 +338,11 @@ export default function Home() {
                 <input
                   type="date"
                   value={deadline}
-                  min={selected.departureDate}
+                  // The ARRIVAL date, not the departure one: a long-haul that
+                  // lands the next morning cannot satisfy a deadline set for
+                  // the day it took off, and offering that day would only earn
+                  // the server's "before this flight even arrives" rejection.
+                  min={selected.arrivalDate || selected.departureDate}
                   onChange={(e) => setDeadline(e.target.value)}
                 />
                 <small>
@@ -385,11 +404,11 @@ export default function Home() {
             </div>
             <div className="amex-promo-card">
               <div className="amex-promo-img" style={{ background: 'linear-gradient(135deg, #006fcf, #10b981)' }}>
-                Domestic Air travel
+                Air travel, worldwide
               </div>
               <div className="amex-promo-body">
                 <h3>24/7 IRROPS Disruption Guard</h3>
-                <p>ZKD Concierge automatically monitors your domestic flights for cancellation risk and rebooks seamlessly.</p>
+                <p>ZKD Concierge automatically monitors your flights — domestic and international — for cancellation risk and rebooks seamlessly.</p>
               </div>
             </div>
             <div className="amex-promo-card">

@@ -24,6 +24,19 @@ function toIata(raw: string | null): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * Whole local calendar days between two YYYY-MM-DD dates. Both are parsed as
+ * UTC midnight purely to subtract them — no zone conversion is involved or
+ * wanted here, since each date is already local to its own airport.
+ */
+function dayOffset(departureDate: string, arrivalDate: string): number {
+  if (!departureDate || !arrivalDate) return 0;
+  const a = Date.parse(`${departureDate}T00:00:00Z`);
+  const b = Date.parse(`${arrivalDate}T00:00:00Z`);
+  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+  return Math.round((b - a) / 86_400_000);
+}
+
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const from = toIata(params.get('from'));
@@ -62,8 +75,13 @@ export async function GET(req: NextRequest) {
         from: f.origin,
         to: f.destination,
         departureDate: f.departureDate,
+        arrivalDate: f.arrivalDate,
         departsLocal: f.localDepartureTime,
         arrivesLocal: f.localArrivalTime,
+        // How many local calendar days the arrival is past the departure —
+        // +1 on most eastbound long-haul, -1 across the dateline. The UI needs
+        // it to avoid printing "23:45 → 06:20" as though it were a short hop.
+        arrivesDayOffset: dayOffset(f.departureDate, f.arrivalDate),
         departsUtc: f.scheduledDepartureUtc,
         durationMin: f.elapsedTimeMin,
         aircraft: f.aircraftType,

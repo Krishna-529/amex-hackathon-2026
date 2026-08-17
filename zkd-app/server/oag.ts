@@ -200,6 +200,14 @@ export type OagFlightInstance = {
   flightNumber: string;
   /** LOCAL departure date, YYYY-MM-DD — what a member would call "the date" */
   departureDate: string;
+  /**
+   * LOCAL arrival date, YYYY-MM-DD. Carried separately because on anything
+   * longer than a domestic hop it is routinely a DIFFERENT day from
+   * departureDate — eastbound long-haul lands the next morning, and a
+   * dateline crossing can land the day before. Rendering an arrival clock
+   * time without it is how "23:45 -> 06:20" reads as a 6-hour flight.
+   */
+  arrivalDate: string;
   origin: string;
   destination: string;
   departureTerminal: string | null;
@@ -416,6 +424,7 @@ function parseInstance(raw: unknown): OagFlightInstance | null {
     // "SG803" fine but compare unequal to any stored string flight number.
     flightNumber: String(r.flightNumber),
     departureDate: r.departure?.date?.local ?? '',
+    arrivalDate: r.arrival?.date?.local ?? '',
     origin: r.departure?.airport?.iata ?? '',
     destination: r.arrival?.airport?.iata ?? '',
     departureTerminal: r.departure?.terminal ?? null,

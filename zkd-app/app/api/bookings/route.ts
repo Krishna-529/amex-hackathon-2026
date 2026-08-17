@@ -4,6 +4,7 @@ import { requireSession } from '@/server/auth/guard';
 import { parseJsonBody, isNonEmptyString } from '@/server/jsonBody';
 import { refreshForecast } from '@/server/engine/forecast';
 import { toFlightSummary } from '@/server/domain/views';
+import { endOfDayAtAirport } from '@/server/deadline';
 import type { Flight, Consent } from '@/server/domain/types';
 
 /**
@@ -35,7 +36,15 @@ type Body = {
   aircraft?: string;
   terminal?: string;
   cabin?: string;
-  /** "I must be there by" — optional, and a real instant when given */
+  /**
+   * "I must be there by <calendar day>", YYYY-MM-DD — resolved server-side to
+   * the end of that day in the DESTINATION's timezone. This is what the booking
+   * form sends, and it is the only form that survives crossing a timezone: see
+   * server/deadline.ts for the UTC-end-of-day bug it replaced.
+   */
+  hardDeadlineDate?: string | null;
+  /** "I must be there by" as an exact instant. Kept for callers that genuinely
+   *  have one (seeds, operator tooling); the form uses hardDeadlineDate. */
   hardDeadlineISO?: string | null;
   /** autopilot | ask, captured at booking time rather than left to /settings */
   consent?: Consent;
@@ -64,9 +73,21 @@ export async function POST(req: NextRequest) {
   if ('response' in parsed) return parsed.response;
   const body = parsed.body;
 
-  const deadline = body.hardDeadlineISO?.trim() || null;
-  if (deadline && Number.isNaN(Date.parse(deadline))) {
-    return NextResponse.json({ error: 'hardDeadlineISO is not a date' }, { status: 400 });
+  // A calendar-day deadline is resolved against the arrival airport's own
+  // clock, never UTC — "by Saturday" means Saturday where the member is
+  // landing. server/deadline.ts documents the international bug this fixes.
+  let deadline: string | null = null;
+  const deadlineDate = body.hardDeadlineDate?.trim() || null;
+  if (deadlineDate) {
+    deadline = endOfDayAtAirport(body.to, deadlineDate);
+    if (!deadline) {
+      return NextResponse.json({ error: 'hardDeadlineDate must be YYYY-MM-DD' }, { status: 400 });
+    }
+  } else {
+    deadline = body.hardDeadlineISO?.trim() || null;
+    if (deadline && Number.isNaN(Date.parse(deadline))) {
+      return NextResponse.json({ error: 'hardDeadlineISO is not a date' }, { status: 400 });
+    }
   }
   // A deadline before the flight even lands is a data-entry mistake, and
   // accepting it would disqualify every alternative and leave the member with
