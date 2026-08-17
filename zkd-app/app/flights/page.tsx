@@ -139,7 +139,7 @@ export default function FlightsPage() {
           })}
         </div>
 
-        <div className="pred" style={{ ['--glow' as string]: activeDisrupted ? GLOW['hold-gate'] : GLOW[active?.forecast?.band ?? 'watch'] }}>
+        <div className="pred" style={{ ['--glow' as string]: activeDisrupted ? GLOW['ready'] : GLOW[active?.forecast?.band ?? 'watch'] }}>
           <div key={String(active?.id) + String(activeDisrupted)} className="fade">
             <div className="eyebrow">{active?.from} → {active?.to}</div>
             {activeDisrupted ? (

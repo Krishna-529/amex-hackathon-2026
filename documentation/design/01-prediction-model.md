@@ -26,8 +26,8 @@ That framing sets the cost of being wrong:
 This is why we can run an imperfect forecast in production and still make a safety claim — the
 safety claim rests on the WAIT gate, not on the prediction.
 
-> The one place prediction *does* carry real risk is speculative seat holds. That is governed
-> separately — see §6.
+> Prediction never authorises spending. It sets how early we start and how often we refresh —
+> see §6.
 
 ---
 
@@ -56,7 +56,7 @@ history, and returns per-flight disruption probabilities.
   and the UI prints which one it was. Nothing on screen ever claims a mocked number is a vendor one.
 - **Its accuracy is a vendor claim.** Until we have back-tested it against outcomes on our own
   routes, the forecast is **advisory**: it decides when we start preparing, never whether we spend.
-  No speculative hold is taken on a Lumo number alone (§6).
+  Nothing is ever claimed on a Lumo number alone — or on any number (§6).
 - **We reconcile against ground truth.** AviationStack (free tier) gives observed status and
   schedule times independently of Lumo, which is both the reschedule fallback and the beginning of
   a back-test corpus.
@@ -126,8 +126,8 @@ The scarcity input is real, not notional: it is the seat count across every supp
 | Band | What the system does | What the member sees |
 |---|---|---|
 | **Watch** | Monitor only. | A green figure on the flight. No notification. |
-| **Prepare** | Assemble trip context, run the per-route coordinator reshop, price candidates warm. No booking, no spend, no hold. | An amber figure. Still no notification — nothing has happened to them yet. |
-| **Hold gate** | Prepare, plus evaluate the hold gate (§6), pre-position duty-of-care options, pre-compute the policy verdict on every candidate. | A red figure and the line *"we have backup seats identified."* |
+| **Prepare** | Assemble trip context, run the per-route coordinator reshop, price candidates warm. No booking, no spend, nothing claimed. | An amber figure. Still no notification — nothing has happened to them yet. |
+| **Ready** | Prepare, plus run the refresh loop (§6) so bundles stay bookable, pre-position duty-of-care options, and pre-compute the policy verdict on every candidate. | A red figure and the line *"we have backup seats identified."* |
 | **Ask early** | **Go and ask now, while there is still time to think.** Present the full plan — flight, room, both cab legs, exact amount — and collect a *conditional* instruction. | A notification: *"AI 2803 looks like it will cancel — 83%. Tell us now what you'd want."* |
 | **Carrier acts** | ACT. Allocation → policy gate → derived confirmation window → saga. | The notification. |
 
@@ -157,35 +157,34 @@ Not answering is safe and costs nothing: it falls back to the confirmation windo
 
 ---
 
-## 6. The hold gate — where prediction carries real risk
+## 6. The refresh loop — what prediction actually buys
 
-Preparing is free. **Holding a seat is not.** A speculative hold removes inventory from the market,
-and a hold that expires unticketed damages the distribution relationship that makes the product
-possible.
+Preparing is free, and **we never hold anything**. A passenger cannot hold two flight tickets: a
+speculative hold on a replacement seat is a duplicate booking, which carriers' auditors cancel —
+sometimes cancelling the original. Most Indian LCCs do not offer free holds at all.
 
-A speculative hold is taken **only** when both hold:
-
-```
-hold_TTL > expected_time_to_announcement
-AND
-P(cancel) × value_of_seat > cost_of_hold + inventory_externality
-```
-
-The first condition is why confidence alone is not sufficient: a hold that expires before the
-carrier decides returns the seat to a market that clears in seconds — you lose the seat *and* your
-place in the queue. **Re-holding is not renewal.**
-
-### Churn governance
+So instead of securing a seat, we stay **current**. The invariant is that N coherent flight +
+hotel + ground bundles are policy-passing and valid at all times:
 
 ```
-hold_conversion = holds ticketed ÷ holds placed     target ≥ 85%, per carrier
+refresh_interval = clamp( min(offer_expiry across the portfolio) − revalidation_budget,
+                          band_minimum, band_maximum )
 ```
 
-Below the floor, speculative holding for that carrier **auto-disables**. This is what makes forecast
-quality self-limiting: a badly calibrated forecast churns, conversion falls, holding switches itself
-off, and the system degrades to warm-candidates-only rather than degrading the airline relationship.
-**Forecast precision *is* hold conversion** — and it is also our back-test signal, because
-conversion is measured against outcomes we observe ourselves rather than accuracy the vendor claims.
+Derived from the supplier's own guarantee rather than picked, exactly as the confirmation
+window is, and returned with the bound that was binding so the ledger can replay it. Scarcity
+shortens the interval — its third and most natural home, alongside the threshold.
+
+### What this costs, and what it wins
+
+Nothing is secured, so at the carrier event we race every other passenger. In a systemic surge
+we **will** lose seats, and Outcome C — next-day flight plus hotel and duty of care — becomes
+likelier relative to same-day. That is the honest trade.
+
+What it wins is that we never remove seats from a market during a disruption, precisely when
+hoarding hurts other stranded passengers most. The per-carrier feedback signal is
+`recovery_rate`: how reliably a carrier settles valid refund claims, which feeds the
+expected-recovery term when ranking on net economic cost.
 
 ---
 

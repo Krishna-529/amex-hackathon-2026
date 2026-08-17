@@ -114,11 +114,14 @@ every supplier are what make “act earlier when there is less left” implement
 
 ### The commercial ask
 
-Automatic re-accommodation works best when inventory can be **held briefly while the member has
-their decision window**. Today that is a fare-rule and GDS-policy question that varies per carrier.
-An **Amex-negotiated hold arrangement with partner airlines** would convert our weakest mechanism
-(hold gate + churn governance) into our strongest. This is a partnership ask, not an engineering
-task — it belongs in the commercial section of the deck.
+We cannot hold inventory: a passenger cannot hold two flight tickets, so a speculative hold on a
+replacement seat is a duplicate booking that carriers cancel. We therefore refresh continuously
+instead, and race for the seat at the carrier event.
+
+An **Amex-negotiated arrangement with partner airlines** — a named-account option to hold a seat
+against a card member's existing ticket without tripping duplicate detection — would remove that
+race entirely. It is the single change that would most improve same-day recovery, and it is a
+partnership ask, not an engineering task. It belongs in the commercial section of the deck.
 
 ---
 

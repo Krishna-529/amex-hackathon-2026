@@ -74,7 +74,7 @@ calls. There is **no GPU on the critical path**. Supplier rate limits are the
 ceiling, not compute.
 
 **3. Nothing irreversible happens before the member has had their say.**
-Everything before ACT is free — no hold, no spend. Above 80% we ask *in advance*,
+Everything before ACT is free — nothing claimed, nothing spent. Above 80% we ask *in advance*,
 while there are hours to think; if answered, a cancellation needs no window at all.
 Otherwise the member gets a real window, sized to how long the fare is guaranteed. And consent gates *spending*, not
 care: if the fix costs nothing, silence books it rather than leaving someone at an

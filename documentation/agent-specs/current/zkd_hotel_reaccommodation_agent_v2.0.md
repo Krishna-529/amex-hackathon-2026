@@ -12,8 +12,8 @@ and the shared proof registry, which supersede the Round 1 deck:
     49.71% in a systemic event. Half the book in the case we built for.
   · Involuntary vs voluntary added: it decides whether the carrier owes the
     room or the member pays for it.
-  · Three clocks separated; a room's cancellation_deadline is a fourth and is
-    NOT interchangeable with hold_TTL.
+  · Three clocks separated; a room's cancellation_deadline is one of them and
+    is a rollback window, not a hold. Nothing is ever held.
   · Anchor-city derivation retained and strengthened — still the central risk.
   · Every number must now carry an evidence tier + proof ID.
 
@@ -108,41 +108,40 @@ Duty-of-care as its own node; its rules are specified across these four files ra
 each file documents the duty-of-care interaction that belongs to it.
 
 **Shared state.**
-`TripState { disruption · pnr · consent_tier · travel_window · constraints · candidates[] · portfolio[] · policy_decisions[] · holds[] · confirmed[] · rejected_by_member[] · claims[] · escalation? }`
+`TripState { disruption · pnr · consent_tier · travel_window · constraints · candidates[] · portfolio[] · policy_decisions[] · confirmed[] · rejected_by_member[] · claims[] · escalation? }`
 
 **The seven-phase lifecycle.** Every recovery walks these phases in order:
 
 | Phase | What happens | Reversible? |
 |---|---|---|
 | **WATCH** | Delay-to-departure ratio crosses threshold, or a carrier signal arrives. Edge dedup drops duplicates. | Yes — member's phone is silent |
-| **WARM** | Context assembly; per-route coordinator runs **one** reshop for the whole affected group; portfolio built and priced. | Yes — no hold, no spend |
+| **WARM** | Context assembly; per-route coordinator runs **one** reshop for the whole affected group; portfolio built and priced. | Yes — nothing claimed, nothing spent |
 | **ASK** | Conditional consent captured **against the outcome, never a flight number**. | Yes |
-| **WAIT** | Hold gate evaluated. Either candidates stay warm, or a speculative hold is taken from the coordinator block. | Yes — an unconfirmed hold expires free |
+| **WAIT** | Bundles kept continuously refreshed against supplier offer expiry. Nothing is held. | Yes — nothing has been claimed |
 | **ACT** | Min-cost allocation across the portfolio → OPA → Temporal saga. | **No — this is the boundary** |
 | **VERIFY** | Onward segments checked intact after disposal. | — |
 | **CLAIM** | Duty of care claimed from the carrier; only the uncovered remainder is settled. | — |
 
-**The WAIT gate is the central safety claim. Nothing irreversible happens to its left.** Everything to
+**The WAIT gate is the central safety claim. Nothing is claimed at all to its left.** Everything to
 its right is triggered by the carrier actually acting — which is precisely what makes the re-route
 free and keeps the statutory entitlement intact.
 
 **Three clocks, never conflated.**
-- `hold_TTL` — how long the **seat** is held before auto-release.
-- `offer_expiry` — how long the **price** is guaranteed.
+- `offer_expiry` — how long the **price** is guaranteed. Drives refresh cadence and the confirmation window.
 - `time_to_announcement` — how long until the **carrier decides**.
-**Re-holding is not renewal.** An expired hold returns the seat to a market that clears in seconds:
-you lose your seat and race for a worse one.
+- `cancellation_deadline` — how long a **booked** hotel stays compensable. A saga-rollback window, not a hold.
+**Nothing is ever held.** A passenger cannot hold two tickets, so a speculative hold on a replacement
+seat is a duplicate booking — which carriers' auditors cancel, sometimes cancelling the original.
 
-**The hold gate (proof `hold-ttl`).** Take a speculative hold **only** if
-`hold_TTL > expected_time_to_announcement` **AND**
-`P(cancel) × value_of_seat > cost_of_hold + inventory_externality`.
-Otherwise keep candidates **warm** — no hold, zero churn risk. If the prediction decays, release at
-zero cost and the member never knew.
+**The refresh loop (proof `refresh-cadence`).** Keep N coherent flight + hotel + ground bundles
+policy-passing and currently valid, re-shopping before the soonest `offer_expiry` lapses, clamped
+by a per-band floor and ceiling. Scarcity shortens the interval. If the prediction decays we simply
+stand down — nothing was claimed, so there is nothing to release and the member never knew.
 
-**Churn governance (proof `churn-governance`).** `hold_conversion = holds ticketed ÷ holds placed`,
-per carrier, target **≥ 85%**. Below threshold, speculative holding for that carrier
-**auto-disables**. Prediction precision *is* hold conversion: churning at scale loses distribution
-access, which ends the product rather than degrading it.
+**No inventory externality.** Because nothing is ever held, we never remove seats from a market
+during a disruption — precisely when hoarding hurts other stranded passengers most. The per-carrier
+feedback signal is `recovery_rate`: the rate at which a carrier settles valid refund claims, which
+feeds the expected-recovery term when ranking on net economic cost.
 
 **Portfolio, not one best flight — and it is TWO levers, not one.** Build a **portfolio of
 alternatives** and run **min-cost assignment across passengers × seats**. The combined lever is worth
@@ -162,7 +161,7 @@ in the spec. Degenerate case (breadth capped at 1, share 25%): **4.68%** (proof 
 **Per-route coordinator.** Group affected trips by disrupted route; run **one** reshop per group with
 request coalescing and jittered backoff. **300 → 102** API calls for 100 members, a 66% reduction
 (proof `api-call-collapse`). Confirms do **not** collapse — every passenger needs their own ticket.
-*Searches and holds are a race you cannot pace; confirms are a queue you can.*
+*Searches are a race you cannot pace; confirms are a queue you can.*
 
 **Involuntary versus voluntary disposition — an OPA policy input, and it decides who pays.**
 - **Involuntary** — the carrier cancelled, or the delay crossed the threshold. The re-route is free,
@@ -262,8 +261,8 @@ the 90-second quiet window, or by rejecting a presented plan. On intervention
   that lives only in a prompt is a preference, not a control.
 - The iteration counter resets **once per intervention**, while `visited_tuples` **persists** — so the
   agent may re-plan but cannot ping-pong.
-- Live holds stay live throughout. This is what the tentative-hold model buys: the member can take
-  minutes to choose without losing the seat.
+- The refresh loop keeps running throughout, so the member can take minutes to choose and still
+  be deciding against currently valid options rather than stale ones.
 - Nothing is confirmed and nothing is paid while an intervention is outstanding.
 
 **Consent mechanics under Tier A.** Notify → **90-second quiet window** → proceed if silent. Payment
@@ -279,8 +278,8 @@ human inherits what was tried, what was exhausted, and what is owed.
 
 **Suppliers.** Duffel + LiteAPI sandboxes (free, real book **and** cancel round trip — this is what
 makes the rollback demo real), Sabre Dev Studio (free, self-serve; onboarding is the top ask), Lumo
-predictive (**advisory only until back-tested** — precision *is* hold conversion, so no speculative
-holding until measured), Amex ACE + vPayment (select devs, mocked behind a contract test), FCM v1
+predictive (**advisory only until back-tested** — an unvalidated forecast may set the refresh
+cadence but never authorises a booking), Amex ACE + vPayment (select devs, mocked behind a contract test), FCM v1
 **hybrid notification + data payload at `apns-priority: 10`, because iOS throttles data-only pushes.**
 **Amadeus Self-Service was decommissioned 17 Jul 2026 — never reference it as available.** Abstract
 the supplier so no single GDS is load-bearing.
@@ -383,9 +382,10 @@ silent, plausible-looking mis-billing that the member has no way to detect.
 - **Preference matching against `{USER_CONSTRAINTS}`** — star floor, brand, board basis, distance to
   terminal, accessibility. Distinguish **hard** (gate at OPA; below-floor is *denied*, not
   down-ranked) from **soft** (ranking terms). Undeclared type ⇒ treat as hard.
-- **A fourth clock.** A room's `cancellation_deadline` is **not** `hold_TTL`, `offer_expiry` or
+- **The third clock.** A room's `cancellation_deadline` is **not** `offer_expiry` or
   `time_to_announcement`. It governs whether `cancelHotel` is a clean reversal or a charge, so the
-  executor's compensation branch depends on it. Never guess it.
+  executor's compensation branch depends on it — and since nothing is ever held, it is the only
+  thing that makes that reversal possible at all. Never guess it.
 - **Amend versus book.** An early arrival against an existing reservation is an **amend**. Document the
   amend path, the reference it carries, and the failure mode: **a failed amend must never fall through
   to a new booking.** Two rooms is worse than one unresolved gap.
@@ -427,8 +427,8 @@ silent, plausible-looking mis-billing that the member has no way to detect.
   member of a given nationality can or cannot clear a given border.
 - **No authority creep.** Never write a sentence in which this agent books, pays, confirms, holds,
   amends, or calls a mutating API.
-- **Held ≠ confirmed. Initiated ≠ completed. Warm ≠ held. Claimed ≠ charged.** Never interchange any pair.
-- **Never conflate the four clocks** — `hold_TTL`, `offer_expiry`, `time_to_announcement`,
+- **Proposed ≠ confirmed. Initiated ≠ completed. Claimed ≠ charged.** Never interchange any pair.
+- **Never conflate the three clocks** — `offer_expiry`, `time_to_announcement`,
   `cancellation_deadline`.
 - **Do not claim Tier B or Tier C behaviour.** Scope is Tier A plus human override.
 - Mark every assumption inline as `ASSUMPTION:`.
@@ -444,7 +444,7 @@ silent, plausible-looking mis-billing that the member has no way to detect.
 | The Outcome C load | 200 words | Cite `sim-outcome-c`, `sim-regime-systemic` |
 | Payer determination | 350 words + table | Second centre of gravity |
 | Preference matching | 200 words + table | Hard/soft split explicit |
-| The four clocks | 150 words | `cancellation_deadline` is not `hold_TTL` |
+| The three clocks | 150 words | `cancellation_deadline` is a rollback window, not a hold |
 | Amend versus book | 200 words | The two-rooms failure |
 | Output contract | 50 words + schema | |
 | Failure modes | 250 words + table | |
@@ -849,7 +849,6 @@ Emit **only** this JSON object. No prose, no markdown fences, no commentary.
         "overnight_window": null,
         "threshold_met": null
       },
-      "hold_ttl_seconds": null,
       "policy_inputs": {
         "star_rating": 4,
         "total_cost": 0,
@@ -928,7 +927,6 @@ Emit **only** this JSON object. No prose, no markdown fences, no commentary.
       "cancellation_deadline": "2026-07-26T06:00:00+05:30",
       "entitlement_source": "airline_owed",
       "entitlement_evidence": { "disposition": "involuntary", "delay_hours": 7, "overnight_window": true, "threshold_met": true },
-      "hold_ttl_seconds": 1800,
       "policy_inputs": { "star_rating": 4, "total_cost": 4500, "uncovered_remainder": 0, "entitlement_source": "airline_owed", "disposition": "involuntary", "consent_tier": "A" }
     }
   ],
@@ -963,7 +961,6 @@ Emit **only** this JSON object. No prose, no markdown fences, no commentary.
       "cancellation_deadline": "2026-08-12T11:00:00+05:30",
       "entitlement_source": "member_paid",
       "entitlement_evidence": { "disposition": "voluntary", "delay_hours": 4, "overnight_window": false, "threshold_met": false },
-      "hold_ttl_seconds": 1800,
       "policy_inputs": { "star_rating": 4, "total_cost": 4500, "uncovered_remainder": 4500, "entitlement_source": "member_paid", "disposition": "voluntary", "consent_tier": "A" }
     }
   ],

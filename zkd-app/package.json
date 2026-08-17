@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev -p 5176",
     "build": "next build",
-    "start": "next start -p 5176"
+    "start": "next start -p 5176",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "next": "16.2.12",
@@ -16,6 +18,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }

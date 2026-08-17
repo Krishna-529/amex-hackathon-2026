@@ -67,6 +67,10 @@ async function compute(flightId: string): Promise<FlightForecast | null> {
 
   const thresholds = thresholdsFor({
     seatsAvailable,
+    // The forecast is per flight, but scarcity is felt per party. Until bookings
+    // are grouped by PNR this is the single-traveller case, which is what the
+    // factor reduces to anyway; the largest party on the flight belongs here.
+    partySize: 1,
     minutesToDeparture: Math.max(0, Math.round((departsAt - Date.now()) / 60_000)),
     hasHardConstraint: flight.hasHardConstraint,
     confidence: f.confidence,

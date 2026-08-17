@@ -14,6 +14,11 @@
 export type ThresholdInputs = {
   /** alternative seats found across all suppliers for this route */
   seatsAvailable: number;
+  /**
+   * How many travellers need placing together. Scarcity is a ratio, not a count:
+   * three seats is abundance for one person and infeasible for a family of six.
+   */
+  partySize: number;
   /** minutes from now until the disrupted flight was due to depart */
   minutesToDeparture: number;
   /** the trip has an onward leg or a hard commitment that a late arrival breaks */
@@ -25,8 +30,8 @@ export type ThresholdInputs = {
 export type Thresholds = {
   /** start assembling and searching, no spend */
   prepare: number;
-  /** evaluate the hold gate, pre-compute policy verdicts */
-  holdGate: number;
+  /** keep bundles continuously refreshed, pre-compute policy verdicts */
+  ready: number;
   /** go and ask the member in advance, while there is time to think */
   preAuthorise: number;
   factors: { scarcity: number; urgency: number; criticality: number; confidence: number };
@@ -34,14 +39,14 @@ export type Thresholds = {
 };
 
 /** Where the bands sit when nothing is unusual — seats plentiful, hours to spare. */
-const BASE = { prepare: 25, holdGate: 55, preAuthorise: 80 };
+const BASE = { prepare: 25, ready: 55, preAuthorise: 80 };
 
 /** Below this the thresholds cannot fall, so scarcity can never make us act on noise. */
-const FLOOR = { prepare: 10, holdGate: 25, preAuthorise: 45 };
-const CEILING = { prepare: 45, holdGate: 75, preAuthorise: 95 };
+const FLOOR = { prepare: 10, ready: 25, preAuthorise: 45 };
+const CEILING = { prepare: 45, ready: 75, preAuthorise: 95 };
 
 export function thresholdsFor(input: ThresholdInputs): Thresholds {
-  const scarcity = scarcityFactor(input.seatsAvailable);
+  const scarcity = scarcityFactor(input.seatsAvailable, input.partySize);
   const urgency = urgencyFactor(input.minutesToDeparture);
   const criticality = input.hasHardConstraint ? 0.85 : 1;
   // A forecast that does not trust itself has to clear a higher bar.
@@ -51,7 +56,7 @@ export function thresholdsFor(input: ThresholdInputs): Thresholds {
 
   return {
     prepare: bound(BASE.prepare * shift, FLOOR.prepare, CEILING.prepare),
-    holdGate: bound(BASE.holdGate * shift, FLOOR.holdGate, CEILING.holdGate),
+    ready: bound(BASE.ready * shift, FLOOR.ready, CEILING.ready),
     preAuthorise: bound(BASE.preAuthorise * shift, FLOOR.preAuthorise, CEILING.preAuthorise),
     factors: { scarcity, urgency, criticality, confidence },
     inputs: input,
@@ -62,11 +67,21 @@ export function thresholdsFor(input: ThresholdInputs): Thresholds {
  * Few seats left means the option disappears while we deliberate, so we act
  * earlier. Once inventory is deep the factor flattens — there is no more benefit
  * to hurrying.
+ *
+ * What matters is not the raw seat count but how many parties like this one the
+ * route can still absorb: six seats is comfortable for a solo traveller and only
+ * just enough for a family of six. At a party of one this is identical to the
+ * plain seat count, so existing behaviour is unchanged.
+ *
+ * Note the known simplification: `seats` is summed across suppliers, so it does
+ * not guarantee a party can sit on the same flight. Grouping is a later change.
  */
-function scarcityFactor(seats: number): number {
-  if (seats <= 0) return 0.6;
-  if (seats >= 20) return 1;
-  return 0.6 + 0.4 * (seats / 20);
+function scarcityFactor(seats: number, partySize: number): number {
+  const party = Math.max(1, Math.floor(partySize));
+  const capacity = seats / party;
+  if (capacity < 1) return 0.6;
+  if (capacity >= 20) return 1;
+  return 0.6 + 0.4 * (capacity / 20);
 }
 
 /** Time is the other thing you cannot buy back. Inside an hour, act on less. */
@@ -76,11 +91,11 @@ function urgencyFactor(minutes: number): number {
   return 0.65 + 0.35 * ((minutes - 60) / 420);
 }
 
-export type Band = 'watch' | 'prepare' | 'hold-gate' | 'pre-authorise';
+export type Band = 'watch' | 'prepare' | 'ready' | 'pre-authorise';
 
 export function bandFor(cancelProbabilityPct: number, t: Thresholds): Band {
   if (cancelProbabilityPct >= t.preAuthorise) return 'pre-authorise';
-  if (cancelProbabilityPct >= t.holdGate) return 'hold-gate';
+  if (cancelProbabilityPct >= t.ready) return 'ready';
   if (cancelProbabilityPct >= t.prepare) return 'prepare';
   return 'watch';
 }
@@ -88,7 +103,7 @@ export function bandFor(cancelProbabilityPct: number, t: Thresholds): Band {
 export const BAND_LABEL: Record<Band, string> = {
   watch: 'Low risk',
   prepare: 'Moderate risk',
-  'hold-gate': 'High risk',
+  ready: 'High risk',
   'pre-authorise': 'Very high risk',
 };
 
@@ -96,8 +111,8 @@ export const BAND_SAY: Record<Band, string> = {
   watch: "Nothing unusual around this flight. We'll keep watching it and only tell you if that changes.",
   prepare:
     "A few things are working against this one. We're already lining up alternatives in the background.",
-  'hold-gate':
-    "This flight is in real trouble. We've got backup seats identified and we'll move you the moment it's called.",
+  ready:
+    "This flight is in real trouble. We're keeping a full backup plan — seat, room and transfers — current, and we'll move you the moment it's called.",
   'pre-authorise':
     "This one looks likely to go. Tell us now what you'd want and we won't need to ask you in a hurry later.",
 };
@@ -105,7 +120,7 @@ export const BAND_SAY: Record<Band, string> = {
 export const GLOW: Record<Band, string> = {
   watch: 'rgba(75,171,124,.10)',
   prepare: 'rgba(211,160,63,.10)',
-  'hold-gate': 'rgba(217,97,90,.12)',
+  ready: 'rgba(217,97,90,.12)',
   'pre-authorise': 'rgba(217,97,90,.16)',
 };
 
@@ -113,7 +128,7 @@ export const GLOW: Record<Band, string> = {
 export const BAND_TONE: Record<Band, 'low' | 'mid' | 'high'> = {
   watch: 'low',
   prepare: 'mid',
-  'hold-gate': 'high',
+  ready: 'high',
   'pre-authorise': 'high',
 };
 

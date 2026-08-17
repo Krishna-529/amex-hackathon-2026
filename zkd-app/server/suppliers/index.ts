@@ -10,12 +10,25 @@
 
 import { duffel } from './duffel';
 import { sabre } from './sabre';
+import { sandbox } from './sandbox';
 import { travelport } from './travelport';
 import type { Offer, RevalidationResult, SearchParams, SearchResult, Supplier, SupplierId, SupplierStatus } from './types';
 
 export * from './types';
+export { sandbox } from './sandbox';
 
-const SUPPLIERS: Supplier[] = [duffel, sabre, travelport];
+/**
+ * The sandbox is the only adapter with a write plane, so it is what the reissue
+ * and rollback paths run against. It stays out of the ordinary search union
+ * unless `ZKD_SANDBOX=1`, because synthetic seats appearing in `/api/alts`
+ * alongside real Duffel inventory would misrepresent what we can actually book.
+ */
+const SUPPLIERS: Supplier[] = [
+  duffel,
+  sabre,
+  travelport,
+  ...(process.env.ZKD_SANDBOX === '1' ? [sandbox] : []),
+];
 
 const byId = new Map<SupplierId, Supplier>(SUPPLIERS.map((s) => [s.id, s]));
 
