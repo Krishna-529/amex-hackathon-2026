@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useWorld } from '@/components/WorldProvider';
 import RouteLine from '@/components/Route';
 import HistoryTable from '@/components/HistoryTable';
-import { BAND_SAY, GLOW, BAND_LABEL } from '@/lib/thresholds';
+import { BAND_SAY, GLOW, BAND_LABEL, ACT_AT_RISK_SCORE, isActingOnRisk } from '@/lib/thresholds';
 import { usePoll } from '@/lib/usePoll';
 import { dayLabel } from '@/lib/time';
 import type { PreAuthResponse } from '@/lib/apiTypes';
@@ -133,11 +133,16 @@ export default function FlightsPage() {
             <div className="up-list">
               {upcoming.map((f, i) => {
                 const cancelled = f.disruptionPhase !== 'none';
+                // Acting, not merely worrying: this is the score at which the
+                // engine starts spending supplier calls to pre-fetch
+                // alternatives. Highlighting anything else would draw the eye
+                // to a number that changes nothing.
+                const acting = !cancelled && isActingOnRisk(f.forecast?.riskScore);
                 return (
                   <Link
                     key={f.id}
                     href={cancelled ? `/recovery/${f.id}` : `/flights/${f.id}`}
-                    className={`uprow ${f.id === activeId ? 'on' : ''}`}
+                    className={`uprow ${f.id === activeId ? 'on' : ''} ${acting ? 'acting' : ''}`}
                     onMouseEnter={() => setHoveredId(f.id)}
                     onFocus={() => setHoveredId(f.id)}
                   >
@@ -151,6 +156,11 @@ export default function FlightsPage() {
                         {cancelled && (
                           <span className="tag" style={{ color: 'var(--risk)', borderColor: 'rgba(217,97,90,.4)' }}>
                             Cancelled
+                          </span>
+                        )}
+                        {acting && (
+                          <span className="tag acting-tag" title={`Risk score ${Math.round(f.forecast!.riskScore!)}/100 — at or above ${ACT_AT_RISK_SCORE}, where we start searching alternatives`}>
+                            {Math.round(f.forecast!.riskScore!)}/100 · searching alternatives
                           </span>
                         )}
                         <span className="when">{dayLabel(new Date(f.depISO), new Date())}</span>

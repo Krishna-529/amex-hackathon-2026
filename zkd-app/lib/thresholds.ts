@@ -82,3 +82,27 @@ export const BAND_TONE: Record<Band, 'low' | 'mid' | 'high'> = {
   'hold-gate': 'high',
   'pre-authorise': 'high',
 };
+
+/**
+ * The riskScore at which the engine stops watching and starts *acting* —
+ * pre-fetching alternatives from suppliers.
+ *
+ * Mirrors `altCache.prefetchAtOrAboveRiskScore` in config/risk-thresholds.json,
+ * which is the authority. It is duplicated here because that config is read
+ * through lib/thresholdConfig.ts, which pulls in Node's `fs` and must stay off
+ * the client bundle — and this file is the client-safe half.
+ *
+ * Deliberately NOT a round 80. 75 is the number that actually changes system
+ * behaviour; highlighting at 80 would draw the eye to a threshold nothing keys
+ * off. If the config is retuned, change it here too — the test in
+ * lib/thresholds.test.ts asserts the two agree.
+ */
+export const ACT_AT_RISK_SCORE = 75;
+
+/** True when this flight's score has crossed into the acting band. Undefined
+ *  riskScore (the model omits it rather than fabricating one) is never
+ *  highlighted — absence of evidence is not a low score, but it is not a high
+ *  one either. */
+export function isActingOnRisk(riskScore: number | undefined): boolean {
+  return riskScore !== undefined && riskScore >= ACT_AT_RISK_SCORE;
+}

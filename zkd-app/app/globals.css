@@ -1486,3 +1486,40 @@ body:has(.amex-page) footer {
   margin-left: .12em;
   letter-spacing: 0;
 }
+
+/* ── Flights at or above the acting threshold (riskScore >= 75) ─────────────
+   The score at which the engine starts pre-fetching alternatives, i.e. the
+   point where it stops watching and starts spending. Marked with a left accent
+   bar rather than a fill so it reads as a state of THIS row without competing
+   with the "Cancelled" tag, which is a stronger signal and must still win. */
+.uprow.acting {
+  border-left: 3px solid var(--risk, #d9615a);
+  background: linear-gradient(90deg, rgba(217, 97, 90, .07), transparent 45%);
+}
+.uprow.acting .code { font-weight: 700 }
+
+.tag.acting-tag {
+  color: var(--risk, #d9615a);
+  border-color: rgba(217, 97, 90, .42);
+  background: rgba(217, 97, 90, .08);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Light Amex skin: the dark-theme risk red is too hot on white, and the
+   gradient wash disappears entirely. Scoped so it cannot leak onto the dark
+   routes that share .uprow. */
+.amex-page .uprow.acting {
+  border-left-color: #c0392b;
+  background: linear-gradient(90deg, rgba(192, 57, 43, .06), transparent 45%);
+}
+.amex-page .tag.acting-tag {
+  color: #a5342a;
+  border-color: rgba(192, 57, 43, .35);
+  background: rgba(192, 57, 43, .07);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* One slow pulse on the accent only — enough to catch the eye on a demo
+     screen, nowhere near enough to be a distraction while reading. */
+  .uprow.acting { transition: background .3s ease }
+}

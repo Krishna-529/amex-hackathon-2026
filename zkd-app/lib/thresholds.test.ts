@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bandFor, type Thresholds } from './thresholds';
+import { bandFor, type Thresholds, ACT_AT_RISK_SCORE, isActingOnRisk } from './thresholds';
 
 function thresholds(overrides: Partial<Thresholds> = {}): Thresholds {
   return {
@@ -40,5 +40,31 @@ describe('bandFor', () => {
     expect(bandFor(t.prepare, t)).not.toBe('watch');
     expect(bandFor(t.holdGate, t)).not.toBe('prepare');
     expect(bandFor(t.preAuthorise, t)).not.toBe('hold-gate');
+  });
+});
+
+describe('ACT_AT_RISK_SCORE', () => {
+  it('agrees with config/risk-thresholds.json, which is the authority', async () => {
+    // The constant is duplicated into this client-safe file because the config
+    // is read through lib/thresholdConfig.ts, which pulls in `fs`. Duplication
+    // is fine; SILENT duplication is not — if ops retunes the config, this
+    // fails rather than leaving the UI highlighting a threshold nothing uses.
+    const cfg = JSON.parse(
+      await (await import('node:fs/promises')).readFile('config/risk-thresholds.json', 'utf-8'),
+    );
+    expect(ACT_AT_RISK_SCORE).toBe(cfg.altCache.prefetchAtOrAboveRiskScore);
+  });
+
+  it('never highlights a flight the model declined to score', () => {
+    // riskScore is omitted rather than fabricated when the percentile lookup
+    // is missing. Absent is not high.
+    expect(isActingOnRisk(undefined)).toBe(false);
+    expect(isActingOnRisk(0)).toBe(false);
+  });
+
+  it('is inclusive at the boundary', () => {
+    expect(isActingOnRisk(ACT_AT_RISK_SCORE - 0.1)).toBe(false);
+    expect(isActingOnRisk(ACT_AT_RISK_SCORE)).toBe(true);
+    expect(isActingOnRisk(95.2)).toBe(true);
   });
 });
