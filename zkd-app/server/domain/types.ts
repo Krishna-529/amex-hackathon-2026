@@ -176,6 +176,19 @@ export type Flight = {
    *  the interval batch re-scorer (server/engine/batchScorer.ts), so points
    *  appear even if nobody views the flight. */
   forecastHistory?: FlightForecastSnapshot[];
+  /**
+   * The highest risk band the member has already been alerted about.
+   *
+   * Dedupe for the outbound alert, and it has to be persisted rather than held
+   * in memory: the batch re-scorer (server/engine/batchScorer.ts) re-evaluates
+   * every flight on an interval, so a flight sitting steadily in `hold-gate`
+   * would otherwise re-send the same warning every cycle, and a server restart
+   * would start the spam over. Only an UPWARD move past this value notifies —
+   * a score that drifts down and back up is not news.
+   *
+   * Undefined until the first alert, same lazy-init pattern as `forecast`.
+   */
+  lastNotifiedBand?: import('@/lib/thresholds').Band;
   /** epoch ms `candidates.alts` was last refreshed from real supplier inventory;
    *  undefined until the first fetch (server/engine/altsCache.ts) */
   altsAsOf?: number;

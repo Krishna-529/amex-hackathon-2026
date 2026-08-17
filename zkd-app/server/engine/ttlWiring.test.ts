@@ -42,6 +42,24 @@ vi.mock('@/lib/thresholdConfig', () => ({
   refreshThresholdConfigIfStale: () => {},
 }));
 
+/**
+ * isAltsStale went async with the Postgres migration: it now calls
+ * altsRefreshPlan, which reads the store three times (listFlights for the
+ * watcher count, getDisruptionEvent, getRecoveryTasksForFlight). Unmocked,
+ * those reach the real postgres driver and this test fails with UNDEFINED_VALUE
+ * before it ever evaluates a TTL.
+ *
+ * The question this file asks is "is config.ttlMs actually wired in", not "does
+ * Postgres work", so the store is stubbed to the empty, undisrupted case. That
+ * keeps the cadence arithmetic deterministic and the assertion about the TTL
+ * alone. `sustainableIntervalMs` needs no stub — it is pure.
+ */
+vi.mock('../domain/store', () => ({
+  listFlights: async () => [],
+  getDisruptionEvent: async () => undefined,
+  getRecoveryTasksForFlight: async () => [],
+}));
+
 describe('cache staleness functions honor the live config TTL, not a hardcoded copy', () => {
   it('isStale (forecast.ts) uses config.forecast.ttlMs (mocked to 2s)', async () => {
     const { isStale } = await import('./forecast');
@@ -52,13 +70,49 @@ describe('cache staleness functions honor the live config TTL, not a hardcoded c
     expect(isStale(stale)).toBe(true); // 2.5s old, over it
   });
 
-  it('isAltsStale (altsCache.ts) uses config.altCache.ttlMs (mocked to 1s)', async () => {
-    const { isAltsStale } = await import('./altsCache');
+  /**
+   * ── This case changed meaning in the no-holds merge; read before editing ──
+   *
+   * It used to assert that isAltsStale honours config.altCache.ttlMs. It no
+   * longer can: isAltsStale now delegates entirely to altsRefreshPlan ->
+   * refreshIntervalFor(), whose inputs are departure proximity, severity,
+   * seats, watchers, the supplier rate-limit floor, offer expiry and whether a
+   * consent window is open. `altCache.ttlMs` is not among them.
+   *
+   * REAL FINDING, LEFT FOR THE TEAM: `altCache.ttlMs` is therefore a dead knob
+   * for ALTS. It is still live for ground (see the isGroundStale case below,
+   * which shares the same config field and still passes), so the field cannot
+   * simply be deleted — someone has to decide whether alts staleness was meant
+   * to escape ops control when the refresh loop replaced holds. That is a
+   * design question, not a test repair, so this test no longer claims ttlMs is
+   * wired here rather than asserting something it cannot honestly prove.
+   *
+   * What it guards INSTEAD is the same bug class the file exists for: that
+   * isAltsStale derives its cutoff from the live plan rather than from a
+   * hardcoded constant that happens to agree with it today.
+   */
+  it('isAltsStale (altsCache.ts) tracks the live altsRefreshPlan cadence, not a hardcoded constant', async () => {
+    const { isAltsStale, altsRefreshPlan } = await import('./altsCache');
     const now = Date.now();
-    const fresh = { altsAsOf: now - 200 } as unknown as Parameters<typeof isAltsStale>[0];
-    const stale = { altsAsOf: now - 1_500 } as unknown as Parameters<typeof isAltsStale>[0];
-    expect(isAltsStale(fresh)).toBe(false);
-    expect(isAltsStale(stale)).toBe(true);
+    // `id` and `candidates` are needed now that altsRefreshPlan reads them —
+    // an empty alt list is the honest "nothing cached yet" case.
+    const base = { id: 'f-ttl-test', depISO: new Date(now + 6 * 3600_000).toISOString(),
+      candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] } };
+
+    const plan = await altsRefreshPlan(base as unknown as Parameters<typeof altsRefreshPlan>[0]);
+    expect(plan.ms).toBeGreaterThan(0);
+
+    // Straddle the plan's own boundary rather than a number written down here,
+    // so a retuned governor moves both sides together and only a reintroduced
+    // hardcoded cutoff can break it.
+    const fresh = { ...base, altsAsOf: now - Math.floor(plan.ms / 2) } as unknown as Parameters<typeof isAltsStale>[0];
+    const stale = { ...base, altsAsOf: now - (plan.ms + 60_000) } as unknown as Parameters<typeof isAltsStale>[0];
+
+    // isAltsStale became async with the Postgres migration. Without the await
+    // both assertions compared a Promise object, which is never `false` — so
+    // this test passed vacuously on one side and failed on the other.
+    await expect(isAltsStale(fresh)).resolves.toBe(false);
+    await expect(isAltsStale(stale)).resolves.toBe(true);
   });
 
   it('isGroundStale (groundCache.ts) shares config.altCache.ttlMs (mocked to 1s)', async () => {

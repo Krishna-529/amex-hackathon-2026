@@ -2,6 +2,76 @@
 
 ## Recent work
 
+- 2026-08-17 — **Outbound member notifications built (`zkd-app/server/notify/`)** — the one part of
+  the "predict → warn → recover" story that did not exist at all. Before this there was no SMS,
+  WhatsApp, email or push code anywhere in `zkd-app`, `saga.ts`'s `notify` step was a stub returning
+  `{ok:true, ref:'notified'}`, and nothing compared consecutive risk bands, so a flight could cross
+  every threshold without anyone being told.
+  - **Trigger:** `server/engine/forecast.ts`'s `applyScore` — the single place a real `ModelScore`
+    becomes a forecast, shared by the on-demand and batch paths, so it is the only point that
+    catches both. New persisted `Flight.lastNotifiedBand` dedupes; the rule is a pure function in
+    `server/notify/bandCrossing.ts` (`crossedUpward`) so it is testable without a database.
+    **Fires only on a STRICTLY upward move into `prepare` or above** — the batch re-scorer
+    re-evaluates on an interval, so anything firing on a steady state fires forever.
+    Deliberate cost: a dip-and-recovery is never re-announced.
+  - **Mark-then-send, not send-then-mark.** The marker is set before `applyScore`'s existing
+    `store.createFlight` so it lands in the same write (a second write would race the batch
+    scorer). A crash between the two loses one alert; the reverse would re-send on every restart,
+    and crying wolf is the worse failure. `store.createFlight` JSON-serialises the whole `Flight`
+    into a `data` column, so the new field needed no migration.
+  - **Three channels, fanned out in parallel, none of them load-bearing:** `telegram.ts` (no KYC —
+    the only channel reliably obtainable in minutes; Indian transactional SMS needs DLT
+    registration, which is days and a registered entity, so real SMS was rejected as a demo bet),
+    `whatsapp.ts` (Twilio sandbox — recipient must send the join code once per phone and the
+    session dies after 24h idle, so **re-join on demo morning**), `push.ts` (Expo → the Android
+    app's existing `disruption`/`updates` channels and `zkd.recovery` category; tokens registered
+    at runtime via new `POST /api/devices`, bound to the SESSION passenger, never a body-supplied
+    id, and stored in `server/.state/devices.json`).
+  - **The invariant the module exists to enforce: notifying must never break predicting.**
+    `dispatch()` is called from inside `applyScore`, so a revoked Telegram token must not cost a
+    member their risk score — every channel is awaited inside `allSettled`, every failure is a
+    value, and `dispatch` cannot reject. Same reason `saga.ts`'s notify step now **always returns
+    `ok:true`**: a failing step triggers `compensateAll`, which would have *unwound the flight,
+    hotel and car we just booked* because a text message failed.
+  - Every attempt is logged to `server/decisionLedger.ts`'s new `logNotification` →
+    `.state/notifications.jsonl`, with skipped-because-unconfigured kept distinct from
+    tried-and-rejected. "We warned you in advance" is this product's strongest claim and an
+    unlogged notification makes it unfalsifiable.
+  - Copy lives in `templates.ts` so three channels cannot drift; it is asserted by test to **never
+    say "held" or "reserved"** (the no-holds design below) and to always state the band next to the
+    bare percentage — "4%" alone reads as reassuring, "4%, high risk" reads correctly.
+  - **Verification:** `tsc --noEmit` clean · `npm test` 67 passed / 3 skipped, from 54 before ·
+    both reproducibility gates green (`iropssim` diff empty, four canon hashes identical).
+    20 new tests across `bandCrossing.test.ts`, `dispatch.test.ts` (fan-out logic, fully mocked)
+    and `wiring.test.ts` (real modules, no credentials — catches a channel that throws at import
+    or an `isConfigured()` reading an env var nobody sets, which a mocked test cannot).
+  - Env keys documented in `.env.example`; with none set, nobody is messaged and prediction and
+    recovery behave exactly as before.
+- 2026-08-17 — **Two pre-existing test-suite defects found and fixed while adding the above.**
+  Neither was caused by the notification work; both had been red since the three-way merge, which
+  had never run `npm test` (see the merge entry below: "Not run: npm test/vitest").
+  - **`npm test` was reporting 8 failing files, 7 of them meaningless.** `tests/*.test.ts` are
+    written for **Node's own runner** (`import { test } from 'node:test'`) — they arrived with the
+    no-holds branch, which verified via `node --experimental-strip-types` — while the rest of the
+    suite is vitest from Zayaan's branch. Vitest still matched them on `**/*.test.ts`, found no
+    vitest suite inside, and failed each one. Excluded `tests/**` in `vitest.config.ts`.
+    **Still open:** `node --test tests/` dies on `MODULE_NOT_FOUND` because the `@/` alias has no
+    resolver under `node:test`, so those ~7 files are unrunnable by *either* runner as committed.
+    They need porting to vitest (which already resolves `@/`) or a loader. Excluding them stopped
+    the noise; it did not restore the coverage.
+  - **`altCache.ttlMs` is now a DEAD CONFIG KNOB for alts** — a real finding, left for the team.
+    `ttlWiring.test.ts` existed to catch exactly this bug class ("ops retunes the config and
+    nothing happens"). `isAltsStale` no longer reads `config.altCache.ttlMs` at all: since the
+    no-holds branch it delegates entirely to `altsRefreshPlan` → `refreshIntervalFor()`, whose
+    inputs are departure proximity, severity, seats, watchers, the supplier rate-limit floor,
+    offer expiry and whether a consent window is open. The field is **still live for ground**
+    (`isGroundStale` shares it and still passes), so it cannot just be deleted — someone has to
+    decide whether alts staleness was *meant* to escape ops control when the refresh loop replaced
+    holds. Rewrote the alts case to assert what the code now genuinely guarantees (staleness
+    tracks the live plan's own boundary, not a hardcoded constant), preserving the regression
+    value without asserting something untrue. The test had also been comparing an unawaited
+    Promise since the Postgres migration, so it passed vacuously on one side.
+
 - 2026-08-17 — **Merged all three parallel Aug-17 branches into one working tree**
   (`feature/cancellation-prediction-and-caching`, `feature/autonomous-rebooking-pipeline`,
   `no-holds-refresh-reissue`) — not a mechanical `git merge`: all three had independently rewritten

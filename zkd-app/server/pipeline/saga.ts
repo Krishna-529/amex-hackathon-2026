@@ -55,6 +55,7 @@ import { revalidateOffer, type Offer } from '../suppliers';
 import { holdHotel, revalidateHotel, type HotelOffer } from '../hotels';
 import * as journal from './journal';
 import { fallbackNote } from './fallbackNote';
+import { dispatch } from '../notify';
 import type { PipelineRun } from './types';
 import type { Alt, Flight, Booking } from '../domain/types';
 import type { Step } from '../domain/types';
@@ -312,7 +313,38 @@ function buildSteps(input: SagaInput): SagaStep[] {
     name: 'notify',
     label: 'You were notified',
     budget: 0.3,
-    run: async () => ({ ok: true, ref: 'notified', narration: narrate('notify') }),
+    // ── This step ALWAYS succeeds, and that is deliberate ──────────────────
+    //
+    // A failing step triggers compensateAll, which unwinds the steps before
+    // it — and the steps before this one are the flight, the hotel and the
+    // ground transfer we just booked. So returning ok:false because Telegram
+    // was unreachable would CANCEL A MEMBER'S REBOOKED TRIP over a failed
+    // text message. The delivery result is reported in `ref` and recorded in
+    // the notification ledger (server/decisionLedger.ts) instead, where a
+    // silent failure is visible without being destructive.
+    run: async () => {
+      const result = await dispatch({
+        kind: 'booked',
+        flightId: flight.id,
+        passengerId: booking.passengerId,
+        title: `You're rebooked on ${alt.code}`,
+        body:
+          `${flight.code} ${flight.from}→${flight.to} was cancelled. ` +
+          `You're now on ${alt.code}, arriving ${alt.arr}. ` +
+          `Your seats and any hotel or car we arranged are in the app.`,
+        path: `/recovery/${flight.id}`,
+        actions: [{ id: 'view', label: 'See your new trip' }],
+        data: { screen: 'Recovery', flightId: flight.id },
+      }).catch(() => null);
+
+      return {
+        ok: true,
+        ref: result?.delivered
+          ? `notified:${result.results.filter((r) => r.ok).map((r) => r.channel).join(',')}`
+          : 'notify-failed',
+        narration: narrate('notify'),
+      };
+    },
   });
 
   return steps;

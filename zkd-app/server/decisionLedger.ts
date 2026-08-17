@@ -23,6 +23,7 @@ const STATE_DIR = join(process.cwd(), 'server', '.state');
 const PREDICTIONS_PATH = join(STATE_DIR, 'predictions.jsonl');
 const OUTCOMES_PATH = join(STATE_DIR, 'outcomes.jsonl');
 const THRESHOLDS_PATH = join(STATE_DIR, 'threshold-evaluations.jsonl');
+const NOTIFICATIONS_PATH = join(STATE_DIR, 'notifications.jsonl');
 
 function appendLine(path: string, obj: unknown): void {
   if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
@@ -97,5 +98,33 @@ export function logThresholdEvaluation(entry: Omit<ThresholdEvaluationLedgerEntr
     appendLine(THRESHOLDS_PATH, { ...entry, loggedAt: Date.now() } satisfies ThresholdEvaluationLedgerEntry);
   } catch (e) {
     console.error('[decisionLedger] failed to log threshold evaluation:', e);
+  }
+}
+
+export type NotificationLedgerEntry = {
+  flightId: string;
+  /** matches server/notify/types.ts's AlertKind — kept as a string here so the
+   *  ledger never drags the notify module into anything that imports it */
+  kind: string;
+  passengerId?: string;
+  /** at least one channel accepted the message */
+  delivered: boolean;
+  channels: { channel: string; ok: boolean; skipped: boolean; ref?: string; error?: string }[];
+  loggedAt: number;
+};
+
+/**
+ * Every attempt to reach the member, delivered or not.
+ *
+ * "We warned you in advance" is the single strongest claim this product makes,
+ * and an unlogged notification makes it unfalsifiable. A skipped channel is
+ * recorded too: "nobody was told because nothing was configured" and "we tried
+ * and the provider rejected it" are different failures needing different fixes.
+ */
+export function logNotification(entry: Omit<NotificationLedgerEntry, 'loggedAt'>): void {
+  try {
+    appendLine(NOTIFICATIONS_PATH, { ...entry, loggedAt: Date.now() } satisfies NotificationLedgerEntry);
+  } catch (e) {
+    console.error('[decisionLedger] failed to log notification:', e);
   }
 }

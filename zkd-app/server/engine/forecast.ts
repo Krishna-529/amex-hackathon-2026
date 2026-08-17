@@ -20,6 +20,11 @@ import type { Flight, FlightForecast } from '../domain/types';
 import { refreshAltsIfStale } from './altsCache';
 import { refreshGroundIfStale } from './groundCache';
 import { logPrediction, logThresholdEvaluation } from '../decisionLedger';
+import { dispatch } from '../notify';
+import { thresholdAlert } from '../notify/templates';
+import { crossedUpward } from '../notify/bandCrossing';
+import { ddMon, hhmm } from '@/lib/time';
+import type { Band } from '@/lib/thresholds';
 
 /**
  * The forecast is cached once per Flight and shared by every viewer, so
@@ -131,6 +136,10 @@ export async function applyScore(flight: Flight, score: ModelScore): Promise<Fli
     asOf: Date.now(),
   };
 
+  // Decided BEFORE the write below so the dedupe marker lands in the same
+  // persist as the forecast itself — see maybeMarkForAlert.
+  const alerting = maybeMarkForAlert(flight, band);
+
   flight.forecast = out;
   appendHistory(flight, out);
   // Persist the mutated Flight: applyScore is called on a Flight object
@@ -151,7 +160,74 @@ export async function applyScore(flight: Flight, score: ModelScore): Promise<Fli
     band,
   });
   triggerAltPrefetchIfWarranted(flight, score.riskScore);
+  if (alerting) void alertMember(flight, out.pct, band).catch(() => {});
   return out;
+}
+
+/**
+ * Should this score interrupt the member — and if so, record that it did.
+ *
+ * Two things make this a mark-then-send rather than a send-then-mark:
+ *
+ * 1. The marker has to be written in applyScore's existing store.createFlight
+ *    call, not a second one. A separate write would race the batch scorer.
+ * 2. If the process dies between marking and sending, we lose one alert. If it
+ *    were the other way round we would re-send on every restart. Missing one
+ *    warning is recoverable — the member still sees the band on /flights, and
+ *    the next upward crossing still fires. Repeatedly crying wolf is not: it
+ *    is precisely how a member learns to ignore the one that matters.
+ *
+ * Mutates `flight` rather than returning a new one because the caller persists
+ * this same object a few lines later. The rule itself lives in
+ * server/notify/bandCrossing.ts, where it can be tested without a database.
+ */
+function maybeMarkForAlert(flight: Flight, band: Band): boolean {
+  if (!crossedUpward(flight.lastNotifiedBand, band)) return false;
+  flight.lastNotifiedBand = band;
+  return true;
+}
+
+/**
+ * Reach whoever is actually on this flight.
+ *
+ * Deliberately no `topOption`: the alternative search is only *triggered* by
+ * this same score (triggerAltPrefetchIfWarranted, fire-and-forget above), so at
+ * the instant of a first crossing there is genuinely nothing ranked yet.
+ * The template says "we are searching now" rather than naming a flight we have
+ * not actually found — the alternative is inventing one to look impressive.
+ */
+async function alertMember(flight: Flight, pct: number, band: Band): Promise<void> {
+  const bookings = await store.getBookingsForFlight(flight.id);
+  if (bookings.length === 0) return;
+
+  const dep = new Date(flight.depISO);
+  const departsDisplay = `${ddMon(dep)}, ${hhmm(dep)}`;
+
+  // One alert per card member. A party of four shares one PNR and one person
+  // who consents to spend; messaging all four would be four people arguing
+  // about one decision only one of them can make.
+  const seen = new Set<string>();
+  for (const booking of bookings) {
+    if (seen.has(booking.passengerId)) continue;
+    seen.add(booking.passengerId);
+
+    const passenger = await store.getPassenger(booking.passengerId);
+    if (!passenger) continue;
+
+    await dispatch(
+      thresholdAlert({
+        flightId: flight.id,
+        passengerId: passenger.id,
+        code: flight.code,
+        from: flight.from,
+        to: flight.to,
+        departsDisplay,
+        pct,
+        band,
+        consent: passenger.consent,
+      }),
+    );
+  }
 }
 
 /** Real history point on every real compute() — never backfilled or
