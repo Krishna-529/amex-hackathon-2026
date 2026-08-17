@@ -13,13 +13,18 @@ cd zkd-risk-model
 python3 -m venv .venv && source .venv/Scripts/activate   # Windows Git Bash; use bin/activate on macOS/Linux
 pip install -r requirements.txt
 
-# 1. Pull real historical data (no auth, ~650MB total for a year of both sources)
+# 1. Pull real historical data (no auth, ~660MB total for a year of all three)
 bash src/download_data.sh      # US DOT/BTS, ~12 months
 bash src/download_anac.sh      # Brazil ANAC, ~12 months
+bash src/download_uk_caa.sh    # UK CAA, ~12 months — real UK + international routes
+bash src/download_dgca.sh      # India DGCA monthly bulletins — real carrier-level rates, not per-flight
 
 # 2. Normalize + engineer features (all real, leakage-checked)
 python src/ingest_bts.py
 python src/ingest_anac.py
+python src/ingest_uk_caa.py
+python src/ingest_india_synthetic.py   # fabricated fallback — see ingest_india_dgca.py below for the real one
+python src/ingest_india_dgca.py        # real DGCA carrier rates, merged into entity_rates.json by train.py
 python src/features.py
 
 # 3. Train, calibrate, evaluate — writes models/ and reports/
@@ -39,7 +44,8 @@ hand-edited; re-run `train.py` and it regenerates from scratch.
 
 | Claim | Evidence |
 |---|---|
-| Real training data | `src/download_data.sh`/`download_anac.sh` pull directly from `transtats.bts.gov` and `siros.anac.gov.br` — no auth, no synthetic rows. Re-run them yourself. |
+| Real training data | `src/download_data.sh`/`download_anac.sh`/`download_uk_caa.sh` pull directly from `transtats.bts.gov`, `siros.anac.gov.br`, and `caa.co.uk` — no auth, no synthetic rows. Re-run them yourself. `download_dgca.sh` pulls real (not per-flight) India carrier rates directly from DGCA's own S3 bucket. |
+| Real, not fabricated, three-country training set | US (BTS), Brazil (ANAC, real international routes included), UK (CAA — real per-route-airline-month counts, expanded into real per-flight-equivalent rows by `ingest_uk_caa.py`, honestly missing intraday timestamp features that source never published — see that file's header). |
 | No label leakage | `src/features.py`'s `_leakage_self_check()` recomputes one carrier's historical rate by hand on every run and compares against the vectorized version |
 | Honest evaluation | `train.py` splits **chronologically** (train/calib/test are three consecutive time windows) — no shuffled k-fold, which would leak future rows into the past |
 | No mock fallback at serving time | `zkd-app/server/engine/riskModel.ts` returns `null` (not a fabricated number) when this service is unreachable — verified by killing `serve.py` mid-session and re-polling |
@@ -47,9 +53,17 @@ hand-edited; re-run `train.py` and it regenerates from scratch.
 
 ## Known gaps (see the design doc's §8 for the full list)
 
-- No Indian/most-international historical training data exists publicly in bulk yet — the feature
-  set is geography-agnostic by design so the model has a mechanism to generalize, and the weekly
-  retrain folds in real `LIVE:`-namespaced outcomes as this app accumulates them.
+- Real per-flight training data covers US, Brazil, and UK (`ingest_bts.py`/`ingest_anac.py`/
+  `ingest_uk_caa.py`) — genuinely three countries, not one, and the UK source's routes are ~80%
+  international by real count (many EU/other destinations, not just UK-UK). Still not full global
+  coverage: no real per-flight data for India, most of Asia-Pacific, the Middle East, or the rest of
+  Europe beyond what touches a UK airport. India gets a real (not fabricated) carrier-level
+  cancellation-RATE prior instead (`ingest_india_dgca.py`, sourced from DGCA's own monthly
+  bulletins) — a materially weaker evidence shape than per-flight training rows (see that file's
+  docstring), since DGCA's public bulletin never publishes the underlying flight counts. The feature
+  set stays geography-agnostic by design so the model has a real mechanism to generalize past its
+  training countries, and the weekly retrain folds in real `LIVE:`-namespaced outcomes as this app
+  accumulates them.
 - No weather feature in the trained model yet (v1) — `server/weather.ts` is real but not joined
   into training data.
 - OAG's exact live endpoint path for the trial subscription is unconfirmed — see

@@ -1,0 +1,21 @@
+{
+  "_comment": "REAL \u2014 sourced from DGCA's own monthly domestic-airline performance bulletins (data/raw/dgca/*.pdf), not fabricated. Weighted by MONTHS of real DGCA observation per airline (SMOOTH_N_MONTHS below), not by real flight count, because DGCA's public bulletin reports a rate, not the underlying flight counts \u2014 a materially weaker evidence shape than the flight-count-weighted BTS/ANAC/UK-CAA rates. See this file's own module docstring.",
+  "source": "real",
+  "months_parsed": 28,
+  "smooth_n_months": 6.0,
+  "global_prior": 0.010954,
+  "as_of": "2026-08-17T14:06:26.402990+00:00",
+  "carrier": {
+    "LIVE:FB": 0.038021,
+    "LIVE:UK": 0.008757,
+    "LIVE:2T": 0.038602,
+    "LIVE:6E": 0.008845,
+    "LIVE:I5": 0.005248,
+    "LIVE:S5": 0.011586,
+    "LIVE:SG": 0.007995,
+    "LIVE:G8": 0.002766,
+    "LIVE:9I": 0.018008,
+    "LIVE:AI": 0.005993,
+    "LIVE:QP": 0.004675
+  }
+}

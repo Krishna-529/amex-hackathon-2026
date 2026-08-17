@@ -89,10 +89,15 @@ def main() -> None:
         print("no S3 cache hit (or DATA_LAKE_BUCKET unset) — downloading real BTS+ANAC data", flush=True)
         run(["bash", "src/download_data.sh"])
         run(["bash", "src/download_anac.sh"])
+        run(["bash", "src/download_uk_caa.sh"])
+        run(["bash", "src/download_dgca.sh"])
         cache_raw_data_to_s3()
 
     run([sys.executable, "src/ingest_bts.py"])
     run([sys.executable, "src/ingest_anac.py"])
+    run([sys.executable, "src/ingest_uk_caa.py"])
+    run([sys.executable, "src/ingest_india_synthetic.py"])
+    run([sys.executable, "src/ingest_india_dgca.py"])
     run([sys.executable, "src/features.py"])
     run([sys.executable, "src/train.py"])
     # Regenerates score_percentile_lookup.npy (riskScore's basis) alongside

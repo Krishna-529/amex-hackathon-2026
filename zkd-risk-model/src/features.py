@@ -50,17 +50,29 @@ def build_features() -> pd.DataFrame:
     parts = []
     bts_path = PROCESSED_DIR / "bts_normalized.parquet"
     anac_path = PROCESSED_DIR / "anac_normalized.parquet"
+    uk_caa_path = PROCESSED_DIR / "uk_caa_normalized.parquet"
     if bts_path.exists():
         parts.append(pd.read_parquet(bts_path))
     if anac_path.exists():
         parts.append(pd.read_parquet(anac_path))
+    if uk_caa_path.exists():
+        parts.append(pd.read_parquet(uk_caa_path))
     if not parts:
-        raise FileNotFoundError("run src/ingest_bts.py and src/ingest_anac.py first")
+        raise FileNotFoundError("run src/ingest_bts.py, src/ingest_anac.py and src/ingest_uk_caa.py first")
 
     df = pd.concat(parts, ignore_index=True)
     if "international" not in df.columns:
         df["international"] = 0
     df["international"] = df["international"].fillna(0).astype("int8")
+
+    # BTS/ANAC rows carry a real per-flight timestamp; UK CAA rows
+    # (ingest_uk_caa.py) are expanded from a monthly aggregate and only set
+    # `intraday_known=False` — no real hour/day-of-week/density survives that
+    # aggregation. Default True for sources that never set the column at
+    # all, so this stays additive as more real per-flight sources are added.
+    if "intraday_known" not in df.columns:
+        df["intraday_known"] = True
+    df["intraday_known"] = df["intraday_known"].fillna(True).astype(bool)
 
     df = df.sort_values("sched_dep").reset_index(drop=True)
     global_prior = df["cancelled"].mean()
@@ -75,17 +87,27 @@ def build_features() -> pd.DataFrame:
     df["origin_month_hist_cancel_rate"] = _expanding_rate(df, "origin_month", global_prior)
 
     # Schedule-position features — all read straight off the published
-    # timetable, no observation of the flight itself required.
-    df["hour_of_day"] = df["sched_dep"].dt.hour
-    df["is_redeye"] = ((df["hour_of_day"] < 5) | (df["hour_of_day"] >= 22)).astype("int8")
-    df["is_weekend"] = (df["day_of_week"] >= 6).astype("int8")
+    # timetable, no observation of the flight itself required. Computed for
+    # every row first, then masked to NaN below wherever intraday_known is
+    # False (UK CAA's expanded aggregate rows) — sched_dep's hour there is a
+    # placeholder sort key, not a real observation, and reporting it as a
+    # real hour_of_day would be exactly the kind of fabrication this
+    # pipeline's own stated design (see module docstring) refuses to do.
+    df["hour_of_day"] = df["sched_dep"].dt.hour.astype(float)
+    df["is_redeye"] = ((df["hour_of_day"] < 5) | (df["hour_of_day"] >= 22)).astype(float)
+    day_of_week = pd.to_numeric(df["day_of_week"], errors="coerce")
+    df["is_weekend"] = (day_of_week >= 6).astype(float)
+    df["day_of_week"] = day_of_week
 
     # Schedule density at the origin airport in the same hour bucket, same
     # day — a real congestion proxy computable from the timetable alone
     # (this is what OpenSky aircraft-counts used to approximate; here it
     # comes for free from the same historical data).
     df["origin_hour_bucket"] = df["origin"].astype(str) + ":" + df["sched_dep"].dt.floor("h").astype(str)
-    df["origin_hour_density"] = df.groupby("origin_hour_bucket")["origin_hour_bucket"].transform("count")
+    df["origin_hour_density"] = df.groupby("origin_hour_bucket")["origin_hour_bucket"].transform("count").astype(float)
+
+    no_intraday = ~df["intraday_known"]
+    df.loc[no_intraday, ["hour_of_day", "is_redeye", "is_weekend", "day_of_week", "origin_hour_density"]] = np.nan
 
     # Upstream rotation exposure: BTS only (has real tail numbers). The
     # immediately preceding flight of the SAME aircraft, same day, was

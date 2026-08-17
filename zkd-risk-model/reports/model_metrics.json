@@ -1,158 +1,347 @@
 {
-  "trained_at": "2026-08-15T18:44:18.628275+00:00",
-  "n_train": 5525568,
-  "n_calib": 1184050,
-  "n_test": 1184051,
-  "positive_rate_train": 0.01894339188297022,
-  "positive_rate_test": 0.010462387177579344,
-  "best_iteration": 63,
-  "roc_auc": 0.8038269098091382,
-  "pr_auc": 0.12344536409903796,
-  "brier_score": 0.009715256281197071,
-  "log_loss": 0.04906681180000305,
+  "trained_at": "2026-08-17T14:35:36.953281+00:00",
+  "n_train": 6800996,
+  "n_calib": 1457356,
+  "n_test": 1457357,
+  "positive_rate_train": 0.017563015770043093,
+  "positive_rate_test": 0.011786405115561938,
+  "best_iteration": 30,
+  "roc_auc": 0.8070534185861105,
+  "pr_auc": 0.10619438227158745,
+  "brier_score": 0.011056588031351566,
+  "log_loss": 0.05456894636154175,
   "calibration_curve": {
     "mean_predicted": [
-      0.0008885506076438372,
-      0.0018623698038725154,
-      0.002629841165794149,
-      0.003334338758657695,
-      0.0039721490968439065,
-      0.005261324613133496,
-      0.007549302126292459,
-      0.010289158037136826,
-      0.016974500493511496,
-      0.07088274759707332
+      0.0007580993138203478,
+      0.0017958615139313189,
+      0.0023981060804316237,
+      0.003570611793918684,
+      0.0044384898405887465,
+      0.005141723458173595,
+      0.007449412334523845,
+      0.011483290663237873,
+      0.01852763003481189,
+      0.07072805975225038
     ],
     "fraction_positive": [
-      0.0009763299518978902,
-      0.0025703664365374405,
-      0.003248063834780568,
-      0.003973716988648684,
-      0.003909483948118848,
-      0.005718827971472102,
-      0.007855357795928318,
-      0.009101475746694619,
-      0.014180830735190586,
-      0.05490172701570324
+      0.0009687240520343206,
+      0.002469151762340911,
+      0.003227855958753551,
+      0.004381400952954707,
+      0.005118848152670889,
+      0.00584826739322307,
+      0.007782746586340052,
+      0.012257797509311863,
+      0.01935613603783009,
+      0.0602785223167463
     ]
   },
   "feature_importance": {
-    "origin_month_hist_cancel_rate": 27892.8671875,
-    "route_hist_cancel_rate": 6666.23291015625,
-    "carrier_hist_cancel_rate": 6146.85791015625,
-    "month": 4423.6552734375,
-    "hour_of_day": 2658.186279296875,
-    "day_of_week": 2167.093017578125,
-    "sched_duration_min": 1782.5755615234375,
-    "dest_hist_cancel_rate": 1653.32421875,
-    "is_redeye": 1540.4656982421875,
-    "origin_hist_cancel_rate": 1386.494140625,
-    "distance_km": 1362.6226806640625,
-    "is_weekend": 1348.8807373046875,
-    "origin_hour_density": 746.5126342773438,
-    "international": 691.5066528320312
+    "origin_month_hist_cancel_rate": 54713.4453125,
+    "is_redeye": 16664.42578125,
+    "route_hist_cancel_rate": 16061.732421875,
+    "carrier_hist_cancel_rate": 12562.54296875,
+    "month": 7597.138671875,
+    "hour_of_day": 7303.30517578125,
+    "sched_duration_min": 5519.7265625,
+    "day_of_week": 4300.95361328125,
+    "distance_km": 4088.6015625,
+    "origin_hour_density": 2383.716064453125,
+    "dest_hist_cancel_rate": 2343.25146484375,
+    "origin_hist_cancel_rate": 1954.6800537109375,
+    "is_weekend": 1778.457763671875,
+    "international": 927.052490234375
   },
   "data_sources": {
     "BTS_US": 7079061,
-    "ANAC_BR": 814608
+    "ANAC_BR": 814608,
+    "UK_CAA_GB": 1822040
   },
   "baseline_base_rate": {
     "roc_auc": 0.5,
-    "pr_auc": 0.010462387177579344,
-    "brier_score": 0.010424853072938632
+    "pr_auc": 0.011786405115561938,
+    "brier_score": 0.01168085500066726
   },
   "baseline_logistic_regression": {
-    "roc_auc": 0.7422816222194584,
-    "pr_auc": 0.10375353029371927,
-    "brier_score": 0.2411636441978684,
+    "roc_auc": 0.7333896001933604,
+    "pr_auc": 0.10619056807420521,
+    "brier_score": 0.213862549214432,
     "note": "raw predict_proba, not isotonic-calibrated like the XGBoost numbers above \u2014 ROC-AUC/PR-AUC are ranking metrics unaffected by calibration, Brier is not directly comparable to the calibrated XGBoost Brier score"
   },
   "lift_table": [
     {
-      "decile_mean_predicted": 0.0008885506076438372,
-      "decile_fraction_positive": 0.0009763299518978902,
-      "lift_over_base_rate": 0.09331808652523804
+      "decile_mean_predicted": 0.0007580993138203478,
+      "decile_fraction_positive": 0.0009687240520343206,
+      "lift_over_base_rate": 0.08218995041628814
     },
     {
-      "decile_mean_predicted": 0.0018623698038725154,
-      "decile_fraction_positive": 0.0025703664365374405,
-      "lift_over_base_rate": 0.24567686063517866
+      "decile_mean_predicted": 0.0017958615139313189,
+      "decile_fraction_positive": 0.002469151762340911,
+      "lift_over_base_rate": 0.209491506369556
     },
     {
-      "decile_mean_predicted": 0.002629841165794149,
-      "decile_fraction_positive": 0.003248063834780568,
-      "lift_over_base_rate": 0.3104515040067619
+      "decile_mean_predicted": 0.0023981060804316237,
+      "decile_fraction_positive": 0.003227855958753551,
+      "lift_over_base_rate": 0.27386263471393135
     },
     {
-      "decile_mean_predicted": 0.003334338758657695,
-      "decile_fraction_positive": 0.003973716988648684,
-      "lift_over_base_rate": 0.37980978157301126
+      "decile_mean_predicted": 0.003570611793918684,
+      "decile_fraction_positive": 0.004381400952954707,
+      "lift_over_base_rate": 0.3717334428942896
     },
     {
-      "decile_mean_predicted": 0.0039721490968439065,
-      "decile_fraction_positive": 0.003909483948118848,
-      "lift_over_base_rate": 0.3736703566559631
+      "decile_mean_predicted": 0.0044384898405887465,
+      "decile_fraction_positive": 0.005118848152670889,
+      "lift_over_base_rate": 0.43430105299132493
     },
     {
-      "decile_mean_predicted": 0.005261324613133496,
-      "decile_fraction_positive": 0.005718827971472102,
-      "lift_over_base_rate": 0.5466083289029313
+      "decile_mean_predicted": 0.005141723458173595,
+      "decile_fraction_positive": 0.00584826739322307,
+      "lift_over_base_rate": 0.4961875428413224
     },
     {
-      "decile_mean_predicted": 0.007549302126292459,
-      "decile_fraction_positive": 0.007855357795928318,
-      "lift_over_base_rate": 0.7508188774319278
+      "decile_mean_predicted": 0.007449412334523845,
+      "decile_fraction_positive": 0.007782746586340052,
+      "lift_over_base_rate": 0.6603155508429167
     },
     {
-      "decile_mean_predicted": 0.010289158037136826,
-      "decile_fraction_positive": 0.009101475746694619,
-      "lift_over_base_rate": 0.8699234306869156
+      "decile_mean_predicted": 0.011483290663237873,
+      "decile_fraction_positive": 0.012257797509311863,
+      "lift_over_base_rate": 1.0399945860614896
     },
     {
-      "decile_mean_predicted": 0.016974500493511496,
-      "decile_fraction_positive": 0.014180830735190586,
-      "lift_over_base_rate": 1.35541062421966
+      "decile_mean_predicted": 0.01852763003481189,
+      "decile_fraction_positive": 0.01935613603783009,
+      "lift_over_base_rate": 1.6422425538617889
     },
     {
-      "decile_mean_predicted": 0.07088274759707332,
-      "decile_fraction_positive": 0.05490172701570324,
-      "lift_over_base_rate": 5.247533481972106
+      "decile_mean_predicted": 0.07072805975225038,
+      "decile_fraction_positive": 0.0602785223167463,
+      "lift_over_base_rate": 5.114241511787066
     }
   ],
   "segment_metrics": {
     "by_country": {
       "BR": {
-        "n": 143492,
-        "positive_rate": 0.044058205335489084,
-        "roc_auc": 0.7720292412929622,
-        "pr_auc": 0.21523030418140782
+        "n": 143834,
+        "positive_rate": 0.04409944797474867,
+        "roc_auc": 0.7713921149575527,
+        "pr_auc": 0.20558880393891196
+      },
+      "GB": {
+        "n": 270084,
+        "positive_rate": 0.017613038906414302,
+        "roc_auc": 0.8308115196905234,
+        "pr_auc": 0.09387589661492406
       },
       "US": {
-        "n": 1040559,
-        "positive_rate": 0.00582955891977293,
-        "roc_auc": 0.7035181531090687,
-        "pr_auc": 0.015868311124092378
+        "n": 1043439,
+        "positive_rate": 0.0058240107950728315,
+        "roc_auc": 0.7113012632236774,
+        "pr_auc": 0.01943776699983108
       }
     },
     "by_month": {
       "1": {
         "n": 13,
         "positive_rate": 0.46153846153846156,
-        "roc_auc": 0.7857142857142857,
+        "roc_auc": 0.7976190476190476,
         "pr_auc": 0.7847222222222221
       },
       "11": {
-        "n": 509997,
-        "positive_rate": 0.008968680207922792,
-        "roc_auc": 0.830138555530174,
-        "pr_auc": 0.13687256452855517
+        "n": 645084,
+        "positive_rate": 0.009825077044229899,
+        "roc_auc": 0.8300419623378953,
+        "pr_auc": 0.11893568141777668
       },
       "12": {
-        "n": 674041,
-        "positive_rate": 0.011583865076456774,
-        "roc_auc": 0.7903831305545509,
-        "pr_auc": 0.11639948458890084
+        "n": 812260,
+        "positive_rate": 0.013336862580946988,
+        "roc_auc": 0.8025556287529765,
+        "pr_auc": 0.10180536924788948
       }
     }
+  },
+  "fit_diagnostics": {
+    "train_vs_test_gap": {
+      "train_roc_auc": 0.8298856742174576,
+      "test_roc_auc": 0.8072561743952117,
+      "train_pr_auc": 0.17591559882322477,
+      "test_pr_auc": 0.11256021561137197,
+      "note": "roc_auc_gap > ~0.05 with train clearly ahead is the classic overfitting signature (the trees memorized train-specific structure that doesn't generalize to test). Both metrics landing low together, with a SMALL gap, is the underfitting signature instead (max_depth/eta/num_boost_round too conservative for the real signal in the data) \u2014 this pair of numbers is what distinguishes the two, not either one alone."
+    },
+    "roc_auc_gap": 0.022629499822245935,
+    "learning_curve": {
+      "train_aucpr": [
+        0.13977827232896725,
+        0.1486157812780424,
+        0.1550090231209992,
+        0.15917329764098273,
+        0.1600808661844872,
+        0.1601872201436641,
+        0.16006865804292025,
+        0.1616440919909589,
+        0.16318409931511813,
+        0.16339572526636756,
+        0.1640755087675649,
+        0.16538789587797428,
+        0.16560715444083432,
+        0.16633367753203326,
+        0.16682647850628846,
+        0.16739499860644613,
+        0.16783351241693942,
+        0.16869592694929197,
+        0.16913520098950735,
+        0.16946311943857115,
+        0.17113014205947633,
+        0.17142081809621143,
+        0.17172556428133917,
+        0.17202956369743583,
+        0.1720571308040181,
+        0.1728191459868808,
+        0.17372257805564176,
+        0.17397800938860022,
+        0.17459614581907493,
+        0.17503560361607473,
+        0.1760023283960599,
+        0.1766403883837226,
+        0.17683655969134693,
+        0.17728448349093606,
+        0.17827176872067868,
+        0.17848614958555478,
+        0.17942307530628906,
+        0.18011661332846277,
+        0.18057910633164428,
+        0.18136847811552034,
+        0.18173490044486523,
+        0.18174784611143888,
+        0.18210195774826235,
+        0.18280858004339534,
+        0.18280614145327626,
+        0.18311059132552795,
+        0.1832401822531076,
+        0.18358354687383874,
+        0.18385998775601806,
+        0.18423266448824857,
+        0.18434619614122286,
+        0.18489186150795922,
+        0.1851452595902809,
+        0.185992496350723,
+        0.18646659035073687,
+        0.18687074820036834,
+        0.18768304710342726,
+        0.1881049000175227,
+        0.18845216929855602,
+        0.1885827945293103,
+        0.18901161050835824
+      ],
+      "calib_aucpr": [
+        0.11920665566738378,
+        0.12635388553169075,
+        0.13139422839034318,
+        0.12962631157036617,
+        0.1332963376382684,
+        0.13480650309505374,
+        0.13391616875101683,
+        0.13706608465721787,
+        0.1381621717871607,
+        0.13558843749163269,
+        0.13685373761004022,
+        0.13653008595208663,
+        0.13771288306227183,
+        0.1380482741211088,
+        0.13925052650069883,
+        0.13947919435224365,
+        0.1391647333264563,
+        0.13935965417582125,
+        0.14019581163727113,
+        0.1392756751531908,
+        0.14098609251035782,
+        0.14145249309840088,
+        0.142096900142137,
+        0.14180085341383813,
+        0.14238517158018424,
+        0.14197979881976716,
+        0.14259467157647615,
+        0.14293061616796873,
+        0.14270355139029572,
+        0.14274116395115344,
+        0.14320583522348754,
+        0.14293091535752378,
+        0.14258671072910792,
+        0.14244634069899179,
+        0.14226359193649085,
+        0.14206124672022225,
+        0.14121777631679552,
+        0.14094717669357293,
+        0.14132978022409134,
+        0.14143246662762568,
+        0.1416301800723691,
+        0.14133868261142435,
+        0.14089898536651518,
+        0.14044773709830144,
+        0.13950459345889354,
+        0.13886773606686345,
+        0.1384628906853102,
+        0.13797316944120147,
+        0.1379914991055143,
+        0.13831272856129243,
+        0.1374801519316761,
+        0.1372718158117873,
+        0.1373335404502208,
+        0.13779994715307672,
+        0.1374136650094004,
+        0.13632536305105225,
+        0.13606355874089962,
+        0.1359622128768497,
+        0.13594742770864382,
+        0.13601694533352915,
+        0.13599686116388338
+      ],
+      "best_iteration": 30,
+      "note": "Per-round PR-AUC on train vs calib. Train climbing while calib plateaus/declines after best_iteration is overfitting past that point \u2014 early_stopping_rounds=30 is what actually prevents shipping a model from past that point; this curve is the evidence it worked, not an assertion that it did."
+    }
+  },
+  "cross_validation": {
+    "method": "blocked (forward-chaining), 5 contiguous real time blocks, never shuffled",
+    "folds": [
+      {
+        "block": 1,
+        "n_train": 1943141,
+        "n_test": 1943142,
+        "test_positive_rate": 0.012011474200032731,
+        "roc_auc": 0.7654761297028465,
+        "pr_auc": 0.13707628235643993
+      },
+      {
+        "block": 2,
+        "n_train": 3886283,
+        "n_test": 1943142,
+        "test_positive_rate": 0.023682777686859734,
+        "roc_auc": 0.7132613323014596,
+        "pr_auc": 0.11422951812204898
+      },
+      {
+        "block": 3,
+        "n_train": 5829425,
+        "n_test": 1943142,
+        "test_positive_rate": 0.013414871378417017,
+        "roc_auc": 0.8137567512806387,
+        "pr_auc": 0.15756350571559974
+      },
+      {
+        "block": 4,
+        "n_train": 7772567,
+        "n_test": 1943142,
+        "test_positive_rate": 0.010811356040886358,
+        "roc_auc": 0.8166080046204889,
+        "pr_auc": 0.10722048990222854
+      }
+    ],
+    "roc_auc_mean": 0.7772755544763584,
+    "roc_auc_std": 0.04217513017246128,
+    "pr_auc_mean": 0.1290224490240793,
+    "pr_auc_std": 0.019834391688662408,
+    "note": "A low roc_auc_std relative to roc_auc_mean across real, disjoint time blocks means the headline test-set number isn't a lucky split \u2014 the model's real ranking performance is stable across the training period."
   }
 }
