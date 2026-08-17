@@ -5,14 +5,14 @@
  *
  * NOTIFYING MUST NEVER BREAK PREDICTING. `dispatch` is called from inside
  * server/engine/forecast.ts's applyScore, which is the single path a real model
- * score takes to become a forecast. An expired Twilio session or a revoked
- * Telegram token must not cost a member their risk score, so every channel is
+ * score takes to become a forecast. An expired Twilio session or a dead
+ * push credential must not cost a member their risk score, so every channel is
  * awaited inside allSettled, every result is a value rather than an exception,
  * and dispatch itself cannot reject. The alert is observability on top of the
  * product; the forecast IS the product.
  *
  * Channels are addressed in parallel rather than in sequence: they are
- * independent HTTP calls to three unrelated providers, and a member waiting on
+ * independent HTTP calls to unrelated providers, and a member waiting on
  * a WhatsApp timeout before their push is sent is a worse outcome than any
  * ordering guarantee is worth.
  *
@@ -22,7 +22,6 @@
  * taken on trust.
  */
 import { logNotification } from '@/server/decisionLedger';
-import * as telegram from './telegram';
 import * as whatsapp from './whatsapp';
 import * as push from './push';
 import type { ChannelResult, NotifyEvent } from './types';
@@ -35,13 +34,9 @@ export type DispatchResult = {
 };
 
 export async function dispatch(event: NotifyEvent): Promise<DispatchResult> {
-  const settled = await Promise.allSettled([
-    telegram.send(event),
-    whatsapp.send(event),
-    push.send(event),
-  ]);
+  const settled = await Promise.allSettled([whatsapp.send(event), push.send(event)]);
 
-  const channels = ['telegram', 'whatsapp', 'push'] as const;
+  const channels = ['whatsapp', 'push'] as const;
   const results: ChannelResult[] = settled.map((s, i) =>
     s.status === 'fulfilled'
       ? s.value
@@ -86,7 +81,6 @@ export async function dispatch(event: NotifyEvent): Promise<DispatchResult> {
  *  channel is discovered during setup rather than on stage. */
 export function channelStatus(passengerId?: string): { channel: string; configured: boolean }[] {
   return [
-    { channel: 'telegram', configured: telegram.isConfigured() },
     { channel: 'whatsapp', configured: whatsapp.isConfigured() },
     { channel: 'push', configured: push.isConfigured(passengerId) },
   ];

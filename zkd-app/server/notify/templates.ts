@@ -1,10 +1,10 @@
 /**
  * What the member actually reads.
  *
- * Copy lives here rather than inside each channel so the Telegram message, the
- * WhatsApp message and the Android push cannot drift into saying three
- * different things about the same flight — the failure mode where a member is
- * told "we're booking it" on one device and "we need your go-ahead" on another.
+ * Copy lives here rather than inside each channel so the WhatsApp message and
+ * the Android push cannot drift into saying different things about the same
+ * flight — the failure mode where a member is told "we're booking it" on one
+ * device and "we need your go-ahead" on another.
  *
  * ── Two honest constraints this copy has to respect ────────────────────────
  *

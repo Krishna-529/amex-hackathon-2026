@@ -13,8 +13,6 @@ import { thresholdAlert } from './templates';
  * checkout and CI are in. That is the case that must not break prediction.
  */
 const KEYS = [
-  'TELEGRAM_BOT_TOKEN',
-  'TELEGRAM_CHAT_ID',
   'TWILIO_ACCOUNT_SID',
   'TWILIO_AUTH_TOKEN',
   'TWILIO_WHATSAPP_FROM',
@@ -38,7 +36,7 @@ afterEach(() => {
 describe('notify wiring (real modules, no credentials)', () => {
   it('reports every channel unconfigured rather than pretending', () => {
     const status = channelStatus('p-1');
-    expect(status.map((s) => s.channel).sort()).toEqual(['push', 'telegram', 'whatsapp']);
+    expect(status.map((s) => s.channel).sort()).toEqual(['push', 'whatsapp']);
     expect(status.every((s) => s.configured === false)).toBe(true);
   });
 

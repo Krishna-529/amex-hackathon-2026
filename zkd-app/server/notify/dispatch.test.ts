@@ -4,16 +4,14 @@ import type { NotifyEvent } from './types';
 /**
  * The one invariant that matters here: dispatch is called from inside
  * applyScore, the single path a real model score takes to become a forecast.
- * If it can throw, a revoked Telegram token costs a member their risk score.
+ * If it can throw, an expired Twilio session costs a member their risk score.
  * Every case below is a way a channel can misbehave.
  */
 
-const telegramSend = vi.fn();
 const whatsappSend = vi.fn();
 const pushSend = vi.fn();
 const logNotification = vi.fn();
 
-vi.mock('./telegram', () => ({ send: (e: NotifyEvent) => telegramSend(e), isConfigured: () => true }));
 vi.mock('./whatsapp', () => ({ send: (e: NotifyEvent) => whatsappSend(e), isConfigured: () => true }));
 vi.mock('./push', () => ({
   send: (e: NotifyEvent) => pushSend(e),
@@ -44,21 +42,19 @@ describe('dispatch', () => {
 
   it('reports delivered when any single channel succeeds', async () => {
     const { dispatch } = await import('./index');
-    telegramSend.mockResolvedValue(ok('telegram'));
-    whatsappSend.mockResolvedValue(failed('whatsapp'));
-    pushSend.mockResolvedValue(skipped('push'));
+    whatsappSend.mockResolvedValue(ok('whatsapp'));
+    pushSend.mockResolvedValue(failed('push'));
 
     const result = await dispatch(event);
     expect(result.delivered).toBe(true);
-    expect(result.results).toHaveLength(3);
+    expect(result.results).toHaveLength(2);
   });
 
   it('does not throw when a channel REJECTS, and still reports the others', async () => {
     const { dispatch } = await import('./index');
     // A rejection, not a returned failure — the case allSettled exists for.
     whatsappSend.mockRejectedValue(new Error('socket hang up'));
-    telegramSend.mockResolvedValue(ok('telegram'));
-    pushSend.mockResolvedValue(skipped('push'));
+    pushSend.mockResolvedValue(ok('push'));
 
     const result = await dispatch(event);
     expect(result.delivered).toBe(true);
@@ -69,7 +65,6 @@ describe('dispatch', () => {
 
   it('resolves rather than throwing when EVERY channel fails', async () => {
     const { dispatch } = await import('./index');
-    telegramSend.mockRejectedValue(new Error('revoked token'));
     whatsappSend.mockRejectedValue(new Error('session expired'));
     pushSend.mockRejectedValue(new Error('no credentials'));
 
@@ -80,8 +75,7 @@ describe('dispatch', () => {
 
   it('logs every attempt, including the ones that were skipped as unconfigured', async () => {
     const { dispatch } = await import('./index');
-    telegramSend.mockResolvedValue(ok('telegram'));
-    whatsappSend.mockResolvedValue(skipped('whatsapp'));
+    whatsappSend.mockResolvedValue(ok('whatsapp'));
     pushSend.mockResolvedValue(skipped('push'));
 
     await dispatch(event);
@@ -94,13 +88,12 @@ describe('dispatch', () => {
     expect(entry.delivered).toBe(true);
     // "nobody was told because nothing was configured" must stay
     // distinguishable from "we tried and it was rejected".
-    expect(entry.channels.filter((c) => c.skipped).map((c) => c.channel).sort()).toEqual(['push', 'whatsapp']);
+    expect(entry.channels.filter((c) => c.skipped).map((c) => c.channel)).toEqual(['push']);
   });
 
   it('survives a ledger that throws — logging must never break notifying', async () => {
     const { dispatch } = await import('./index');
-    telegramSend.mockResolvedValue(ok('telegram'));
-    whatsappSend.mockResolvedValue(skipped('whatsapp'));
+    whatsappSend.mockResolvedValue(ok('whatsapp'));
     pushSend.mockResolvedValue(skipped('push'));
     logNotification.mockImplementation(() => {
       throw new Error('disk full');

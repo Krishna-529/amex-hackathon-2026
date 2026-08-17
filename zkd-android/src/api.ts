@@ -161,6 +161,18 @@ async function postJSON<T>(path: string, body: unknown): Promise<T | null> {
   }
 }
 
+/**
+ * Hand this device's Expo push token to the server so it can reach the phone
+ * when the app is closed.
+ *
+ * Session-bound on the server (app/api/devices/route.ts binds the token to the
+ * SESSION's passenger, never a body-supplied id), so this must run AFTER
+ * sign-in — before it, there is no session to attach to and the call 401s.
+ */
+export async function registerDevice(token: string): Promise<boolean> {
+  return (await postJSON<{ ok: boolean }>('/api/devices', { token })) !== null;
+}
+
 export type MeResponse = { id: string; displayName: string; consent: Consent };
 
 /** Empty on failure — same "not signed in" shape whether the network failed

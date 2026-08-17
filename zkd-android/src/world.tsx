@@ -2,8 +2,8 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { usePoll } from './lib/usePoll';
 import { hhmm } from './lib/time';
 import { API_BASE_URL } from './config';
-import { notifyCancelled } from './notify';
-import { fetchMe, login as apiLogin, logout as apiLogout, setConsentRemote, type Consent, type PassengerScheduleResponse } from './api';
+import { notifyCancelled, getPushToken } from './notify';
+import { fetchMe, login as apiLogin, logout as apiLogout, setConsentRemote, type Consent, type PassengerScheduleResponse, registerDevice } from './api';
 
 /**
  * No mock World built on mount — this is a thin poller of the same
@@ -64,6 +64,20 @@ export function WorldProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(() => {
     apiLogout().finally(() => applyMe(null));
   }, [applyMe]);
+
+  // Register this device for remote push, once, as soon as there is a session
+  // to attach it to. Deliberately keyed on passengerId rather than run on mount:
+  // POST /api/devices binds the token to the signed-in passenger, so calling it
+  // before sign-in just 401s. Re-runs on a different passenger so a shared demo
+  // phone does not keep delivering the previous member's alerts.
+  const registeredFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!passengerId || registeredFor.current === passengerId) return;
+    registeredFor.current = passengerId;
+    getPushToken()
+      .then((token) => (token ? registerDevice(token) : false))
+      .catch(() => false);
+  }, [passengerId]);
 
   const schedule = usePoll<PassengerScheduleResponse>(
     passengerId ? `${API_BASE_URL}/api/passengers/${passengerId}/schedule` : null,

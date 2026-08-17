@@ -5,6 +5,7 @@
  * consent window.
  */
 import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 
 export const CHANNEL_DISRUPTION = 'disruption';
@@ -99,4 +100,46 @@ export async function notifyHandedOver(flightId: string) {
     },
     trigger: { channelId: CHANNEL_UPDATES },
   });
+}
+
+/**
+ * The Expo push token for THIS device, or null.
+ *
+ * ── Why this exists alongside the local notifications above ────────────────
+ *
+ * Everything above is a LOCAL notification: the app noticed a change it was
+ * already polling for and raised a banner itself. That only works while the app
+ * is running. A pre-cancellation warning has to arrive when the phone is in a
+ * pocket and the app is closed — that is the entire point of warning someone
+ * early — and only a remote push can do that. The server sends it via
+ * server/notify/push.ts once this token is registered.
+ *
+ * NEVER THROWS. Two real reasons it returns null, both survivable:
+ *
+ *   1. Remote push needs a real device; emulators cannot receive one.
+ *   2. `getExpoPushTokenAsync()` needs an EAS projectId to resolve in a
+ *      standalone build. `app.json` has no `extra.eas.projectId`, so this
+ *      currently works in Expo Go and will fail in a bare APK until one is
+ *      added. That is the single likeliest thing to break on demo day.
+ *
+ * In both cases the local path above still fires whenever the app is open, so a
+ * null here degrades the experience rather than removing it.
+ */
+export async function getPushToken(): Promise<string | null> {
+  try {
+    if (!Device.isDevice) return null;
+
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') {
+      const asked = await Notifications.requestPermissionsAsync();
+      if (asked.status !== 'granted') return null;
+    }
+
+    const token = await Notifications.getExpoPushTokenAsync();
+    return token.data ?? null;
+  } catch (e) {
+    // Loud in the log, silent to the member — they still get local banners.
+    console.warn('[notify] no push token; remote alerts disabled for this device:', e);
+    return null;
+  }
 }

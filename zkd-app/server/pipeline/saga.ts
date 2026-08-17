@@ -317,7 +317,7 @@ function buildSteps(input: SagaInput): SagaStep[] {
     //
     // A failing step triggers compensateAll, which unwinds the steps before
     // it — and the steps before this one are the flight, the hotel and the
-    // ground transfer we just booked. So returning ok:false because Telegram
+    // ground transfer we just booked. So returning ok:false because WhatsApp
     // was unreachable would CANCEL A MEMBER'S REBOOKED TRIP over a failed
     // text message. The delivery result is reported in `ref` and recorded in
     // the notification ledger (server/decisionLedger.ts) instead, where a
