@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useWorld } from '@/components/WorldProvider';
 import RouteLine from '@/components/Route';
 import HistoryTable from '@/components/HistoryTable';
-import { BAND_SAY, GLOW } from '@/lib/thresholds';
+import { BAND_SAY, GLOW, BAND_LABEL } from '@/lib/thresholds';
 import { usePoll } from '@/lib/usePoll';
 import { dayLabel } from '@/lib/time';
 import type { PreAuthResponse } from '@/lib/apiTypes';
@@ -174,10 +174,23 @@ export default function FlightsPage() {
                   </>
                 ) : (
                   <>
+                    {/*
+                      The bare number here read as a percentage — someone seeing
+                      "45" reasonably asked whether it meant a 45% chance of
+                      cancellation. It does not: riskScore is a 0-100 PERCENTILE
+                      rank against the model's own live score distribution, and
+                      that flight's actual cancel probability was 3%. Every
+                      other screen already writes it "45/100"; this one did not,
+                      which is exactly where the confusion came from. The band
+                      label underneath says the same thing in words.
+                    */}
                     <div className={`n ${active?.forecast?.tone ?? 'low'}`}>
                       {active?.forecast ? Math.round(active.forecast.riskScore ?? active.forecast.pct) : '—'}
+                      {active?.forecast && <span className="n-den">/100</span>}
                     </div>
-                    <div className="lb">risk score</div>
+                    <div className="lb">
+                      risk score{active?.forecast ? ` · ${BAND_LABEL[active.forecast.band].toLowerCase()}` : ''}
+                    </div>
                     <div className="say">
                       {active?.forecast
                         ? BAND_SAY[active.forecast.band]

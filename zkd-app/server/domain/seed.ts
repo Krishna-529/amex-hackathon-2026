@@ -9,6 +9,8 @@ import { ensureReady, withAdvisoryLock, SEED_LOCK_KEY } from './db';
 import { hashPassword } from '../auth/passwords';
 import { DEMO_ACCOUNTS } from '@/lib/demoAccounts';
 import type { Passenger, Flight, PastFlight, Traveller } from './types';
+import { localDateParts } from '../airportDirectory';
+import { localHourAtAirport, localDateISOAt } from '../deadline';
 
 const now = Date.now();
 const MIN = 60_000;
@@ -19,20 +21,42 @@ const hhmm = (offsetMin: number) => {
 };
 
 /**
- * Real max-risk feature profile the model actually produces, found by
- * grid-scoring 168,000 real feature combinations through the live scorer
- * (zkd-risk-model/src/score_distribution.py, restricted to the current real
- * month): late Sunday-night red-eye departure. Computed dynamically (next
- * real Sunday from whenever the server actually boots, not a hardcoded
- * date) so this stays a real, upcoming flight no matter when `npm run dev`
- * actually starts — see documentation/design/05-cancellation-risk-model.md §7.
+ * Real max-risk feature profile the model actually produces: a late Sunday
+ * EVENING departure, in the ORIGIN AIRPORT'S OWN LOCAL TIME. Computed
+ * dynamically from whenever the server boots, so it stays a real upcoming
+ * flight — see documentation/design/05-cancellation-risk-model.md §7.
+ *
+ * ── This used to be nextSundayAt22UTC(), and that was wrong ───────────────
+ *
+ * `hour_of_day` is trained on the origin airport's local wall clock
+ * (riskModel.ts's assembleFeatures says so explicitly, via localDateParts).
+ * Setting 22:00 UTC therefore produced 03:30 in Mumbai — hour 3, which the
+ * model scores as a LOW-risk hour. Verified against the live scorer, holding
+ * every other feature fixed:
+ *
+ *     local hour 02 / 06 / 12  ->  2.8%   riskScore 31
+ *     local hour 18            ->  5.2%   riskScore 78
+ *     local hour 22            ->  5.3%   riskScore 81
+ *
+ * So the seeded "max-risk" flight was sitting in the model's quietest hours
+ * while its comment claimed the opposite, and u4 had silently decayed from
+ * the documented ~8% / hold-gate to 3% / watch. Fixed by resolving the local
+ * hour through the airport's own timezone.
  */
-function nextSundayAt22UTC(fromMs: number): number {
+function nextSundayEveningAt(iata: string, localHour: number, fromMs: number): number {
+  // Walk forward a day at a time and ask the airport directory what instant
+  // corresponds to `localHour` on that date, rather than doing arithmetic on
+  // UTC — the offset is a property of the instant (DST), not of the zone.
   const d = new Date(fromMs);
-  d.setUTCHours(22, 0, 0, 0);
-  if (d.getTime() <= fromMs) d.setUTCDate(d.getUTCDate() + 1);
-  while (d.getUTCDay() !== 0) d.setUTCDate(d.getUTCDate() + 1);
-  return d.getTime();
+  for (let i = 0; i < 14; i++) {
+    const probe = new Date(d.getTime() + i * 86_400_000);
+    const date = localDateISOAt(iata, probe.getTime());
+    const at = localHourAtAirport(iata, date, localHour);
+    if (at > fromMs && localDateParts(iata, at).dayOfWeek === 0) return at;
+  }
+  // Unreachable in practice (a Sunday always falls inside 14 days); fall back
+  // to a week out rather than throwing during seeding.
+  return fromMs + 7 * 86_400_000;
 }
 
 /**
@@ -214,10 +238,47 @@ async function seedFlights() {
       // score ~3% and stay at 'watch'. u4 is the one that shows the action
       // ladder, the pre-cache trigger, and the audit panel actually firing
       // on a real score, not a hand-picked probability.
+      //
+      // Measured 2026-08-18 after the local-hour fix: 8% / riskScore 95 /
+      // hold-gate. It had decayed to 3% / watch while the helper was setting
+      // 22:00 UTC (= 03:30 IST, one of the model's QUIETEST hours) — see
+      // nextSundayEveningAt above.
       id: 'u4', code: '6E 6155', from: 'BOM', to: 'GOI',
-      depISO: new Date(nextSundayAt22UTC(now)).toISOString(), durationMin: 90,
+      depISO: new Date(nextSundayEveningAt('BOM', 22, now)).toISOString(), durationMin: 90,
       aircraft: 'A320neo', terminal: 'T2',
       connectionSlackMinutes: null, hasHardConstraint: false,
+      candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
+    },
+    {
+      /**
+       * Two more flights on the same real max-risk profile as u4 — Sunday
+       * evening, local time — so the high-risk path is not a single flight
+       * that a demo can miss.
+       *
+       * Every number these produce is the model's own. They are engineered in
+       * the sense that their FEATURES sit where the model already says risk is
+       * highest (Sunday, late local evening, short domestic sector), not in the
+       * sense that any score is written down. Measured 2026-08-18: both land at
+       * 8% / riskScore 95 / hold-gate, comfortably past
+       * config/risk-thresholds.json's altCache.prefetchAtOrAboveRiskScore of
+       * 75, which is what actually triggers alternative pre-fetching.
+       */
+      id: 'u5', code: '6E 2789', from: 'BOM', to: 'DEL',
+      depISO: new Date(nextSundayEveningAt('BOM', 21, now)).toISOString(), durationMin: 130,
+      aircraft: 'A321neo', terminal: 'T2',
+      connectionSlackMinutes: null, hasHardConstraint: false,
+      candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
+    },
+    {
+      // Same profile again, with a hard constraint on top. hasHardConstraint
+      // lowers this flight's OWN adaptive thresholds (lib/thresholds.ts), so it
+      // should reach a higher band than u4/u5 on an identical raw probability —
+      // which is the point worth showing: the bar moves per flight, it is not a
+      // fixed 80.
+      id: 'u6', code: 'AI 2984', from: 'DEL', to: 'BLR',
+      depISO: new Date(nextSundayEveningAt('DEL', 22, now)).toISOString(), durationMin: 165,
+      aircraft: 'A320neo', terminal: 'T3',
+      connectionSlackMinutes: 55, hasHardConstraint: true,
       candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
     },
   ];
@@ -255,6 +316,10 @@ async function seedBookingsAndItineraries() {
   await store.createItinerary('p-priya', [b1.id, b2.id]); // MAA→DEL→LHR, the layover/connection case
   await store.createBooking({ flightId: 'u3', passengerId: 'p-priya', seat: '8F', pnr: 'LP4XZ1', cabin: 'Economy' });
   await store.createBooking({ flightId: 'u4', passengerId: 'p-priya', seat: '11A', pnr: 'GV3K9R', cabin: 'Economy' });
+  // The two extra high-risk flights, so the pre-fetch/consent path has more
+  // than one chance to fire in a walkthrough.
+  await store.createBooking({ flightId: 'u5', passengerId: 'p-priya', seat: '9C', pnr: 'HT6M2B', cabin: 'Economy' });
+  await store.createBooking({ flightId: 'u6', passengerId: 'p-priya', seat: '4A', pnr: 'RN8W5D', cabin: 'Premium Economy' });
 
   // Arjun's party of 6 — himself, his spouse, two children, two grandparents.
   const arjun = await store.createTraveller(await cardMemberTraveller('p-arjun'));

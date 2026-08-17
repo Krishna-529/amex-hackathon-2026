@@ -101,3 +101,30 @@ export function endOfDayAtAirport(iata: string, date: string): string | null {
   const ts = wallClockToUtc(date, '23:59:59', tz);
   return Number.isNaN(ts) ? null : new Date(ts).toISOString();
 }
+
+/**
+ * The instant of a given local wall-clock HOUR on a given local date at an
+ * airport. Same machinery as endOfDayAtAirport, exposed because the seeder
+ * needs "22:00 local at BOM", not "end of day".
+ *
+ * This exists because `hour_of_day` is the model's local-time feature: putting
+ * a seeded flight at 22:00 UTC gives 03:30 in Mumbai, which is a completely
+ * different — and much lower-risk — hour. See server/domain/seed.ts.
+ */
+export function localHourAtAirport(iata: string, date: string, hour: number): number {
+  const hh = String(Math.max(0, Math.min(23, Math.trunc(hour)))).padStart(2, '0');
+  const tz = airport(iata)?.timezone;
+  if (!tz) return Date.parse(`${date}T${hh}:00:00Z`);
+  return wallClockToUtc(date, `${hh}:00:00`, tz);
+}
+
+/** The local calendar date (YYYY-MM-DD) at an airport for a given instant. */
+export function localDateISOAt(iata: string, at: number): string {
+  const tz = airport(iata)?.timezone;
+  const d = new Date(at);
+  if (!tz) return d.toISOString().slice(0, 10);
+  const p = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+  return p; // en-CA formats as YYYY-MM-DD
+}

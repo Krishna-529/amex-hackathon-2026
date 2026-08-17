@@ -1475,3 +1475,14 @@ body:has(.amex-page) footer {
 @media (prefers-reduced-motion: reduce) {
   .sk::after { animation: none }
 }
+
+/* The "/100" denominator on the flights-list risk figure. Deliberately smaller
+   and dimmer than the number: it is there so nobody reads a bare "45" as a
+   percentage, not to compete with the figure itself. */
+.pred .n .n-den {
+  font-size: .42em;
+  font-weight: 600;
+  opacity: .55;
+  margin-left: .12em;
+  letter-spacing: 0;
+}
