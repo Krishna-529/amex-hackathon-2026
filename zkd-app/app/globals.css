@@ -1523,3 +1523,33 @@ body:has(.amex-page) footer {
      screen, nowhere near enough to be a distraction while reading. */
   .uprow.acting { transition: background .3s ease }
 }
+
+/* ── Keep the prediction panel in view as the flight list grows ─────────────
+   `.pred` is a grid item that was stretched to the full height of the list and
+   then centred its own content vertically. With four flights that reads fine;
+   with a dozen the panel's content sits halfway down a very tall column and
+   scrolls out of view exactly when the member scrolls to find the flight it
+   describes. The panel is the answer to "what about THIS flight" — it has to
+   stay on screen while you move down the list.
+
+   align-self:start stops the grid stretching the cell, and sticky pins it. The
+   parent's overflow:hidden has to go for sticky to work at all, so the radius
+   clipping it was doing moves onto .pred itself — otherwise the ::before glow
+   bleeds past the card's rounded corner. */
+.up { overflow: visible }
+.pred {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  justify-content: flex-start;
+  border-radius: 0 16px 16px 0;
+  overflow: hidden;
+}
+.up-list { border-radius: 16px 0 0 16px; overflow: hidden }
+
+@media (max-width: 900px) {
+  /* Stacked layout: the panel sits above the list, so sticky would park it
+     over the rows it is meant to describe. */
+  .pred { position: static; border-radius: 0 0 16px 16px }
+  .up-list { border-radius: 16px 16px 0 0 }
+}
