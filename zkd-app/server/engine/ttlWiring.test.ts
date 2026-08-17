@@ -60,9 +60,41 @@ vi.mock('../domain/store', () => ({
   getRecoveryTasksForFlight: async () => [],
 }));
 
+/**
+ * ── Why these are STATIC imports and must stay that way ──
+ *
+ * These three used to be `await import('./forecast')` etc. inside each `it`.
+ * That is the normal idiom for `vi.doMock` (which is NOT hoisted, so the mock
+ * has to be registered before the import runs), but both mocks in this file are
+ * `vi.mock`, which vitest DOES hoist above every import in the module. So the
+ * dynamic form bought nothing here — and it cost us the suite.
+ *
+ * `forecast.ts` sits on top of a ~2,800-line transitive graph (riskModel ->
+ * airportDirectory, ../suppliers -> seven supplier adapters, altsCache ->
+ * governor + refreshInterval, groundCache, notify, decisionLedger). Vitest has
+ * no persistent source-transform cache, so every run transforms all of it cold.
+ * Measured on an idle machine that is ~2.0s (riskModel 808ms, altsCache 476ms,
+ * suppliers 466ms) — 40% of vitest's 5s default `testTimeout`, and the timer
+ * was running during all of it because the import happened INSIDE the test body.
+ * On a loaded machine (parallel vitest workers, a dev server, a second agent
+ * building) it reliably crossed 5s and the case died with
+ * "Error: Test timed out in 5000ms" — pointing at a dynamic import that looked
+ * like it never settled, when in fact it was only slow.
+ *
+ * Hoisting them to module scope moves that cost into the file's collection
+ * phase, which `testTimeout` does not govern, so the tests below are timed on
+ * what they actually do: compare two timestamps. Nothing is weakened — the
+ * hoisted `vi.mock` above still replaces `@/lib/thresholdConfig` for these
+ * imports, so the assertions still prove the TTL is read from config.
+ *
+ * Do not move these back inside the `it` bodies.
+ */
+import { isStale } from './forecast';
+import { isAltsStale, altsRefreshPlan } from './altsCache';
+import { isGroundStale } from './groundCache';
+
 describe('cache staleness functions honor the live config TTL, not a hardcoded copy', () => {
   it('isStale (forecast.ts) uses config.forecast.ttlMs (mocked to 2s)', async () => {
-    const { isStale } = await import('./forecast');
     const now = Date.now();
     const fresh = { forecast: { asOf: now - 500 } } as unknown as Parameters<typeof isStale>[0];
     const stale = { forecast: { asOf: now - 2_500 } } as unknown as Parameters<typeof isStale>[0];
@@ -92,7 +124,6 @@ describe('cache staleness functions honor the live config TTL, not a hardcoded c
    * hardcoded constant that happens to agree with it today.
    */
   it('isAltsStale (altsCache.ts) tracks the live altsRefreshPlan cadence, not a hardcoded constant', async () => {
-    const { isAltsStale, altsRefreshPlan } = await import('./altsCache');
     const now = Date.now();
     // `id` and `candidates` are needed now that altsRefreshPlan reads them —
     // an empty alt list is the honest "nothing cached yet" case.
@@ -116,7 +147,6 @@ describe('cache staleness functions honor the live config TTL, not a hardcoded c
   });
 
   it('isGroundStale (groundCache.ts) shares config.altCache.ttlMs (mocked to 1s)', async () => {
-    const { isGroundStale } = await import('./groundCache');
     const now = Date.now();
     const fresh = { groundAsOf: now - 200 } as unknown as Parameters<typeof isGroundStale>[0];
     const stale = { groundAsOf: now - 1_500 } as unknown as Parameters<typeof isGroundStale>[0];
