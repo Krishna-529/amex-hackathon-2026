@@ -51,28 +51,80 @@ export function cityOf(iata: string): string | null {
  * benefit terms, which is what Amex actually relies on in most of the 130+
  * countries it operates in.
  */
-export type Jurisdiction = 'IN-DGCA' | 'EU261' | 'CARD-TERMS';
+export type Jurisdiction = 'IN-DGCA' | 'EU261' | 'UK261' | 'US-DOT' | 'CARD-TERMS';
 
 const EU261_COUNTRIES = new Set([
   'Austria', 'Belgium', 'Bulgaria', 'Croatia', 'Cyprus', 'Czech Republic', 'Denmark', 'Estonia',
   'Finland', 'France', 'Germany', 'Greece', 'Hungary', 'Iceland', 'Ireland', 'Italy', 'Latvia',
   'Lithuania', 'Luxembourg', 'Malta', 'Netherlands', 'Norway', 'Poland', 'Portugal', 'Romania',
-  'Slovakia', 'Slovenia', 'Spain', 'Sweden', 'Switzerland', 'United Kingdom',
+  'Slovakia', 'Slovenia', 'Spain', 'Sweden', 'Switzerland',
+  // The French outermost regions are part of the EU for this purpose, but the
+  // airport dataset files them under their own country names rather than
+  // 'France', so without these five a CDG->FDF passenger silently drops to
+  // CARD-TERMS. Verified present in server/airports.json.
+  'Guadeloupe', 'Martinique', 'French Guiana', 'Reunion', 'Mayotte',
+]);
+
+/**
+ * The UK left EU261 and retained it domestically as UK261 (SI 2019/278), with
+ * the same structure but sterling amounts. It therefore needs its own regime
+ * rather than being folded into EU261 — the money is different.
+ *
+ * Gibraltar and the Crown Dependencies (Isle of Man, Jersey, Guernsey) are
+ * deliberately ABSENT. Their standing under the retained regulation is
+ * genuinely unverified here, and guessing either way is a real error: include
+ * them wrongly and we promise compensation nobody owes; exclude them wrongly
+ * and we withhold an entitlement the member has.
+ */
+const UK261_COUNTRIES = new Set(['United Kingdom']);
+
+/**
+ * US DOT is a fundamentally different animal and must not be modelled as a
+ * weaker EU261. It mandates a prompt REFUND when a flight is cancelled or
+ * significantly changed, and nothing else: there is no statutory cash
+ * compensation and no statutory meals/hotel entitlement. Airlines' own
+ * commitments may go further, but those are contract, not regulation.
+ */
+const US_DOT_COUNTRIES = new Set([
+  'United States', 'Puerto Rico', 'Virgin Islands', 'Guam', 'American Samoa',
+  'Northern Mariana Islands',
 ]);
 
 function regimeOf(iata: string): Jurisdiction | null {
   const ap = airport(iata);
   if (!ap) return null;
   if (ap.country === 'India') return 'IN-DGCA';
+  // UK before EU deliberately: if 'United Kingdom' is ever re-added to
+  // EU261_COUNTRIES by mistake, this ordering keeps a UK departure on sterling
+  // rather than silently demoting it into the euro bundle.
+  if (UK261_COUNTRIES.has(ap.country)) return 'UK261';
   if (EU261_COUNTRIES.has(ap.country)) return 'EU261';
+  if (US_DOT_COUNTRIES.has(ap.country)) return 'US-DOT';
   return null;
 }
 
 /**
- * EU261 attaches to departures from the EU/UK on any carrier, and to arrivals
- * into the EU/UK on an EU carrier. We do not model carrier nationality yet, so
- * we take the departure rule — the one that always holds — and note the gap.
- * DGCA governs Indian departures the same way.
+ * ── Known to OVER-CLAIM. Read before relying on this. ─────────────────────
+ *
+ * EU261/UK261 attach to departures from the EU/UK on ANY carrier, and to
+ * arrivals into the EU/UK only on an EU/UK carrier. DGCA governs Indian
+ * departures the same way.
+ *
+ * The departure arm below (`regimeOf(from)`) is unconditionally correct. The
+ * arrival arm (`?? regimeOf(to)`) is NOT: it applies the arrival rule without
+ * the carrier test it depends on, because carrier nationality is not modelled
+ * anywhere in this codebase. So DXB->LHR returns UK261 whether the operator is
+ * British Airways (correct) or Emirates (wrong — no UK261 entitlement arises).
+ *
+ * An earlier version of this comment claimed the code "takes the departure
+ * rule — the one that always holds". It does not, and did not; the arrival arm
+ * was already here. Stated plainly now because the comment being wrong is worse
+ * than the gap itself: it makes an over-claim look like a considered decision.
+ *
+ * Erring toward claiming is at least the safe direction operationally — the
+ * policy layer still gates spend, and a claim we are not owed is refused by the
+ * carrier rather than costing the member. Fixing it properly needs the
+ * operating carrier's nationality threaded through to here.
  */
 export function jurisdictionFor(from: string, to: string): Jurisdiction {
   return regimeOf(from) ?? regimeOf(to) ?? 'CARD-TERMS';

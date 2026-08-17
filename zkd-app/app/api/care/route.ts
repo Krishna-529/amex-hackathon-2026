@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jurisdictionFor } from '@/server/airportDirectory';
-import { BUNDLES, owed } from '@/lib/entitlement';
+import { airport, distanceKm, isInternational, jurisdictionFor } from '@/server/airportDirectory';
+import { BUNDLES, compensationFor, owed } from '@/lib/entitlement';
 import type { CareResponse } from '@/lib/apiTypes';
 
 /**
@@ -18,11 +18,24 @@ export async function GET(req: NextRequest) {
   const jurisdiction = jurisdictionFor(from, to);
   const bundle = BUNDLES[jurisdiction];
 
+  // US DOT's "significant change" threshold is 3h domestic but 6h
+  // international. Every other regime ignores this flag.
+  const international = isInternational(from, to);
+
+  // EU261/UK261 compensation is banded by great-circle distance, so it cannot
+  // be read off the bundle alone. Null where the regime has no banded figure —
+  // which is NOT the same as zero; see entitlement.ts.
+  const a = airport(from);
+  const b = airport(to);
+  const compensation = a && b ? compensationFor(jurisdiction, distanceKm(a, b)) : null;
+
   const body: CareResponse = {
     jurisdiction,
     bundleName: bundle.name,
     citation: bundle.citation,
-    owed: owed({ jurisdiction, delayHours, overnight, forceMajeure }),
+    owed: owed({ jurisdiction, delayHours, overnight, forceMajeure, international }),
+    compensation,
+    evidenceTier: bundle.evidenceTier,
   };
   return NextResponse.json(body);
 }

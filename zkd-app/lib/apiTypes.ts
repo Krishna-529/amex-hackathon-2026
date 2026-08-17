@@ -63,6 +63,11 @@ export type CareResponse = {
   bundleName: string;
   citation: string;
   owed: CareItem[];
+  /** banded cash compensation in the regime's OWN currency, never converted;
+   *  null where the regime encodes no banded figure (not the same as zero) */
+  compensation: { amount: number; currency: string } | null;
+  /** how far to trust the numbers above — none are 'verified' today */
+  evidenceTier: 'verified' | 'assumed' | 'deck';
 };
 
 // --- Domain API (server-authoritative multi-flight/multi-passenger model) ---
