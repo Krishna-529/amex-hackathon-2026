@@ -12,9 +12,9 @@ figure traces to the latency budget in §4.
 | Phase | Trigger | What happens | Reversible? |
 |---|---|---|---|
 | **WATCH** | A carrier signal or forecast crossing | Deduplicate at the edge; **classify the disruption** (cancellation / reschedule / delay-cascade / diversion) | Yes — the phone stays silent |
-| **WARM** | Forecast crosses the flight's own `prepare` threshold | Assemble trip context; **one** coordinator reshop for the whole route group; build and price a candidate portfolio across every supplier | Yes — no hold, no spend |
+| **WARM** | Forecast crosses the flight's own `prepare` threshold | Assemble trip context; **one** coordinator reshop for the whole route group; build and price a candidate portfolio across every supplier | Yes — nothing claimed, nothing spent |
 | **ASK** | A plan exists | Notify with the plan and the price; open the **derived window** (§3) | Yes |
-| **WAIT** | — | Evaluate the hold gate: hold speculatively, or keep candidates warm | Yes — an unconfirmed hold expires free |
+| **WAIT** | — | Keep the bundle portfolio refreshed and valid against offer expiry. Nothing is held | Yes — nothing has been claimed |
 | **RE-CHECK** | Member confirms, or the window closes | Re-validate the chosen offer with its supplier; cascade to the next candidate if it is gone | Yes — this is the last reversible step |
 | **ACT** | Consent (explicit or by silence) **and** a re-validated offer | Allocate → policy gate → payment → saga | **No. This is the boundary.** |
 | **VERIFY** | Original disposed | Re-check every onward segment | — |
@@ -35,7 +35,7 @@ exists, and how confident the forecast is in itself (`lib/thresholds.ts`, and `d
 |---|---|---|---|
 | Below `prepare` | Monitor only | A green figure in the app | Nothing |
 | `prepare` | WARM: context, coordinator reshop, priced candidates across all suppliers | An amber figure | ~102 supplier calls |
-| `holdGate` | WARM + hold gate evaluation + pre-computed policy verdicts | A red figure, and *"we have backup seats identified"* | Above, plus possible hold churn |
+| `ready` | WARM + the refresh loop keeping bundles bookable + pre-computed policy verdicts | A red figure, and *"we have backup seats identified"* | Above, plus the supplier calls each refresh costs |
 | `preAuthorise` | **Pre-authorise** — present the whole plan and the exact amount, collect a conditional instruction | A notification asking what they'd want **if** it cancels | Nothing. The instruction expires unused if the flight operates. |
 | Carrier acts | ACT | **The notification** | — |
 
@@ -150,7 +150,7 @@ During the window the member may:
 - Their stated preference becomes a **new hard constraint**, gating at the policy layer like any other.
 - The rejected option is appended to `rejected_offer_ids` and **can never be re-proposed** — enforced as a **policy input**, not a prompt instruction. A rule that lives only in a prompt is a preference, not a control.
 - The iteration counter resets **once** per intervention; the visited-set **persists**, so the agent may re-plan but cannot ping-pong.
-- Live holds stay live. Nothing is confirmed and nothing is paid while an intervention is outstanding.
+- The refresh loop keeps running, so the member decides against currently valid options. Nothing is confirmed and nothing is paid while an intervention is outstanding.
 - If their constraint empties the feasible set: **say so and escalate.** Never quietly fall back to the option they just rejected — that is the single worst failure available to the system, because it overrides an explicit human decision.
 
 ---
@@ -260,7 +260,7 @@ First match wins. The loop always terminates.
 | 2 | Iteration cap (3) reached | Emit best feasible for confirmation; halt |
 | 3 | Δ < ε and feasible set unchanged | Emit held baseline; halt |
 | 4 | Tuple already visited | Emit held baseline; halt |
-| 5 | Prediction decays below the hold gate | Release hold at zero cost |
+| 5 | Prediction decays below the `ready` band | Stand down; nothing was claimed |
 | 6 | Feasible set empty | Change objective to next-day, claim duty of care, escalate |
 
 Every terminal state is one of `CONFIRMED`, `ESCALATED`, `ROLLED_BACK`, `RELEASED`. **No state

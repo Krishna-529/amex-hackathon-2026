@@ -172,7 +172,7 @@ us-east-1 on-demand rate cards at time of writing, not a real bill — see `infr
 | A booking step fails mid-saga | LIFO compensation; async refunds route to escalation rather than being recorded as clean |
 | Policy denies every candidate | Change objective to next-day, claim duty of care, escalate |
 | The member does not respond | Autopilot proceeds; ask-mode holds. Never ambiguous. |
-| Model is badly calibrated | Hold conversion falls below 85%, speculative holding auto-disables, system degrades to warm-only |
+| Model is badly calibrated | Nothing was ever claimed on it, so the cost is wasted supplier calls; refresh cadence backs off and the band thresholds re-derive |
 | Push is throttled (iOS data-only) | Hybrid notification + data payload at `apns-priority: 10`; SMS fallback |
 
 ---

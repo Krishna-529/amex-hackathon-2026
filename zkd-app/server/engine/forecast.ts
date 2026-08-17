@@ -105,10 +105,12 @@ export async function applyScore(flight: Flight, score: ModelScore): Promise<Fli
 
   const thresholds = thresholdsFor({
     seatsAvailable,
+    // The forecast is per flight, but scarcity is felt per party — 1 pending
+    // PNR grouping, the largest party on the flight belongs here instead.
+    partySize,
     minutesToDeparture: Math.max(0, Math.round((departsAt - Date.now()) / 60_000)),
     hasHardConstraint: flight.hasHardConstraint,
     confidence: score.confidence,
-    partySize,
   });
 
   const pct = Math.round(score.cancelProbability * 100);

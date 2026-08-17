@@ -10,6 +10,7 @@
 
 import { duffel } from './duffel';
 import { sabre } from './sabre';
+import { sandbox } from './sandbox';
 import { travelport } from './travelport';
 import { kiwi } from './kiwi';
 import { skyscanner } from './skyscanner';
@@ -17,6 +18,7 @@ import { travelfusion } from './travelfusion';
 import type { Offer, RevalidationResult, SearchParams, SearchResult, Supplier, SupplierId, SupplierStatus } from './types';
 
 export * from './types';
+export { sandbox } from './sandbox';
 
 /**
  * Registration order is not significance order — `rank()` decides that and
@@ -28,8 +30,21 @@ export * from './types';
  * one that later gains a Kiwi credential picks it up with no code change. That
  * is the swap path the architecture promises, and it is why `no-key` is a
  * first-class status rather than an error.
+ *
+ * The sandbox is the only adapter with a write plane, so it is what the reissue
+ * and rollback paths run against. It stays out of the ordinary search union
+ * unless `ZKD_SANDBOX=1`, because synthetic seats appearing in `/api/alts`
+ * alongside real Duffel inventory would misrepresent what we can actually book.
  */
-const SUPPLIERS: Supplier[] = [duffel, kiwi, skyscanner, sabre, travelport, travelfusion];
+const SUPPLIERS: Supplier[] = [
+  duffel,
+  kiwi,
+  skyscanner,
+  sabre,
+  travelport,
+  travelfusion,
+  ...(process.env.ZKD_SANDBOX === '1' ? [sandbox] : []),
+];
 
 const byId = new Map<SupplierId, Supplier>(SUPPLIERS.map((s) => [s.id, s]));
 

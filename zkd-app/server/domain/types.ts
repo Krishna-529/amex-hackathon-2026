@@ -257,6 +257,67 @@ export type PreAuthRecord = {
   grantedAt: number;
 };
 
+/* ── outcomes ────────────────────────────────────────────────────────────── */
+
+/**
+ * Every recovery ends in exactly one of these. No state hangs, and none expires
+ * in silence. The older `RecoveryTaskPhase` had no failure state at all, which
+ * is why a partial success had nowhere to go.
+ */
+export type RecoveryOutcome = 'CONFIRMED' | 'RELEASED' | 'ESCALATED' | 'ROLLED_BACK';
+
+/**
+ * Per component, not per task — because a partial success is exactly the case
+ * where the trip is not one thing.
+ *
+ * `ROLLED_BACK` and `NOT_ATTEMPTED` must never be merged: "your cab was
+ * cancelled" and "we never booked a cab" call for different actions from the
+ * member.
+ */
+export type ComponentStatus =
+  | 'CONFIRMED'
+  | 'PENDING_MANUAL_RESCUE'
+  | 'ROLLED_BACK'
+  | 'NOT_ATTEMPTED';
+
+export type ComponentKind = 'payment' | 'flight' | 'hotel' | 'ground';
+
+export type ComponentReport = {
+  component: ComponentKind;
+  status: ComponentStatus;
+  /** A reference the member actually holds. Non-null only when CONFIRMED. */
+  reference: string | null;
+  /** Plain language, written from the member's side of the screen. */
+  detail: string;
+};
+
+/* ── money we are owed ───────────────────────────────────────────────────── */
+
+export type RefundClaimStatus = 'pending' | 'partial' | 'settled' | 'denied';
+
+/**
+ * A receivable, not a note. When the card fronts a fresh purchase the money is
+ * ours until the carrier settles, and canon's *initiated is not completed* rule
+ * applies: a claim is never recorded as recovered until it actually is.
+ */
+export type RefundClaim = {
+  id: string;
+  originalTicket: string;
+  carrier: string;
+  memberId: string;
+  amountExpected: import('@/server/suppliers/types').Money;
+  amountRecovered: import('@/server/suppliers/types').Money;
+  status: RefundClaimStatus;
+  filedAt: number;
+  settledAt: number | null;
+  /**
+   * Populated on denial. We already computed the entitlement, so we can hand the
+   * back office a contestable case rather than a bare rejection to read from
+   * scratch.
+   */
+  contest: { owed: import('@/server/suppliers/types').Money; basis: string } | null;
+};
+
 export type PastFlight = {
   id: string; code: string; from: string; to: string;
   dep: string; arr: string; dur: string; date: string;

@@ -252,7 +252,7 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
                 because the cost of waiting is not the same on every flight.
               </p>
               <div className="kv"><span className="k">Start preparing at</span><span className="v">{fc.thresholds.prepare}%</span></div>
-              <div className="kv"><span className="k">Consider holding a seat at</span><span className="v">{fc.thresholds.holdGate}%</span></div>
+              <div className="kv"><span className="k">Keep a backup plan current at</span><span className="v">{fc.thresholds.holdGate}%</span></div>
               <div className="kv"><span className="k">Come and ask you at</span><span className="v">{fc.thresholds.preAuthorise}%</span></div>
               <div className="kv"><span className="k">Seats we can see on this route</span><span className="v">{fc.thresholds.inputs.seatsAvailable}</span></div>
             </div>

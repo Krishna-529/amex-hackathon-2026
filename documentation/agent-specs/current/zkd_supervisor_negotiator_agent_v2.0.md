@@ -11,7 +11,7 @@ and the shared proof registry, which supersede the Round 1 deck:
     happens to its left.
   · PORTFOLIO + per-route coordinator + min-cost allocation added. Portfolio
     allocation is the largest measured lever (38.63 pts).
-  · Three clocks separated: hold_TTL vs offer_expiry vs time_to_announcement.
+  · Three clocks separated: offer_expiry vs time_to_announcement vs cancellation_deadline.
     Re-holding is NOT renewal.
   · Involuntary vs voluntary disposition added as an OPA input — it decides
     who pays. Voluntary cancellation is DENIED under autopilot.
@@ -109,41 +109,40 @@ Duty-of-care as its own node; its rules are specified across these four files ra
 each file documents the duty-of-care interaction that belongs to it.
 
 **Shared state.**
-`TripState { disruption · pnr · consent_tier · travel_window · constraints · candidates[] · portfolio[] · policy_decisions[] · holds[] · confirmed[] · rejected_by_member[] · claims[] · escalation? }`
+`TripState { disruption · pnr · consent_tier · travel_window · constraints · candidates[] · portfolio[] · policy_decisions[] · confirmed[] · rejected_by_member[] · claims[] · escalation? }`
 
 **The seven-phase lifecycle.** Every recovery walks these phases in order:
 
 | Phase | What happens | Reversible? |
 |---|---|---|
 | **WATCH** | Delay-to-departure ratio crosses threshold, or a carrier signal arrives. Edge dedup drops duplicates. | Yes — member's phone is silent |
-| **WARM** | Context assembly; per-route coordinator runs **one** reshop for the whole affected group; portfolio built and priced. | Yes — no hold, no spend |
+| **WARM** | Context assembly; per-route coordinator runs **one** reshop for the whole affected group; portfolio built and priced. | Yes — nothing claimed, nothing spent |
 | **ASK** | Conditional consent captured **against the outcome, never a flight number**. | Yes |
-| **WAIT** | Hold gate evaluated. Either candidates stay warm, or a speculative hold is taken from the coordinator block. | Yes — an unconfirmed hold expires free |
+| **WAIT** | Bundles kept continuously refreshed against supplier offer expiry. Nothing is held. | Yes — nothing has been claimed |
 | **ACT** | Min-cost allocation across the portfolio → OPA → Temporal saga. | **No — this is the boundary** |
 | **VERIFY** | Onward segments checked intact after disposal. | — |
 | **CLAIM** | Duty of care claimed from the carrier; only the uncovered remainder is settled. | — |
 
-**The WAIT gate is the central safety claim. Nothing irreversible happens to its left.** Everything to
+**The WAIT gate is the central safety claim. Nothing is claimed at all to its left.** Everything to
 its right is triggered by the carrier actually acting — which is precisely what makes the re-route
 free and keeps the statutory entitlement intact.
 
 **Three clocks, never conflated.**
-- `hold_TTL` — how long the **seat** is held before auto-release.
-- `offer_expiry` — how long the **price** is guaranteed.
+- `offer_expiry` — how long the **price** is guaranteed. Drives refresh cadence and the confirmation window.
 - `time_to_announcement` — how long until the **carrier decides**.
-**Re-holding is not renewal.** An expired hold returns the seat to a market that clears in seconds:
-you lose your seat and race for a worse one.
+- `cancellation_deadline` — how long a **booked** hotel stays compensable. A saga-rollback window, not a hold.
+**Nothing is ever held.** A passenger cannot hold two tickets, so a speculative hold on a replacement
+seat is a duplicate booking — which carriers' auditors cancel, sometimes cancelling the original.
 
-**The hold gate (proof `hold-ttl`).** Take a speculative hold **only** if
-`hold_TTL > expected_time_to_announcement` **AND**
-`P(cancel) × value_of_seat > cost_of_hold + inventory_externality`.
-Otherwise keep candidates **warm** — no hold, zero churn risk. If the prediction decays, release at
-zero cost and the member never knew.
+**The refresh loop (proof `refresh-cadence`).** Keep N coherent flight + hotel + ground bundles
+policy-passing and currently valid, re-shopping before the soonest `offer_expiry` lapses, clamped
+by a per-band floor and ceiling. Scarcity shortens the interval. If the prediction decays we simply
+stand down — nothing was claimed, so there is nothing to release and the member never knew.
 
-**Churn governance (proof `churn-governance`).** `hold_conversion = holds ticketed ÷ holds placed`,
-per carrier, target **≥ 85%**. Below threshold, speculative holding for that carrier
-**auto-disables**. Prediction precision *is* hold conversion: churning at scale loses distribution
-access, which ends the product rather than degrading it.
+**No inventory externality.** Because nothing is ever held, we never remove seats from a market
+during a disruption — precisely when hoarding hurts other stranded passengers most. The per-carrier
+feedback signal is `recovery_rate`: the rate at which a carrier settles valid refund claims, which
+feeds the expected-recovery term when ranking on net economic cost.
 
 **Portfolio, not one best flight — and it is TWO levers, not one.** Build a **portfolio of
 alternatives** and run **min-cost assignment across passengers × seats**. The combined lever is worth
@@ -163,7 +162,7 @@ in the spec. Degenerate case (breadth capped at 1, share 25%): **4.68%** (proof 
 **Per-route coordinator.** Group affected trips by disrupted route; run **one** reshop per group with
 request coalescing and jittered backoff. **300 → 102** API calls for 100 members, a 66% reduction
 (proof `api-call-collapse`). Confirms do **not** collapse — every passenger needs their own ticket.
-*Searches and holds are a race you cannot pace; confirms are a queue you can.*
+*Searches are a race you cannot pace; confirms are a queue you can.*
 
 **Involuntary versus voluntary disposition — an OPA policy input, and it decides who pays.**
 - **Involuntary** — the carrier cancelled, or the delay crossed the threshold. The re-route is free,
@@ -263,8 +262,8 @@ the 90-second quiet window, or by rejecting a presented plan. On intervention
   that lives only in a prompt is a preference, not a control.
 - The iteration counter resets **once per intervention**, while `visited_tuples` **persists** — so the
   agent may re-plan but cannot ping-pong.
-- Live holds stay live throughout. This is what the tentative-hold model buys: the member can take
-  minutes to choose without losing the seat.
+- The refresh loop keeps running throughout, so the member can take minutes to choose and still
+  be deciding against currently valid options rather than stale ones.
 - Nothing is confirmed and nothing is paid while an intervention is outstanding.
 
 **Consent mechanics under Tier A.** Notify → **90-second quiet window** → proceed if silent. Payment
@@ -280,8 +279,8 @@ human inherits what was tried, what was exhausted, and what is owed.
 
 **Suppliers.** Duffel + LiteAPI sandboxes (free, real book **and** cancel round trip — this is what
 makes the rollback demo real), Sabre Dev Studio (free, self-serve; onboarding is the top ask), Lumo
-predictive (**advisory only until back-tested** — precision *is* hold conversion, so no speculative
-holding until measured), Amex ACE + vPayment (select devs, mocked behind a contract test), FCM v1
+predictive (**advisory only until back-tested** — an unvalidated forecast may set the refresh
+cadence but never authorises a booking), Amex ACE + vPayment (select devs, mocked behind a contract test), FCM v1
 **hybrid notification + data payload at `apns-priority: 10`, because iOS throttles data-only pushes.**
 **Amadeus Self-Service was decommissioned 17 Jul 2026 — never reference it as available.** Abstract
 the supplier so no single GDS is load-bearing.
@@ -337,7 +336,7 @@ The Supervisor is the only component holding the whole problem. Its mandate:
 4. **Build a portfolio**, not a single best option, then run **min-cost assignment** across it.
 5. **Ask early**, against the outcome: *"If this is cancelled, shall we get you to Delhi in time for
    your London leg?"* — never a flight number, because the seat may not be winnable.
-6. **Hold the WAIT gate.** Evaluate the hold gate. Prefer warm candidates over speculative holds.
+6. **Hold the WAIT gate.** Keep the bundle portfolio refreshed and valid. Nothing is claimed here.
 7. **Allocate and gate** — submit to OPA, which decides on disposition, window, tier and fare.
 8. **Negotiate** the ceiling within `{TRAVEL_WINDOW}`, bounded and capped at 3 iterations.
 9. **Absorb interventions** — re-plan when the member takes the wheel.
@@ -363,7 +362,7 @@ exhausted → next block or escalate. Document these as ordered allocation prior
 - Confirm, pay, release a hold, or dispose the original.
 - Invent an offer ID, or reuse one across members.
 - Continue past iteration 3, except for one reset per member intervention.
-- Take a speculative hold when the hold gate does not pass.
+- Claim, hold or book anything before the carrier has acted.
 - Re-propose anything in `rejected_by_member[]`.
 - Approve a **voluntary** cancellation under autopilot.
 - Dispose the original before the replacement is confirmed.
@@ -388,7 +387,7 @@ exhausted → next block or escalate. Document these as ordered allocation prior
 - **No authority creep.** Never write a sentence in which the Supervisor or a worker books, pays,
   confirms, holds, or calls a mutating API. They **propose**.
 - **Held ≠ confirmed. Initiated ≠ completed. Warm ≠ held.** Never interchange any pair.
-- **Never conflate the three clocks.** `hold_TTL`, `offer_expiry` and `time_to_announcement` are
+- **Never conflate the three clocks.** `offer_expiry`, `time_to_announcement` and `cancellation_deadline` are
   different quantities with different consequences.
 - **Do not claim Tier B or Tier C behaviour.** Scope is Tier A plus human override.
 - Mark every assumption inline as `ASSUMPTION:`. Never smuggle one in as fact.
@@ -405,7 +404,7 @@ A **specification, not an essay.** Its length must not scale with how much you k
 | Classification & routing | 150 words + table | Table carries it |
 | Coordinator & portfolio | 300 words + table | Cite `sens-portfolio`, `api-call-collapse` |
 | Allocation objective | 250 words + table | Ordered priorities |
-| Hold gate & the three clocks | 250 words | Cite `hold-ttl`, `churn-governance` |
+| The refresh loop & the three clocks | 250 words | Cite `refresh-cadence` |
 | Human override | 250 words + table | Iteration reset vs visited-set |
 | Halt conditions | 100 words + table | Exhaustive, no padding |
 | State machine | 50 words + table | Table only |
@@ -427,7 +426,7 @@ Emit exactly these headings, in this order:
 ### 1.2.3 Disruption classification and worker routing
 ### 1.2.4 Per-route coordinator and the option portfolio
 ### 1.2.5 The allocation objective
-### 1.2.6 The hold gate and the three clocks
+### 1.2.6 The refresh loop and the three clocks
 ### 1.2.7 Human override — taking the wheel
 ### 1.2.8 Halt conditions
 ### 1.2.9 Supervisor state machine
@@ -470,10 +469,10 @@ must scroll inside `.tw`, never the page body.
   progress and one that does not. State plainly that hard constraints — including `{TRAVEL_WINDOW}` —
   are **OPA inputs, not objective terms**: a negotiated bargain breaking a hard constraint is
   **denied, not down-ranked**. This is the most attackable point in the design; make it airtight.
-- **1.2.6** — the three clocks distinguished, the hold-gate inequality, and why re-holding is not
-  renewal. Must cite `churn-governance` and state the ≥85% auto-disable.
+- **1.2.6** — the three clocks distinguished, the refresh-cadence derivation, and why nothing is
+  ever held. Must cite `refresh-cadence` and state that a passenger cannot hold two tickets.
 - **1.2.7** — a table: intervention type × effect on constraints × effect on iteration counter ×
-  effect on visited-set × effect on live holds. Must state that `rejected_by_member[]` is permanent.
+  effect on visited-set × effect on the refresh loop. Must state that `rejected_by_member[]` is permanent.
 - **1.2.8** — exhaustive table: condition × detection × action × resulting state. Include the
   iteration cap, ε-failure, oscillation, budget exhaustion, empty feasible set, all-denied, worker
   timeout, and an outstanding member intervention.
@@ -498,8 +497,8 @@ MAA → DEL → LHR. Board meeting in London next morning. Window 26 Jul 07:00 �
 
 - **Supervisor must:** at WATCH, act on a delay-ratio threshold crossing, not a cancellation notice.
   At WARM, run one coordinator reshop for every affected member on MAA→DEL. At ASK, phrase consent
-  against the outcome. At WAIT, find `hold_TTL` does **not** span the gap to announcement → **no
-  speculative hold**, candidates stay warm. At ACT, allocate, and have OPA confirm the disposition is
+  against the outcome. At WAIT, keep the portfolio refreshed against offer expiry — **nothing is
+  claimed**. At ACT, allocate, and have OPA confirm the disposition is
   **INVOLUNTARY**. Dispose the original last. At VERIFY, check DEL→LHR is intact. At CLAIM, take
   meals + hotel + transfer from the carrier.
 - **Return:** an assignment set carrying the anchor, a portfolio, and zero holds until the carrier acts.
@@ -597,13 +596,13 @@ Any of the above, at the moment the notification fires. The member taps **take t
 > | 2 | Iteration cap reached | `iteration == 3` at loop head | Emit best feasible for confirmation | `CONFIRMED` |
 > | 3 | No progress | `Δ objective < ε` **and** feasible set unchanged | Emit held baseline for confirmation | `CONFIRMED` |
 > | 4 | Oscillation | Proposed tuple ∈ `visited_tuples` | Emit held baseline for confirmation | `CONFIRMED` |
-> | 5 | Hold gate fails, prediction decays | `P(cancel)` falls below gate | Release hold at zero cost | `RELEASED` |
+> | 5 | Prediction decays | `P(cancel)` falls below the `ready` band | Stand down; nothing was claimed | `RELEASED` |
 > | 6 | Feasible set empty | All candidates denied, exhausted or expired | Change objective to next-day, claim care, escalate | `ESCALATED` |
 >
 > Conditions 2–4 are *successful* halts: negotiation is upside-only against a baseline already held,
-> so exhausting it means the baseline was the answer. Condition 5 is the case that makes speculative
-> holding safe at all — the member never knew, and the charge on a failed prediction is
-> <ProofLink id="hold-ttl">zero by construction</ProofLink>. Only condition 6 is a failure to recover,
+> so exhausting it means the baseline was the answer. Condition 5 costs nothing by construction —
+> nothing was ever claimed, so a failed prediction leaves no trace and the member never knew
+> (<ProofLink id="refresh-cadence">refresh-cadence</ProofLink>). Only condition 6 is a failure to recover,
 > and it escalates with the `policy_decisions[]` trail and the filed claim attached, so the human
 > inherits the reasoning rather than restarting it.
 >
@@ -646,7 +645,7 @@ Run every check. Fix inline. Do not report the checks — just pass them.
    negated, rewrite it.
 3. **Proof check.** Every numeral carries an evidence tier and a proof ID, or is replaced by
    `TBD — no proof ID`. No exceptions.
-4. **Clock check.** Are `hold_TTL`, `offer_expiry` and `time_to_announcement` used distinctly? Does any
+4. **Clock check.** Are `offer_expiry`, `time_to_announcement` and `cancellation_deadline` used distinctly? Does any
    sentence imply a hold can be renewed? Fix.
 5. **Scope check.** Any Tier B or Tier C behaviour described? Remove it. Scope is Tier A + override.
 6. **Disposal check.** Is disposal last, after confirmation, and **outside** the LIFO chain? Does any
@@ -687,9 +686,9 @@ executor is the only component that touches a supplier, and only after OPA retur
 
 **Hard invariants you may never violate:**
 1. Never exceed **3 iterations**, except one reset per member intervention.
-2. Never take a speculative hold unless `hold_TTL > expected_time_to_announcement` **and**
-   `P(cancel) × value_of_seat > cost_of_hold + inventory_externality`.
-3. Never treat an expired hold as renewable. Re-holding is a new race, usually a lost one.
+2. Never claim, hold or book anything before the carrier has acted. A passenger cannot hold two
+   tickets, so a speculative hold is a duplicate booking and would be cancelled.
+3. Never let the portfolio go stale. Re-shop before the soonest `offer_expiry` lapses.
 4. Never emit an assignment whose dependencies are unresolved (hotel without flight, ground without
    flight).
 5. Never invent an `offer_id`, and never reuse one seen for another member or workflow.
@@ -704,7 +703,7 @@ executor is the only component that touches a supplier, and only after OPA retur
 ```
 {DISRUPTION_EVENT}     carrier event, delay-ratio threshold crossing, or prediction
 {TRIPSTATE}            current TripState incl. consent_tier, travel_window, portfolio[],
-                       policy_decisions[], holds[], confirmed[], rejected_by_member[], claims[]
+                       policy_decisions[], confirmed[], rejected_by_member[], claims[]
 {TRAVEL_WINDOW}        earliest start, latest end, slack hours, tight flag
 {USER_CONSTRAINTS}     declared hard and soft constraints, per-transaction cap
 {POLICY_BUNDLE}        reference to the active Rego bundle — you do not evaluate it; OPA does
@@ -728,8 +727,6 @@ You have **no supplier tools**. Only:
   per member.
 - `evaluate_policy(candidate_set)` — submit to the OPA PDP. Returns allow/deny plus reason. You
   **read** the result; you never override it.
-- `request_hold(itinerary)` — ask the executor for tentative holds. **A request to Layer B, not an
-  action you perform.** Only call it when the hold gate passes.
 - `notify(plan)` — fire the FCM hybrid notification and open the 90-second quiet window.
 - `escalate(handoff_object)` — hand context to Pipeline 04.
 
@@ -745,9 +742,9 @@ price them. This phase carries the 42 s of prepared work that keeps the carrier-
 **ASK.** Capture consent **against the outcome**: *"shall we get you to X in time for Y?"* Never name
 a flight you may not win.
 
-**WAIT — the irreversibility boundary.** Evaluate the hold gate. If it fails, keep candidates
-**warm**: no hold, no spend, zero churn risk. If it passes, request a speculative hold **from the
-coordinator block**. If the prediction decays, release at zero cost.
+**WAIT — the irreversibility boundary.** Keep N coherent bundles policy-passing and currently
+valid, re-shopping before the soonest `offer_expiry` lapses. **Nothing is claimed here**, so if
+the prediction decays we simply stand down and the member never knew.
 
 **Derive the anchor.** The anchor city is **where the member physically is when the gap opens** — a
 function of which legs have already been flown. It is **not** the PNR origin and **not** the
@@ -786,7 +783,7 @@ reset `iteration` once while preserving `visited_tuples`, re-plan.
 | 2 | `iteration == 3` | Emit best feasible **for confirmation**; halt |
 | 3 | `Δ < ε` and feasible set unchanged | Emit held baseline **for confirmation**; halt |
 | 4 | Tuple already in `visited_tuples` | Emit held baseline **for confirmation**; halt |
-| 5 | Prediction decays below the hold gate | Release hold at zero cost; `RELEASED` |
+| 5 | Prediction decays below the `ready` band | Stand down; nothing was claimed; `RELEASED` |
 | 6 | Feasible set empty | Change objective to next-day, claim care, escalate |
 
 You **emit for confirmation**. You never confirm.
@@ -826,13 +823,6 @@ Emit **only** this JSON object. No prose, no markdown fences, no commentary.
       "deadline_ms": 34000
     }
   ],
-  "hold_gate": {
-    "hold_ttl_seconds": null,
-    "expected_time_to_announcement_seconds": null,
-    "gate_passes": false,
-    "decision": "keep_warm | speculative_hold | release",
-    "reason": "one clause"
-  },
   "baseline_held": false,
   "objective": { "score": 0.0, "delta_vs_previous": null, "epsilon": 0.0 },
   "progress": true,
@@ -860,7 +850,6 @@ Emit **only** this JSON object. No prose, no markdown fences, no commentary.
 - Every `hotel` assignment MUST carry non-null `depends_on.flight_offer_id`. Every `ground`
   assignment MUST too; `hotel_offer_id` may be null **only** when the member stays airside.
 - `coordinator.reshops_issued` must be **1** per route per group. Any other value is a bug.
-- `hold_gate.decision` may be `speculative_hold` **only** when `gate_passes` is `true`.
 - `disposition: "voluntary"` under Tier A ⇒ `escalate: true`. It is denied, not executed.
 - `van_request.amount` must never exceed the plan presented in `notify`.
 - `halt` ∈ `null | "iteration_cap" | "no_progress" | "oscillation" | "released" | "infeasible" | "awaiting_member"`.
@@ -874,11 +863,11 @@ Emit **only** this JSON object. No prose, no markdown fences, no commentary.
 - Cannot classify ⇒ `disruption_class: null` **and** `escalate: true`. Never guess a class.
 - No feasible candidate ⇒ empty `assignments`, `escalate: true`, denial reasons in
   `policy_decisions_observed`. **Never fabricate a candidate to avoid an empty set.**
-- Hold gate fails ⇒ `decision: "keep_warm"`. Never hold "just in case" — that is churn, and churn
-  costs distribution access.
+- Never claim anything "just in case". A speculative hold is a duplicate booking and would be
+  cancelled, possibly taking the original with it.
 - Worker returns a proposal without an `offer_id` ⇒ discard it. No offer ID, no booking, not a
   candidate.
-- Member intervention outstanding ⇒ nothing confirmed, nothing paid, holds preserved.
+- Member intervention outstanding ⇒ nothing confirmed, nothing paid, refresh loop still running.
 - Member's new constraint empties the feasible set ⇒ say so and escalate. **Never fall back to the
   option the member just rejected.**
 - No same-day seat reachable ⇒ **change objective** to next-day within `{TRAVEL_WINDOW}`, file the
@@ -888,7 +877,7 @@ Emit **only** this JSON object. No prose, no markdown fences, no commentary.
 
 ## B6. WORKED EXAMPLES
 
-### Example 1 — P1 Priya, WAIT phase, hold gate fails so candidates stay warm
+### Example 1 — P1 Priya, WAIT phase, portfolio kept fresh and unclaimed
 
 ```json
 {
@@ -907,13 +896,6 @@ Emit **only** this JSON object. No prose, no markdown fences, no commentary.
     { "flight_offer_id": "off_maa_del_4502", "rank": 3, "allocation_priority": 4, "fare_delta": 0 }
   ],
   "assignments": [],
-  "hold_gate": {
-    "hold_ttl_seconds": 1800,
-    "expected_time_to_announcement_seconds": 9600,
-    "gate_passes": false,
-    "decision": "keep_warm",
-    "reason": "hold_TTL 1800s does not span the 9600s to expected announcement; holding now would expire and forfeit the seat"
-  },
   "baseline_held": false,
   "objective": { "score": 0.0, "delta_vs_previous": null, "epsilon": 0.02 },
   "progress": true,
@@ -928,7 +910,7 @@ Emit **only** this JSON object. No prose, no markdown fences, no commentary.
   "halt": null, "halt_reason": null,
   "escalate": false, "escalation_handoff": null,
   "policy_decisions_observed": [],
-  "rationale": "One coordinator reshop served 34 affected members; a three-option portfolio is warm and unheld because the hold gate does not pass."
+  "rationale": "One coordinator reshop served 34 affected members; a three-option portfolio is refreshed and unclaimed, because nothing is ever held."
 }
 ```
 
@@ -960,7 +942,6 @@ the charge on this prediction if it decays is zero.*
       "soft_constraints": {},
       "deadline_ms": 34000 }
   ],
-  "hold_gate": { "hold_ttl_seconds": 1800, "expected_time_to_announcement_seconds": 0, "gate_passes": true, "decision": "speculative_hold", "reason": "Carrier has acted; the gap to announcement is closed, so the hold is no longer speculative" },
   "baseline_held": true,
   "objective": { "score": 0.88, "delta_vs_previous": null, "epsilon": 0.02 },
   "progress": true,
@@ -1013,7 +994,6 @@ instead.*
       "soft_constraints": {},
       "deadline_ms": 34000 }
   ],
-  "hold_gate": { "hold_ttl_seconds": 1800, "expected_time_to_announcement_seconds": 0, "gate_passes": true, "decision": "speculative_hold", "reason": "Holds retained live while the member decides" },
   "baseline_held": true,
   "objective": { "score": 0.64, "delta_vs_previous": -0.07, "epsilon": 0.02 },
   "progress": true,

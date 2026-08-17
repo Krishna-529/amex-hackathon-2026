@@ -10,11 +10,14 @@
 > supplier calls**, so there is no 3-fan-out latency to bound in the first place.
 >
 > One consequence is easy to miss: Part 2's safety argument, *"the traveller can never end
-> worse off: the fallback is already held"*, **does not hold under v2.0**. v2.0's hold gate
-> is conditional (`hold_TTL > expected_time_to_announcement` AND the value test), so the
-> common case is *no hold at all* — candidates stay warm. Escalation therefore reads
-> "confirm the held baseline **where one exists**". Do not repeat the unconditional version
-> on stage.
+> worse off: the fallback is already held"*, **is no longer true in any case**. As of
+> 17 Aug 2026 nothing is ever held: a passenger cannot hold two flight tickets, so a
+> speculative hold on a replacement seat is a duplicate booking that carriers cancel.
+> The portfolio is kept *fresh* rather than *held*, and escalation reads "confirm the
+> best currently valid bundle". Do not repeat the held-fallback version on stage.
+>
+> The same change retires the `hold-ttl` and `churn-governance` proofs and the adaptive-SLA
+> framing below, which was built on a held baseline. `refresh-cadence` replaces them.
 
 ## Context
 
@@ -54,7 +57,7 @@ cross-supplier negotiation, ranking, explanation.
 - MCP tool clients in this layer are **read-only** — search, reshop, price. This clause is what
   makes slide 5's "one edge that deliberately does not exist" survive scrutiny (finding 4).
 - Shared state: `TripState { disruption · pnr · consent_tier · constraints · candidates[] ·
-  policy_decisions[] · holds[] · confirmed[] · escalation? }`
+  policy_decisions[] · confirmed[] · escalation? }`
 
 ### Layer B — Durable Execution (Temporal.io)
 Sole owner of side effects. Everything that touches inventory or money.

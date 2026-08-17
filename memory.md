@@ -2,6 +2,104 @@
 
 ## Recent work
 
+- 2026-08-17 — **Merged all three parallel Aug-17 branches into one working tree**
+  (`feature/cancellation-prediction-and-caching`, `feature/autonomous-rebooking-pipeline`,
+  `no-holds-refresh-reissue`) — not a mechanical `git merge`: all three had independently rewritten
+  overlapping parts of the same engine from the same Aug-13 base, and a plain merge left real
+  conflicts, one silent regression, and one duplicate object key.
+  - **The load-bearing fix**: Zayaan's branch deleted `server/engine/simulation.ts` and the entire
+    `/api/disruptions/*` route tree (migrating the store to Postgres) without a replacement, which
+    would have shipped with no way to trigger or recover from a disruption at all. Krishna's pipeline
+    branch has the real state machine (search → score → hold → consent-gated execute) but predates
+    the Postgres migration. Kept Krishna's logic and converted every `store.*` call site to the
+    async/Postgres API: `simulation.ts`, `pipeline/index.ts`, `pipeline/journal.ts`'s `mirrorToTask`
+    (made fire-and-forget rather than cascading `async` through the saga's 17+ synchronous
+    `journal.append`/`transition` call sites — it only mirrors step progress onto
+    `RecoveryTask.shown` for display, not pipeline decision state). Restored
+    `/api/disruptions/*`, `/api/pipeline/*`, and `/recovery/[id]` from Krishna's branch and
+    re-exported `RecoveryView` from `lib/apiTypes.ts`, which had silently lost it.
+  - **`altsCache.ts`**: kept Krishna's version over Zayaan's — his fixes a real live bug (a
+    wholesale-replace refresh could null out `owedNow` under an open consent window) and adds an
+    adaptive refresh interval via `server/governor.ts`; Zayaan's was a simpler config-driven TTL.
+    Added Zayaan's `await store.createFlight(flight)` write-back, since the cache mutates a
+    Postgres-backed object in place.
+  - **Band naming**: `no-holds-refresh-reissue` renamed `lib/thresholds.ts`'s `holdGate` band to
+    `ready`; Zayaan's branch (already merged first) had independently rewritten the same logic into
+    `server/engine/thresholds.ts` under the original `hold-gate` name. Kept `hold-gate` as canonical
+    (already wired end to end) and fixed the `ready`-named references that came in from
+    `refreshCadence.ts` and its tests instead of porting the rename.
+  - **`server/engine/forecast.ts`**: merge produced a literal object with `partySize` set twice (a
+    stale hardcoded `partySize: 1` from before, and the real threaded value) — not a git conflict,
+    since both edits landed on different lines. Kept the real one.
+  - **Suppliers**: `server/suppliers/index.ts`/`types.ts` now carry both `kiwi`/`skyscanner`/
+    `travelfusion` (pipeline branch) and the write-capable `sandbox` adapter (no-holds branch,
+    `ZKD_SANDBOX=1`-gated) side by side — additive, no real conflict once both were kept.
+  - **Verification**: `npx tsc --noEmit` is clean across the fully merged tree (was the baseline
+    before starting, and the bar throughout). Not run: `npm test`/`vitest` (several test files —
+    e.g. `ttlWiring.test.ts` — still assert against the pre-Postgres synchronous `isAltsStale` API
+    and need updating to `await`; no Postgres instance or Python venv available in this session to
+    exercise the DB or model paths live).
+  - Pushed as `integration/three-way-merge-onto-main` for review — not merged into `main` directly.
+- 2026-08-17 — **Speculative holds removed from the design entirely.** A passenger cannot hold two
+  flight tickets, so a hold on a replacement seat taken *before* the carrier cancels is a duplicate
+  booking that carriers' auditors cancel — sometimes cancelling the original. Most Indian LCCs offer
+  no free hold at all. Applies to flights, hotels and ground alike: **nothing is claimed before the
+  carrier acts.** Replaced by a **refresh loop** that keeps N coherent flight+hotel+ground *bundles*
+  policy-passing and valid, re-shopping before the soonest `offer_expiry` lapses (`refresh-cadence`,
+  derived like the confirmation window and returning which bound was binding).
+  - **Retired proof IDs `hold-ttl` and `churn-governance`**; `refresh-cadence` replaces both, and
+    per-carrier `recovery_rate` (how reliably a carrier settles valid refund claims) replaces
+    `hold_conversion` as the feedback signal that changes behaviour.
+  - **Three clocks are now** `offer_expiry` · `time_to_announcement` · `cancellation_deadline`.
+    `hold_TTL` is deleted; the hotel `cancellation_deadline` is promoted from "a fourth clock" and
+    now matters *more*, since with nothing held it is the only thing making `cancelHotel` possible.
+  - **`iropssim.py` never modelled holds**, so `sens-portfolio` (38.63), `sens-breadth` (26.31),
+    `sens-allocation` and every outcome band are unaffected. Both gates verified green afterwards.
+  - **Honest cost, do not hide it:** nothing is secured, so in a systemic surge we lose seats we
+    would previously have held, and Outcome C (next-day + hotel + duty of care) gets likelier.
+    What it wins is no inventory externality — we never hoard seats during a disruption.
+  - Code: this branch renamed `lib/thresholds.ts` band `holdGate` → `ready`; **not carried into the
+    merge** — `lib/thresholds.ts` is superseded by Zayaan's `server/engine/thresholds.ts` on the
+    branch this merged onto, which already uses `hold-gate` as the canonical band name end to end.
+    The refresh-loop/no-holds *design* decision above stands; only the band-rename mechanics didn't
+    port. `partySize` threaded into `ThresholdInputs`; `scarcityFactor` now works on
+    `seats / partySize` and is **identical at partySize 1**.
+- 2026-08-17 — **Reissue model, sandbox and policy gate implemented.** 79 tests, `tsc --noEmit`
+  clean, `next build` clean, both reproducibility gates green.
+  - `lib/refreshCadence.ts` — derived per-component interval mirroring `confirmWindow.ts`, returning
+    `boundBy: offer-expiry | band-floor | band-ceiling`. Flights refresh on offer expiry (minutes),
+    hotels far slower, ground never (quoted on demand). **Band maxima are tier `assumed`** — set at
+    2× the minimum pending measurement of how fast offers actually die per route.
+  - `server/suppliers/sandbox.ts` — the only write-capable adapter. Inventory is **stateless by
+    construction**: `hash(seed, route, date)` plus an exponential decay curve, so a hot reload or
+    parallel test run cannot make it drift. Refuses a second active coupon for the same
+    `(passenger, date)`, which turns the no-holds constraint into a regression test. Registered in
+    the search union **only under `ZKD_SANDBOX=1`**, so synthetic seats never appear beside real
+    Duffel inventory.
+  - `server/policy/index.ts` — default deny, **twelve** rules (the ten planned plus
+    `incoherent_bundle` and `incomplete_policy_inputs`). Missing carriers or fare rules deny rather
+    than pass. Memo cache stores digest→verdict only, so a count bound is correct and we never walk
+    the object graph at runtime; a data reload flushes it; **a cache hit still emits a ledger entry.**
+  - `lib/ranking.ts` — the trap worth remembering: once Amex fronts, member-visible cost for a fresh
+    purchase is ₹0, so ranking on it would tie with a free reissue and the reversibility tiebreak
+    would pick the *expensive* option. Ranking uses **net economic cost**, consent uses
+    **member-visible cost**, and there is a regression test for the inversion.
+  - `server/ledger/reconciliation.ts` — `RefundClaim`, separate from the decision ledger. A denial
+    raises `ESCALATED_FINANCE` on a back-office queue with a contestable case computed from our own
+    entitlement rules. Sweeps batch **by carrier, not per claim**. `recoveryRate` per carrier is the
+    successor to churn governance and feeds the expected-recovery term in ranking.
+  - `server/domain/outcome.ts` — per-component status with four states; `ROLLED_BACK` and
+    `NOT_ATTEMPTED` deliberately distinct ("your cab was cancelled" vs "we never booked a cab" need
+    different things from the member). The push carries the same split as the screen.
+  - **`opa` is not installed here**, so the Rego/WASM gate canon specifies is implemented in
+    TypeScript, one named pure function per rule for a 1:1 swap later. Deliberately one
+    implementation rather than a Rego copy that can drift.
+  - **Merge note (2026-08-17, this integration):** brought in as available-but-not-yet-wired
+    capabilities alongside Krishna's `autonomous-rebooking-pipeline` and Zayaan's Postgres/risk-model
+    rewrite — this branch's own log already flagged "still to do: wire the engine to these modules,"
+    so nothing here regresses by landing unwired. `server/suppliers/index.ts` and
+    `server/suppliers/types.ts` were reconciled to carry both this branch's `sandbox` adapter/`lane`
+    plumbing and the pipeline branch's `kiwi`/`skyscanner`/`travelfusion` sources together.
 - 2026-08-15 — **VP-readiness pass: fixed real correctness/security bugs, made the demo non-inert,
   added a real accuracy story, real tests/CI, and production-hardening infra — all found by a live
   browser walkthrough + a 48-tool-call audit, all fixed and live-verified, nothing left unresolved

@@ -29,7 +29,7 @@ node; its rules are spread across the four spec files, not a fifth file.
 ```
 TripState {
   disruption · pnr · consent_tier · travel_window · constraints ·
-  candidates[] · portfolio[] · policy_decisions[] · holds[] ·
+  candidates[] · portfolio[] · policy_decisions[] ·
   confirmed[] · rejected_by_member[] · claims[] · escalation?
 }
 ```
@@ -41,9 +41,9 @@ Every recovery walks these phases in order:
 | Phase | What happens | Reversible? |
 |---|---|---|
 | **WATCH** | Delay-to-departure ratio crosses threshold, or a carrier signal arrives. Edge dedup drops duplicates | Yes — member's phone is silent |
-| **WARM** | Context assembly; per-route coordinator runs **one** reshop for the whole affected group; portfolio built and priced | Yes — no hold, no spend |
+| **WARM** | Context assembly; per-route coordinator runs **one** reshop for the whole affected group; portfolio built and priced | Yes — nothing claimed, nothing spent |
 | **ASK** | Conditional consent captured **against the outcome, never a flight number** | Yes |
-| **WAIT** | Hold gate evaluated. Candidates stay warm, or a speculative hold is taken from the coordinator block | Yes — an unconfirmed hold expires free |
+| **WAIT** | Bundles kept continuously refreshed against supplier offer expiry. Nothing is held | Yes — nothing has been claimed |
 | **ACT** | Min-cost allocation across the portfolio → OPA → Temporal saga | **No — this is the boundary** |
 | **VERIFY** | Onward segments checked intact after disposal | — |
 | **CLAIM** | Duty of care claimed from the carrier; only the uncovered remainder is settled | — |
@@ -61,22 +61,27 @@ notification. Modes within Tier A: `zeroCharge` (carrier owes it), `wallet` (set
 
 ## Three clocks — never conflated
 
-- `hold_TTL` — how long the **seat** is held before auto-release.
-- `offer_expiry` — how long the **price** is guaranteed.
+- `offer_expiry` — how long the **price** is guaranteed. Drives refresh cadence and the
+  confirmation window.
 - `time_to_announcement` — how long until the **carrier decides**.
+- `cancellation_deadline` — how long a **booked** hotel stays compensable. A saga-rollback
+  window, not a hold.
 
-**Re-holding is not renewal.** An expired hold returns the seat to a market that clears in seconds.
+**Nothing is ever held.** A passenger cannot hold two tickets, so a speculative hold on a
+replacement seat is a duplicate booking — which carriers' auditors cancel, sometimes
+cancelling the original.
 
-## Hold gate (proof `hold-ttl`)
+## Refresh loop (proof `refresh-cadence`)
 
-Take a speculative hold **only if** `hold_TTL > expected_time_to_announcement` **AND**
-`P(cancel) × value_of_seat > cost_of_hold + inventory_externality`. Otherwise keep candidates **warm** —
-no hold, zero churn risk. The hold remains **tentative throughout** — the member can take minutes to
-choose without losing the seat; nothing is confirmed or paid while an intervention is outstanding.
+Keep N coherent flight + hotel + ground bundles policy-passing and currently valid, re-shopping
+before the soonest `offer_expiry` lapses, clamped by a per-band floor and ceiling. Scarcity
+shortens the interval. The member can take minutes to choose and will still be deciding against
+currently valid options; nothing is confirmed or paid while an intervention is outstanding.
 
-**Churn governance (proof `churn-governance`).** `hold_conversion = holds ticketed ÷ holds placed`
-≥ **85%** per carrier, else speculative holding **auto-disables** for that carrier. Prediction
-precision *is* hold conversion.
+**No inventory externality.** Because nothing is ever held, we never remove seats from a market
+during a disruption — precisely when hoarding hurts other stranded passengers most. The
+per-carrier feedback signal is `recovery_rate`: the rate at which a carrier settles valid
+refund claims, which feeds the expected-recovery term when ranking on net economic cost.
 
 ## Portfolio: two levers, not one
 
@@ -96,7 +101,7 @@ our footprint; allocation is what scales.
 
 Group affected trips by disrupted route; one reshop per group with request coalescing and jittered
 backoff: **300 → 102 API calls for 100 members, −66%** (proof `api-call-collapse`). Confirms do
-**not** collapse — every passenger gets their own ticket. **Searches/holds are a race you cannot
+**not** collapse — every passenger gets their own ticket. **Searches are a race you cannot
 pace; confirms are a queue you can.**
 
 ## Involuntary vs voluntary disposition — an OPA policy input
@@ -173,7 +178,7 @@ Prediction earns its keep by **moving work off the critical path**, not by takin
   **OPA** (first-class `rejected_offer_ids` field with a `deny` rule), not in a prompt.
 - Iteration counter resets **once per intervention**; `visited_tuples` persists (re-plan without
   ping-pong).
-- Live tentative holds stay live throughout.
+- The refresh loop keeps running throughout, so the member decides against valid options.
 
 ## Entitlement (tier `deck` — reconcile before production)
 
