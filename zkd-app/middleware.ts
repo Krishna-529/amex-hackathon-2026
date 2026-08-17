@@ -26,7 +26,10 @@ export function middleware(req: NextRequest) {
  * two that happened to get named here before. Without it, an unauthenticated
  * request for e.g. /fonts/geist.woff2 gets redirected to /login and the
  * browser tries to parse the login page's HTML as a font.
+ *
+ * `$` excludes the root path itself: like the real Amex travel home page,
+ * the flight search is browsable before sign-in.
  */
 export const config = {
-  matcher: ['/((?!api|login|ops|_next|.*\\..*).*)'],
+  matcher: ['/((?!api|login|ops|_next|$|.*\\..*).*)'],
 };

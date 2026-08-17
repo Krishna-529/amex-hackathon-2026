@@ -39,7 +39,7 @@ const WorldCtx = createContext<Ctx | null>(null);
 
 // Pages an anonymous visitor may reach without being bounced to /login.
 // /ops has no account of its own — that is the point of it staying open.
-const PUBLIC_PATHS = new Set(['/login', '/ops']);
+const PUBLIC_PATHS = new Set(['/', '/login', '/ops']);
 
 export function WorldProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

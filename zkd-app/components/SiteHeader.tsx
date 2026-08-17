@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useWorld } from './WorldProvider';
+import AmexHeader from './AmexHeader';
+import { isAmexRoute } from '@/lib/amexRoutes';
 
 const NAV = [
   { href: '/flights', label: 'My flights' },
@@ -14,6 +16,10 @@ const NAV = [
 export default function SiteHeader() {
   const path = usePathname();
   const { status, displayName, signOut } = useWorld();
+
+  if (isAmexRoute(path)) {
+    return <AmexHeader />;
+  }
 
   // Anonymous or unresolved: logo only. No nav, no member identity to show —
   // there is nothing left to impersonate, because there is nothing to show.

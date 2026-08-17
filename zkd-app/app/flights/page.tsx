@@ -34,128 +34,132 @@ export default function FlightsPage() {
     next && !nextDisrupted && passengerId ? `/api/flights/${next.id}/preauth` : null, 5000,
   );
 
-  if (!schedule || !next) return <div className="page-h"><h1>Your flights</h1></div>;
+  if (!schedule || !next) return <div className="amex-page"><div className="amex-container"><div className="page-h"><h1>Your flights</h1></div></div></div>;
 
   const consent = schedule.passenger.consent;
 
   return (
-    <div className="skeleton">
-      <div className="page-h">
-        <h1>Your flights</h1>
-        <p>
-          We watch every booking and act the moment something breaks —{' '}
-          {consent === 'autopilot' ? 'without waking you' : 'then wait for your go-ahead'}.{' '}
-          <Link href="/settings" style={{ color: 'var(--iris)' }}>
-            {consent === 'autopilot' ? 'Autopilot' : 'Ask me first'}
-          </Link>{' '}
-          is the permission you set when you activated your card.
-        </p>
-      </div>
-
-      {/* Before anything breaks: if the forecast has crossed THIS flight's own
-          ask-early threshold, ask. The threshold is not a fixed 80 — it moves with
-          how many seats are left and how close departure is. */}
-      {!nextDisrupted && next.forecast && next.forecast.pct >= next.forecast.thresholds.preAuthorise && (
-        <Link href={`/prepare/${next.id}`} className="g alert warn" style={{ display: 'flex' }}>
-          <span className="ic">!</span>
-          <span className="tx">
-            <span className="tt">
-              {preAuth
-                ? `You've told us what to do if ${next.code} cancels`
-                : `${next.code} looks like it will cancel — risk score ${Math.round(next.forecast.riskScore ?? next.forecast.pct)}/100`}
-            </span>
-            <span className="bd">
-              {preAuth
-                ? 'We act the second it happens. No decision window needed at all.'
-                : "It hasn't been cancelled. Tell us now what you'd want, while you have time to think."}
-            </span>
-          </span>
-          <span className="go">{preAuth ? 'Review →' : 'Decide now →'}</span>
-        </Link>
-      )}
-
-      {nextDisrupted && (
-        <Link href={`/recovery/${next.id}`} className="g alert" style={{ display: 'flex' }}>
-          <span className="ic">!</span>
-          <span className="tx">
-            <span className="tt">{next.code} has been cancelled</span>
-            <span className="bd">
-              {consent === 'autopilot'
-                ? "We're rebooking you now — tap to watch."
-                : 'We need your go-ahead before we book anything.'}
-            </span>
-          </span>
-          <span className="go">Open →</span>
-        </Link>
-      )}
-
-      <div className="sect">Upcoming</div>
-      <div className="g up">
-        <div className="up-list">
-          {upcoming.map((f, i) => {
-            const cancelled = f.disruptionPhase !== 'none';
-            return (
-              <Link
-                key={f.id}
-                href={cancelled ? `/recovery/${f.id}` : `/flights/${f.id}`}
-                className={`uprow ${f.id === activeId ? 'on' : ''}`}
-                onMouseEnter={() => setHoveredId(f.id)}
-                onFocus={() => setHoveredId(f.id)}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div className="meta">
-                    <span className="code">{f.code}</span>
-                    {i === 0 && <span className="tag next">Next</span>}
-                    {f.booking && f.booking.partySize > 1 && (
-                      <span className="tag">{f.booking.partySize} travellers</span>
-                    )}
-                    {cancelled && (
-                      <span className="tag" style={{ color: 'var(--risk)', borderColor: 'rgba(217,97,90,.4)' }}>
-                        Cancelled
-                      </span>
-                    )}
-                    <span className="when">{dayLabel(new Date(f.depISO), new Date())}</span>
-                  </div>
-                  <RouteLine f={f} />
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-
-        <div className="pred" style={{ ['--glow' as string]: activeDisrupted ? GLOW['hold-gate'] : GLOW[active?.forecast?.band ?? 'watch'] }}>
-          <div key={String(active?.id) + String(activeDisrupted)} className="fade">
-            <div className="eyebrow">{active?.from} → {active?.to}</div>
-            {activeDisrupted ? (
-              <>
-                <div className="n dead">✕</div>
-                <div className="lb">Cancelled by the airline</div>
-                <div className="say">We have alternatives ready and are waiting on the go-ahead.</div>
-                {active && <Link className="go" href={`/recovery/${active.id}`} style={{ display: 'block' }}>View recovery →</Link>}
-              </>
-            ) : (
-              <>
-                <div className={`n ${active?.forecast?.tone ?? 'low'}`}>
-                  {active?.forecast ? Math.round(active.forecast.riskScore ?? active.forecast.pct) : '—'}
-                </div>
-                <div className="lb">risk score</div>
-                <div className="say">
-                  {active?.forecast
-                    ? BAND_SAY[active.forecast.band]
-                    : 'Checking this flight against the disruption forecast.'}
-                </div>
-                {active && <Link className="go" href={`/flights/${active.id}`} style={{ display: 'block' }}>View details →</Link>}
-              </>
-            )}
+    <div className="amex-page">
+      <div className="amex-container">
+        <div className="skeleton">
+          <div className="page-h">
+            <h1>Your flights</h1>
+            <p>
+              We watch every booking and act the moment something breaks —{' '}
+              {consent === 'autopilot' ? 'without waking you' : 'then wait for your go-ahead'}.{' '}
+              <Link href="/settings" style={{ color: '#006fcf' }}>
+                {consent === 'autopilot' ? 'Autopilot' : 'Ask me first'}
+              </Link>{' '}
+              is the permission you set when you activated your card.
+            </p>
           </div>
+
+          {/* Before anything breaks: if the forecast has crossed THIS flight's own
+              ask-early threshold, ask. The threshold is not a fixed 80 — it moves with
+              how many seats are left and how close departure is. */}
+          {!nextDisrupted && next.forecast && next.forecast.pct >= next.forecast.thresholds.preAuthorise && (
+            <Link href={`/prepare/${next.id}`} className="g alert warn" style={{ display: 'flex' }}>
+              <span className="ic">!</span>
+              <span className="tx">
+                <span className="tt">
+                  {preAuth
+                    ? `You've told us what to do if ${next.code} cancels`
+                    : `${next.code} looks like it will cancel — risk score ${Math.round(next.forecast.riskScore ?? next.forecast.pct)}/100`}
+                </span>
+                <span className="bd">
+                  {preAuth
+                    ? 'We act the second it happens. No decision window needed at all.'
+                    : "It hasn't been cancelled. Tell us now what you'd want, while you have time to think."}
+                </span>
+              </span>
+              <span className="go">{preAuth ? 'Review →' : 'Decide now →'}</span>
+            </Link>
+          )}
+
+          {nextDisrupted && (
+            <Link href={`/recovery/${next.id}`} className="g alert" style={{ display: 'flex' }}>
+              <span className="ic">!</span>
+              <span className="tx">
+                <span className="tt">{next.code} has been cancelled</span>
+                <span className="bd">
+                  {consent === 'autopilot'
+                    ? "We're rebooking you now — tap to watch."
+                    : 'We need your go-ahead before we book anything.'}
+                </span>
+              </span>
+              <span className="go">Open →</span>
+            </Link>
+          )}
+
+          <div className="sect">Upcoming</div>
+          <div className="g up">
+            <div className="up-list">
+              {upcoming.map((f, i) => {
+                const cancelled = f.disruptionPhase !== 'none';
+                return (
+                  <Link
+                    key={f.id}
+                    href={cancelled ? `/recovery/${f.id}` : `/flights/${f.id}`}
+                    className={`uprow ${f.id === activeId ? 'on' : ''}`}
+                    onMouseEnter={() => setHoveredId(f.id)}
+                    onFocus={() => setHoveredId(f.id)}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div className="meta">
+                        <span className="code">{f.code}</span>
+                        {i === 0 && <span className="tag next">Next</span>}
+                        {f.booking && f.booking.partySize > 1 && (
+                          <span className="tag">{f.booking.partySize} travellers</span>
+                        )}
+                        {cancelled && (
+                          <span className="tag" style={{ color: 'var(--risk)', borderColor: 'rgba(217,97,90,.4)' }}>
+                            Cancelled
+                          </span>
+                        )}
+                        <span className="when">{dayLabel(new Date(f.depISO), new Date())}</span>
+                      </div>
+                      <RouteLine f={f} />
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+
+            <div className="pred" style={{ ['--glow' as string]: activeDisrupted ? GLOW['hold-gate'] : GLOW[active?.forecast?.band ?? 'watch'] }}>
+              <div key={String(active?.id) + String(activeDisrupted)} className="fade">
+                <div className="eyebrow">{active?.from} → {active?.to}</div>
+                {activeDisrupted ? (
+                  <>
+                    <div className="n dead">✕</div>
+                    <div className="lb">Cancelled by the airline</div>
+                    <div className="say">We have alternatives ready and are waiting on the go-ahead.</div>
+                    {active && <Link className="go" href={`/recovery/${active.id}`} style={{ display: 'block' }}>View recovery →</Link>}
+                  </>
+                ) : (
+                  <>
+                    <div className={`n ${active?.forecast?.tone ?? 'low'}`}>
+                      {active?.forecast ? Math.round(active.forecast.riskScore ?? active.forecast.pct) : '—'}
+                    </div>
+                    <div className="lb">risk score</div>
+                    <div className="say">
+                      {active?.forecast
+                        ? BAND_SAY[active.forecast.band]
+                        : 'Checking this flight against the disruption forecast.'}
+                    </div>
+                    {active && <Link className="go" href={`/flights/${active.id}`} style={{ display: 'block' }}>View details →</Link>}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="sect">Recent history</div>
+          <HistoryTable rows={past.slice(0, 4)} />
+          <p style={{ marginTop: 14 }}>
+            <Link href="/history" className="back" style={{ margin: 0 }}>See all {past.length} flights →</Link>
+          </p>
         </div>
       </div>
-
-      <div className="sect">Recent history</div>
-      <HistoryTable rows={past.slice(0, 4)} />
-      <p style={{ marginTop: 14 }}>
-        <Link href="/history" className="back" style={{ margin: 0 }}>See all {past.length} flights →</Link>
-      </p>
     </div>
   );
 }
