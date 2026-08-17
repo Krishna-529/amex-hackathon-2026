@@ -43,10 +43,25 @@
  *    endpoint shape — batching here means widening the datetime range for
  *    one carrier+airport, not joining many flight numbers into one filter.
  *
- * Two calls spent total confirming this (see trialBudget()) — exact
- * DepartureDateTime/ArrivalDateTime format (ISO range? separate params?)
- * is the next thing to confirm with one more real call before wiring this
- * into the live feature-assembly path.
+ * 3. 2026-08-17: RESOLVED, with a real 200. The datetime format is ISO-8601
+ *    INTERVAL notation in a single param — slash-separated, not a From/To
+ *    pair. `DepartureDateTime` accepts `2026-08-24`, `2026-08-01/2026-08-30`,
+ *    `2026-08-24T15:00` or `2026-08-24T15:00/2026-08-24T16:00`. `CodeType` is
+ *    mandatory whenever an airport or carrier is named, and `FlightType` no
+ *    longer defaults to Scheduled in v2 (both per OAG's own v1→v2 migration
+ *    guide). A route query — DepartureAirport + ArrivalAirport + CodeType=IATA
+ *    + DepartureDateTime — returned 10 real BOM→DEL instances with real
+ *    terminals, times, aircraft types and great-circle distances. That is the
+ *    shape flightInstancesByRoute() below sends.
+ *
+ *    The same call also proved the configured PRODUCTION key is not an active
+ *    subscription (real 401) while the TRIAL key answers 200 — which is why
+ *    keyPairFor() now falls back across tiers instead of trusting that a
+ *    configured production key works. See its header.
+ *
+ * flightInstancesBatch() below still throws: its per-flight batching premise
+ * is genuinely unsupported by this endpoint, and it has no caller. Route
+ * search is the query this API actually wants.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -87,10 +102,19 @@ export function trialBudget(): TrialBudget {
   return { remaining, windowExpiresAt, exhausted: remaining <= 0 };
 }
 
-/** Reserves N calls against the trial budget. Throws rather than silently over-spending. */
-function reserveTrialCalls(n: number) {
-  const usingTrial = !!process.env.OAG_FLIGHT_INFO_TRIAL_PRIMARY_KEY && !process.env.OAG_FLIGHT_INFO_PRIMARY_KEY;
-  if (!usingTrial) return; // production key has its own contracted quota, not tracked here
+/**
+ * Records N calls against the trial budget. Throws rather than over-spending.
+ *
+ * Called only once a TRIAL key has actually been used — see callWithKeyRotation.
+ * It used to be called up front and skipped entirely whenever a production key
+ * was present, which was wrong in the exact situation this repo is in: a
+ * production key that is configured but not yet an active subscription. That
+ * combination disabled budget tracking while every real call still came out of
+ * the trial allowance. Production keys have their own contracted quota and are
+ * still not counted here — but now that is decided by which key answered, not
+ * by which key happens to be set.
+ */
+function recordTrialCall(n: number) {
   const s = loadTrialState();
   const now = Date.now();
   const expired = s.firstCallAt && now > s.firstCallAt + TRIAL_WINDOW_DAYS * 24 * 60 * 60 * 1000;
@@ -106,23 +130,62 @@ function reserveTrialCalls(n: number) {
   saveTrialState(next);
 }
 
-type KeyPair = { primary?: string; secondary?: string };
+type Tier = 'prod' | 'trial';
+type SubscriptionKey = { key: string; tier: Tier };
+type KeyPair = SubscriptionKey[];
 
+/**
+ * Every usable key for this product, best first: production primary/secondary,
+ * then the trial pair as a genuine fallback.
+ *
+ * The trial keys used to be reachable ONLY when no production key was set, on
+ * the assumption that a configured production key is a working one. Verified
+ * false here on 2026-08-17: the configured production key returns a real 401
+ * ("invalid subscription key... active subscription") while the trial key
+ * returns a real 200 on the same URL. Under the old logic that combination
+ * made every Flight Info call fail with a working key sitting unused in the
+ * environment. Rotation now walks tiers, so an unapproved production key
+ * degrades to the trial allowance instead of taking the product down.
+ */
 function keyPairFor(product: 'FLIGHT_INFO' | 'FLIGHT_INFO_CONNECTIONS' | 'MASTER_DATA'): KeyPair {
-  const trial = product === 'FLIGHT_INFO';
-  const primary =
-    process.env[`OAG_${product}_PRIMARY_KEY`] || (trial ? process.env.OAG_FLIGHT_INFO_TRIAL_PRIMARY_KEY : undefined);
-  const secondary =
-    process.env[`OAG_${product}_SECONDARY_KEY`] ||
-    (trial ? process.env.OAG_FLIGHT_INFO_TRIAL_SECONDARY_KEY : undefined);
-  return { primary, secondary };
+  const out: KeyPair = [];
+  const push = (key: string | undefined, tier: Tier) => {
+    if (key) out.push({ key, tier });
+  };
+  push(process.env[`OAG_${product}_PRIMARY_KEY`], 'prod');
+  push(process.env[`OAG_${product}_SECONDARY_KEY`], 'prod');
+  if (product === 'FLIGHT_INFO') {
+    push(process.env.OAG_FLIGHT_INFO_TRIAL_PRIMARY_KEY, 'trial');
+    push(process.env.OAG_FLIGHT_INFO_TRIAL_SECONDARY_KEY, 'trial');
+  }
+  return out;
 }
 
+/**
+ * Tries each key in turn, rotating only on the statuses that mean "this key",
+ * never on a real error — masking a 400 by retrying it with another key is how
+ * a malformed query burns the whole allowance.
+ *
+ * A trial key is charged against the local budget the moment it is used, hit or
+ * miss: OAG counts a rejected request the same way we do. The budget is checked
+ * BEFORE spending, so an exhausted allowance refuses rather than degrading to a
+ * guess — but only when the remaining candidates are all trial keys.
+ */
 async function callWithKeyRotation(url: string, pair: KeyPair): Promise<Response> {
-  if (!pair.primary && !pair.secondary) throw new Error('no OAG subscription key configured for this product');
-  const keys = [pair.primary, pair.secondary].filter((k): k is string => !!k);
+  if (pair.length === 0) throw new Error('no OAG subscription key configured for this product');
   let last: Response | null = null;
-  for (const key of keys) {
+  for (const { key, tier } of pair) {
+    if (tier === 'trial') {
+      const budget = trialBudget();
+      if (budget.exhausted) {
+        if (last) return last;
+        throw new Error(
+          `OAG trial budget exhausted: ${TRIAL_CALL_CAP}/${TRIAL_CALL_CAP} calls used this 14-day window. ` +
+            `Refusing to spend more rather than degrade to a guess.`,
+        );
+      }
+      recordTrialCall(1);
+    }
     const res = await fetch(url, { headers: { 'Subscription-Key': key }, cache: 'no-store', signal: AbortSignal.timeout(10000) });
     if (res.ok) return res;
     if (![401, 403, 429].includes(res.status)) return res; // real error — don't mask it by rotating
@@ -133,13 +196,24 @@ async function callWithKeyRotation(url: string, pair: KeyPair): Promise<Response
 
 export type OagFlightInstance = {
   carrierIata: string;
+  /** always a string here; v2 sends it as a number */
   flightNumber: string;
+  /** LOCAL departure date, YYYY-MM-DD — what a member would call "the date" */
   departureDate: string;
   origin: string;
   destination: string;
-  /** OAG's own status text, e.g. "Cancelled", "Scheduled", "Departed" */
+  departureTerminal: string | null;
+  arrivalTerminal: string | null;
+  /** OAG's own status text, e.g. "Cancelled", "Scheduled", "Departed".
+   *  Null on a pure schedules query, which does not carry status at all. */
   status: string | null;
   scheduledDepartureUtc: string | null;
+  scheduledArrivalUtc: string | null;
+  /** clock face at the airport, for display — never for comparison */
+  localDepartureTime: string | null;
+  localArrivalTime: string | null;
+  /** block time in minutes, straight from OAG */
+  elapsedTimeMin: number | null;
   estimatedDepartureUtc: string | null;
   actualDepartureUtc: string | null;
   aircraftType: string | null;
@@ -175,30 +249,187 @@ export async function flightInstancesBatch(
   );
 }
 
+/**
+ * Deliberately NOT under server/.state/ (which is gitignored): these are
+ * recorded real responses, and their whole point is that a teammate with no
+ * OAG key — or a rehearsal that must not touch the 100-call allowance — can
+ * still run the search. Committed fixtures make OAG_REPLAY=1 work on a fresh
+ * clone.
+ */
+const FIXTURE_DIR = join(process.cwd(), 'server', 'oag-fixtures');
+
+/**
+ * Real flights on a route and date — the search behind the booking form.
+ *
+ * ── Why this exists next to the throwing flightInstancesBatch ──────────────
+ *
+ * That function was written against a `FlightIdentities` list the endpoint does
+ * not support. The real filter shape, confirmed by OAG's own 400 and then by
+ * their v1→v2 migration guide, is carrier and/or airports + a datetime, with a
+ * mandatory `CodeType`. That is awkward for "re-check these 40 known flights"
+ * but it is exactly the shape of "what flies BOM→GOI on the 23rd", so a route
+ * search is the query this endpoint actually wants.
+ *
+ * DepartureDateTime takes ISO-8601 interval notation, slash-separated —
+ * `2026-08-23` or `2026-08-23T15:00/2026-08-23T16:00` — NOT separate From/To
+ * params. `CodeType` is mandatory whenever an airport or carrier is named.
+ * `FlightType` no longer defaults to Scheduled in v2, so it is set explicitly.
+ *
+ * ── The trial budget is the real constraint ────────────────────────────────
+ *
+ * 100 calls total across a 14-day window. A single dress rehearsal that
+ * searches a few routes can eat a meaningful fraction of that, so every real
+ * response is written to a fixture and `OAG_REPLAY=1` serves from those
+ * instead. Rehearse in replay; spend live calls on stage. Replay is checked
+ * before the budget is touched, so it can never spend anything.
+ */
+export async function flightInstancesByRoute(
+  origin: string,
+  destination: string,
+  /** YYYY-MM-DD, or any ISO-8601 interval the endpoint accepts */
+  departureDate: string,
+): Promise<OagFlightInstance[]> {
+  const from = origin.trim().toUpperCase();
+  const to = destination.trim().toUpperCase();
+  const fixture = join(FIXTURE_DIR, `${from}-${to}-${departureDate.replace(/[/:]/g, '_')}.json`);
+
+  if (process.env.OAG_REPLAY === '1') {
+    const replayed = readFixture(fixture);
+    if (replayed) return replayed.map(parseInstance).filter((r): r is OagFlightInstance => r !== null);
+    // Loud rather than silently empty: an unrecorded route in replay mode looks
+    // exactly like a route with no flights, and confusing those two on stage is
+    // how "the demo just shows nothing" happens.
+    throw new Error(
+      `OAG_REPLAY=1 but no fixture for ${from}->${to} on ${departureDate} (${fixture}). ` +
+        `Record it once with OAG_REPLAY unset, then replay for free.`,
+    );
+  }
+
+  const pair = keyPairFor('FLIGHT_INFO');
+  if (pair.length === 0) return [];
+
+  // 6h: schedules for a future date barely move, and this is the cache that
+  // stands between a page refresh and the trial budget.
+  return getOrSet(`oag:route:${from}:${to}:${departureDate}`, 6 * 60 * 60 * 1000, async () => {
+    const url =
+      `${FLIGHT_INSTANCES_BASE}?version=v2&CodeType=IATA` +
+      `&DepartureAirport=${encodeURIComponent(from)}` +
+      `&ArrivalAirport=${encodeURIComponent(to)}` +
+      `&DepartureDateTime=${encodeURIComponent(departureDate)}` +
+      `&FlightType=Scheduled`;
+
+    // Budget is charged inside callWithKeyRotation, and only when a TRIAL key
+    // is actually the one used — see its header.
+    const res = await callWithKeyRotation(url, pair);
+    if (!res.ok) {
+      // Surface OAG's own validation text — it is what told us the real query
+      // shape in the first place, and swallowing it would waste the call.
+      const detail = await res.text().catch(() => '');
+      throw new Error(`OAG flight-instances ${res.status}: ${detail.slice(0, 500)}`);
+    }
+    const json = (await res.json()) as { data?: unknown[] };
+    const raw = json.data ?? [];
+    // The fixture stores the RAW response, not the parsed rows. parseInstance
+    // was wrong once already (it expected a shape v2 does not send), and a
+    // fixture of parsed output would have baked that mistake in permanently —
+    // re-recording costs a trial call, re-parsing costs nothing.
+    writeFixture(fixture, raw);
+    return raw.map(parseInstance).filter((r): r is OagFlightInstance => r !== null);
+  });
+}
+
+/** Raw OAG records, exactly as received. */
+function readFixture(path: string): unknown[] | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeFixture(path: string, rows: unknown[]): void {
+  try {
+    if (!existsSync(FIXTURE_DIR)) mkdirSync(FIXTURE_DIR, { recursive: true });
+    writeFileSync(path, JSON.stringify(rows, null, 2));
+  } catch {
+    // A fixture we failed to write costs a future call, not this one.
+  }
+}
+
+/**
+ * The REAL v2 response shape, transcribed from a live 200 on 2026-08-17.
+ *
+ * The previous version of this type was written against something else — it
+ * expected `departureDate.local` and `departure.scheduledTime.utc`, neither of
+ * which exists. v2 splits an instant across two sibling objects, `date` and
+ * `time`, each carrying both a local and a UTC value:
+ *
+ *   "departure": {
+ *     "airport": { "iata": "BOM", "icao": "VABB" }, "terminal": "1",
+ *     "date": { "local": "2026-08-24", "utc": "2026-08-23" },
+ *     "time": { "local": "01:50",      "utc": "20:20"      }
+ *   }
+ *
+ * Note the UTC date differs from the local one on this record — a 01:50 IST
+ * departure is the previous day in UTC. Pairing `date.local` with `time.utc`
+ * would silently shift a flight by a day, which is why the two are only ever
+ * combined within the same namespace below.
+ */
+type RawTimed = {
+  airport?: { iata?: string; icao?: string };
+  terminal?: string;
+  date?: { local?: string; utc?: string };
+  time?: { local?: string; utc?: string };
+};
+
 type RawInstance = {
-  carrier?: { iata?: string };
-  flightNumber?: string;
-  departureDate?: { local?: string };
-  departure?: { airport?: { iata?: string }; scheduledTime?: { utc?: string }; estimatedTime?: { utc?: string }; actualTime?: { utc?: string } };
-  arrival?: { airport?: { iata?: string } };
+  carrier?: { iata?: string; icao?: string };
+  flightNumber?: string | number;
+  flightType?: string;
+  departure?: RawTimed;
+  arrival?: RawTimed;
+  elapsedTime?: number;
+  aircraftType?: { iata?: string; icao?: string };
+  /** present on status-bearing queries; absent from a pure schedules query */
+  statusDetails?: { state?: string; updatedAt?: string }[];
   status?: { flightStatus?: string; scheduleChanged?: boolean };
-  aircraftType?: { iata?: string };
   registration?: string;
 };
 
+/** "2026-08-23" + "20:20" -> "2026-08-23T20:20:00Z". Null unless both halves
+ *  are present — half an instant is worse than none, since it would be
+ *  silently interpreted as midnight. */
+function isoFrom(date: string | undefined, time: string | undefined): string | null {
+  if (!date || !time) return null;
+  const t = time.length === 5 ? `${time}:00` : time;
+  return `${date}T${t}Z`;
+}
+
 function parseInstance(raw: unknown): OagFlightInstance | null {
   const r = raw as RawInstance;
-  if (!r.carrier?.iata || !r.flightNumber) return null;
+  if (!r.carrier?.iata || r.flightNumber === undefined || r.flightNumber === null) return null;
+
   return {
     carrierIata: r.carrier.iata,
-    flightNumber: r.flightNumber,
-    departureDate: r.departureDate?.local ?? '',
+    // v2 returns this as a NUMBER (803, not "803"), which would render as
+    // "SG803" fine but compare unequal to any stored string flight number.
+    flightNumber: String(r.flightNumber),
+    departureDate: r.departure?.date?.local ?? '',
     origin: r.departure?.airport?.iata ?? '',
     destination: r.arrival?.airport?.iata ?? '',
+    departureTerminal: r.departure?.terminal ?? null,
+    arrivalTerminal: r.arrival?.terminal ?? null,
+    // A schedules query carries no live status; leaving these null is honest,
+    // and is what distinguishes "not asked" from "on time".
     status: r.status?.flightStatus ?? null,
-    scheduledDepartureUtc: r.departure?.scheduledTime?.utc ?? null,
-    estimatedDepartureUtc: r.departure?.estimatedTime?.utc ?? null,
-    actualDepartureUtc: r.departure?.actualTime?.utc ?? null,
+    scheduledDepartureUtc: isoFrom(r.departure?.date?.utc, r.departure?.time?.utc),
+    scheduledArrivalUtc: isoFrom(r.arrival?.date?.utc, r.arrival?.time?.utc),
+    localDepartureTime: r.departure?.time?.local ?? null,
+    localArrivalTime: r.arrival?.time?.local ?? null,
+    elapsedTimeMin: typeof r.elapsedTime === 'number' ? r.elapsedTime : null,
+    estimatedDepartureUtc: null,
+    actualDepartureUtc: null,
     aircraftType: r.aircraftType?.iata ?? null,
     tailNumber: r.registration ?? null,
     scheduleChanged: !!r.status?.scheduleChanged,
@@ -218,7 +449,7 @@ export type OagAirportRef = {
 /** Master Data Locations — reference data only, cached hard since it barely changes. */
 export async function masterDataAirport(iata: string): Promise<OagAirportRef | null> {
   const pair = keyPairFor('MASTER_DATA');
-  if (!pair.primary && !pair.secondary) return null;
+  if (pair.length === 0) return null;
   return getOrSet(`oag:airport:${iata}`, 7 * 24 * 60 * 60 * 1000, async () => {
     const url = `${MASTER_DATA_BASE}airports?codeType=IATA&code=${encodeURIComponent(iata)}&version=2`;
     const res = await callWithKeyRotation(url, pair);

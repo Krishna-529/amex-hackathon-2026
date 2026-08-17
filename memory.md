@@ -2,6 +2,46 @@
 
 ## Recent work
 
+- 2026-08-17 — **OAG Flight Instances is WORKING — the query shape is resolved and returning real
+  Indian flight data.** This had been the open blocker since 2026-08-14 ("one more real call would
+  close it out"). It took one call.
+  - **The format is ISO-8601 INTERVAL notation in a single parameter**, slash-separated — not the
+    From/To pair the old code assumed. `DepartureDateTime` accepts `2026-08-24`,
+    `2026-08-01/2026-08-30`, `2026-08-24T15:00` or `2026-08-24T15:00/2026-08-24T16:00`. `CodeType`
+    is mandatory whenever an airport or carrier is named, and **`FlightType` no longer defaults to
+    Scheduled in v2** — set it explicitly. Confirmed against OAG's own v1→v2 migration guide before
+    spending anything, then verified with a real 200: 10 real BOM→DEL instances with real
+    terminals, times, aircraft types and great-circle distances.
+  - New `flightInstancesByRoute(from, to, date)`. A route query is what this endpoint actually
+    wants; `flightInstancesBatch()` is left throwing because its per-flight batching premise is
+    genuinely unsupported here, and it has no caller.
+  - **Two real bugs found by making the call, both fixed:**
+    1. **The configured PRODUCTION key is not an active subscription** (real 401: "invalid
+       subscription key... active subscription") while the TRIAL key returns 200 on the same URL.
+       `keyPairFor()` returned trial keys ONLY when no production key was set, so **every Flight
+       Info call would have failed with a working key sitting unused in `.env.local`**. It now
+       returns an ordered, tiered list and rotation walks it, so an unapproved production key
+       degrades to the trial allowance instead of taking the product down.
+    2. **The trial budget was not being tracked at all.** `reserveTrialCalls()` skipped tracking
+       whenever a production key was present — exactly the state above — while every real call
+       still came out of the trial allowance. Now charged inside `callWithKeyRotation`, when a
+       trial key is actually the one used, hit or miss.
+  - **`parseInstance` was parsing a shape v2 does not send** — it expected `departureDate.local`
+    and `departure.scheduledTime.utc`. v2 splits an instant across sibling `date` and `time`
+    objects, each with a local AND a utc value. The real trap: **they can be different days.**
+    SG803 departs 01:50 local on 24 Aug = 20:20 UTC on **23 Aug**, so pairing `date.local` with
+    `time.utc` shifts a flight 24h and corrupts every time-to-departure calculation downstream.
+    Now also returns terminals, block time (`elapsedTime`), local clock times, and coerces
+    `flightNumber` to a string (v2 sends it as a NUMBER — `803 !== '803'` against any stored code).
+  - **`OAG_REPLAY=1` serves from committed recordings in `zkd-app/server/oag-fixtures/`** — zero
+    calls, no key, works on a fresh clone. Fixtures store the **raw** response, not parsed rows,
+    precisely because parseInstance was wrong once: re-parsing is free, re-recording costs a call.
+    An unrecorded route **throws** rather than returning `[]`, so "no fixture" cannot masquerade as
+    "no flights" on stage. **Rehearse with replay on.**
+  - **Budget: 2 of 100 calls spent this session, 98 remain** (window opened 2026-08-17). The live
+    test `server/oag.live.test.ts` is `describe.skipIf` unless `OAG_LIVE=1`, so `npm test` never
+    touches the allowance. `server/oag.test.ts` asserts the parser against the real recording for
+    free.
 - 2026-08-17 — **Outbound member notifications built (`zkd-app/server/notify/`)** — the one part of
   the "predict → warn → recover" story that did not exist at all. Before this there was no SMS,
   WhatsApp, email or push code anywhere in `zkd-app`, `saga.ts`'s `notify` step was a stub returning

@@ -1,0 +1,896 @@
+[
+  {
+    "carrier": {
+      "iata": "SG",
+      "icao": "SEJ"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 803,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "1",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "01:50",
+        "utc": "20:20"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "1",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "04:10",
+        "utc": "22:40"
+      }
+    },
+    "elapsedTime": 140,
+    "cargoTonnage": 9.68,
+    "aircraftType": {
+      "iata": "73G",
+      "icao": "B737"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 1138,
+      "accumulatedGreatCircleMiles": 707,
+      "accumulatedGreatCircleNauticalMiles": 615,
+      "greatCircleKilometers": 1138,
+      "greatCircleMiles": 707,
+      "greatCircleNauticalMiles": 615
+    },
+    "codeshare": {
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": []
+    },
+    "scheduleInstanceKey": "606bfe74638589c7958fac166b1b87ed7e9c278b05d7b283c1823fe4f45ee4c9",
+    "statusKey": "66ee1b01cd60a1f0e8d59b1179135da1e18669271680280a90dc9a756ffdc046"
+  },
+  {
+    "carrier": {
+      "iata": "AF",
+      "icao": "AFR"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 3342,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "03:00",
+        "utc": "21:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "1",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "05:10",
+        "utc": "23:40"
+      }
+    },
+    "elapsedTime": 130,
+    "cargoTonnage": 25.5,
+    "aircraftType": {
+      "iata": "32Q",
+      "icao": "A21N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 1138,
+      "accumulatedGreatCircleMiles": 707,
+      "accumulatedGreatCircleNauticalMiles": 615,
+      "greatCircleKilometers": 1138,
+      "greatCircleMiles": 707,
+      "greatCircleNauticalMiles": 615
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "cockpitCrewEmployer": {
+        "code": "6E",
+        "name": "",
+        "number": "4"
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "6045",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "3005c73be51798b029b8477a72f7c57b7b0a64fa158509d7fa14846c44e7e7c4",
+    "statusKey": "3df08330380a6627e888f7cbd2a04e737f4f539ffb9411231ccdedaeea88feb8"
+  },
+  {
+    "carrier": {
+      "iata": "KL",
+      "icao": "KLM"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 3649,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "1",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "07:10",
+        "utc": "01:40"
+      }
+    },
+    "elapsedTime": 130,
+    "cargoTonnage": 25.5,
+    "aircraftType": {
+      "iata": "32Q",
+      "icao": "A21N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 1138,
+      "accumulatedGreatCircleMiles": 707,
+      "accumulatedGreatCircleNauticalMiles": 615,
+      "greatCircleKilometers": 1138,
+      "greatCircleMiles": 707,
+      "greatCircleNauticalMiles": 615
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "656",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "a5b2fa89d9cc53d67b7de7d3191e72fe1cc8fb407d2906345f7b8fe83fe3931a",
+    "statusKey": "146b3a651c228c7827756346643c2b99fdd86867018cdc153c9bf2be48adc4d3"
+  },
+  {
+    "carrier": {
+      "iata": "QF",
+      "icao": "QFA"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 5280,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "1",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "07:10",
+        "utc": "01:40"
+      }
+    },
+    "elapsedTime": 130,
+    "cargoTonnage": 4.6,
+    "aircraftType": {
+      "iata": "321",
+      "icao": "A321"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 1138,
+      "accumulatedGreatCircleMiles": 707,
+      "accumulatedGreatCircleNauticalMiles": 615,
+      "greatCircleKilometers": 1138,
+      "greatCircleMiles": 707,
+      "greatCircleNauticalMiles": 615
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "656",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "3d04318a573ee3e3a19ab7c516061441f6be7af0315fddeba7719518582fd2c2",
+    "statusKey": "146b3a651c228c7827756346643c2b99fdd86867018cdc153c9bf2be48adc4d3"
+  },
+  {
+    "carrier": {
+      "iata": "VS",
+      "icao": "VIR"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 8526,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "1",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "07:10",
+        "utc": "01:40"
+      }
+    },
+    "elapsedTime": 130,
+    "cargoTonnage": 4.6,
+    "aircraftType": {
+      "iata": "321",
+      "icao": "A321"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 1138,
+      "accumulatedGreatCircleMiles": 707,
+      "accumulatedGreatCircleNauticalMiles": 615,
+      "greatCircleKilometers": 1138,
+      "greatCircleMiles": 707,
+      "greatCircleNauticalMiles": 615
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "656",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "c069b274746449d501a72513a7a71e2319b676b24850ebf71520ffbb20924945",
+    "statusKey": "146b3a651c228c7827756346643c2b99fdd86867018cdc153c9bf2be48adc4d3"
+  },
+  {
+    "carrier": {
+      "iata": "A3",
+      "icao": "AEE"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 2017,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "0",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "0",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "07:10",
+        "utc": "01:40"
+      }
+    },
+    "elapsedTime": 130,
+    "cargoTonnage": 4.6,
+    "aircraftType": {
+      "iata": "321",
+      "icao": "A321"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 1138,
+      "accumulatedGreatCircleMiles": 707,
+      "accumulatedGreatCircleNauticalMiles": 615,
+      "greatCircleKilometers": 1138,
+      "greatCircleMiles": 707,
+      "greatCircleNauticalMiles": 615
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "cockpitCrewEmployer": {
+        "code": "6E",
+        "name": "",
+        "number": "4"
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "656",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "713687e097dc63f5de38cdd8276ff7c949120056ae6c7c068b9a23b9f94dc71b",
+    "statusKey": "146b3a651c228c7827756346643c2b99fdd86867018cdc153c9bf2be48adc4d3"
+  },
+  {
+    "carrier": {
+      "iata": "JL",
+      "icao": "JAL"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 9228,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "1",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "07:10",
+        "utc": "01:40"
+      }
+    },
+    "elapsedTime": 130,
+    "cargoTonnage": 4.6,
+    "aircraftType": {
+      "iata": "321",
+      "icao": "A321"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 1138,
+      "accumulatedGreatCircleMiles": 707,
+      "accumulatedGreatCircleNauticalMiles": 615,
+      "greatCircleKilometers": 1138,
+      "greatCircleMiles": 707,
+      "greatCircleNauticalMiles": 615
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "656",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "9dff79c7a84facee7ab8e1c22885f5070545128b638d0605f825b090ace4dc3a",
+    "statusKey": "146b3a651c228c7827756346643c2b99fdd86867018cdc153c9bf2be48adc4d3"
+  },
+  {
+    "carrier": {
+      "iata": "AF",
+      "icao": "AFR"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 6457,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "1",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "07:10",
+        "utc": "01:40"
+      }
+    },
+    "elapsedTime": 130,
+    "cargoTonnage": 25.5,
+    "aircraftType": {
+      "iata": "32Q",
+      "icao": "A21N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 1138,
+      "accumulatedGreatCircleMiles": 707,
+      "accumulatedGreatCircleNauticalMiles": 615,
+      "greatCircleKilometers": 1138,
+      "greatCircleMiles": 707,
+      "greatCircleNauticalMiles": 615
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "cockpitCrewEmployer": {
+        "code": "6E",
+        "name": "",
+        "number": "4"
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "656",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "a052c57ada20135f42c0e909f213f275f862bac4a61c9d41dc04031d02f533b4",
+    "statusKey": "146b3a651c228c7827756346643c2b99fdd86867018cdc153c9bf2be48adc4d3"
+  },
+  {
+    "carrier": {
+      "iata": "6E",
+      "icao": "IGO"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 656,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "1",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "07:10",
+        "utc": "01:40"
+      }
+    },
+    "elapsedTime": 130,
+    "cargoTonnage": 25.5,
+    "aircraftType": {
+      "iata": "32Q",
+      "icao": "A21N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 1138,
+      "accumulatedGreatCircleMiles": 707,
+      "accumulatedGreatCircleNauticalMiles": 615,
+      "greatCircleKilometers": 1138,
+      "greatCircleMiles": 707,
+      "greatCircleNauticalMiles": 615
+    },
+    "codeshare": {
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [
+        {
+          "code": "A3",
+          "serviceNumber": "2017",
+          "suffix": ""
+        },
+        {
+          "code": "AF",
+          "serviceNumber": "6457",
+          "suffix": ""
+        },
+        {
+          "code": "JL",
+          "serviceNumber": "9228",
+          "suffix": ""
+        },
+        {
+          "code": "KL",
+          "serviceNumber": "3649",
+          "suffix": ""
+        },
+        {
+          "code": "QF",
+          "serviceNumber": "5280",
+          "suffix": ""
+        },
+        {
+          "code": "VS",
+          "serviceNumber": "8526",
+          "suffix": ""
+        }
+      ]
+    },
+    "scheduleInstanceKey": "27df8b70a65dacb8dbcca043191945b7a7643d2c641a8ef65352e58d617d8e8c",
+    "statusKey": "146b3a651c228c7827756346643c2b99fdd86867018cdc153c9bf2be48adc4d3"
+  },
+  {
+    "carrier": {
+      "iata": "QP",
+      "icao": "AKJ"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 1111,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-23"
+      },
+      "time": {
+        "local": "05:25",
+        "utc": "23:55"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "1",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-24",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "07:50",
+        "utc": "02:20"
+      }
+    },
+    "elapsedTime": 145,
+    "cargoTonnage": 3.3,
+    "aircraftType": {
+      "iata": "7M8",
+      "icao": "B38M"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 1138,
+      "accumulatedGreatCircleMiles": 707,
+      "accumulatedGreatCircleNauticalMiles": 615,
+      "greatCircleKilometers": 1138,
+      "greatCircleMiles": 707,
+      "greatCircleNauticalMiles": 615
+    },
+    "codeshare": {
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": []
+    },
+    "scheduleInstanceKey": "bad281c1eec44dc30a0c95cb2ab6002d5f8ddbab61de84b9e36eba5fe4749449",
+    "statusKey": "ca3ce73e081cf743f62db31bb3b5c47617db42d246e7c39038222ed35254bb33"
+  }
+]
