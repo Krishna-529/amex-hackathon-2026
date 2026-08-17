@@ -8,7 +8,8 @@
     "android": {
       "package": "in.zettatech.zkdconcierge",
       "adaptiveIcon": {
-        "backgroundColor": "#080c14"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#2f7ff0"
       },
       "permissions": [
         "POST_NOTIFICATIONS",
@@ -24,6 +25,12 @@
         }
       ],
       "expo-asset"
-    ]
+    ],
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#080c14"
+    }
   }
 }

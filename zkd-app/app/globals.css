@@ -1382,3 +1382,96 @@ body:has(.amex-page) footer {
   }
   .amex-flight-pick { text-align: left; }
 }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Skeleton placeholders — the shape of the content, before the content.
+
+   NAMING: `.skeleton` further up this file is NOT this. It is the page
+   fade-in (opacity:0 + `fadein`), used on nine pages. Everything here is
+   prefixed `sk-` so the two can never collide.
+
+   THEMING: two custom properties, and nothing else. Custom properties cascade
+   by ancestry, so a single set of classes is automatically correct on the dark
+   glass theme and on the light Amex skin — no props threaded through the tree,
+   and no way for the light values to leak onto a dark route.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --sk-base: rgba(255, 255, 255, .065);
+  --sk-hi: rgba(255, 255, 255, .13);
+}
+/* The light skin: the page itself, and the white account bar of its header
+   (which is a sibling of `.amex-page`, not a descendant, so it needs saying). */
+.amex-page,
+.amex-header {
+  --sk-base: #e3e7ee;
+  --sk-hi: #f5f7fa;
+}
+/* ...but the blue sub-bar nested inside that header is dark ground again. */
+.amex-subbar {
+  --sk-base: rgba(255, 255, 255, .22);
+  --sk-hi: rgba(255, 255, 255, .42);
+}
+
+.sk {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+  vertical-align: middle;
+  flex: none;
+  background: var(--sk-base);
+  border-radius: 6px;
+}
+.sk::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--sk-hi), transparent);
+  animation: sk-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes sk-shimmer { to { transform: translateX(100%) } }
+
+/* A bar standing in for a line of text. The height is in `em` against the
+   element's OWN font-size, so it tracks `.page-h h1` stepping 38→31→27px and
+   every other responsive type change for free. Sitting inline-block inside the
+   real element also means the line-height strut still sets the line box, so a
+   heading placeholder occupies exactly the height the heading will. */
+.sk-line { height: 1em; border-radius: 5px }
+.sk-block { display: block; border-radius: 16px }
+.sk-circle { border-radius: 50% }
+
+/* The risk gauge is a ring (r=92, strokeWidth 13 in a 210px box), not a disc —
+   masked to the band so the placeholder has the real silhouette. Percentages
+   rather than px because `.gauge .ringwrap` drops to 174px under 620px:
+   85.5/105 = 81.4% inner edge, 98.5/105 = 93.8% outer edge. */
+.sk-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(circle closest-side, transparent 81.4%, #000 81.4%, #000 93.8%, transparent 93.8%);
+  mask: radial-gradient(circle closest-side, transparent 81.4%, #000 81.4%, #000 93.8%, transparent 93.8%);
+}
+
+/* Screen readers get one "loading" message; the placeholder furniture itself
+   is aria-hidden, so nothing announces a wall of empty boxes. */
+.sk-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The reduced-motion rule at the top of this file only kills
+   transition-duration, so the shimmer needs its own. Keep it scoped to
+   `.sk::after`: a blanket `animation:none!important` would freeze `.skeleton`
+   at its opacity:0 start frame and leave nine pages permanently invisible. */
+@media (prefers-reduced-motion: reduce) {
+  .sk::after { animation: none }
+}

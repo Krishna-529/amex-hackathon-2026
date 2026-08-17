@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWorld } from '@/components/WorldProvider';
 import type { Consent } from '@/server/domain/types';
+import { SkLine, SkText } from '@/components/Skeletons';
 
 /**
  * Book a flight.
@@ -49,6 +50,17 @@ type SearchResponse = {
   flights: SearchFlight[];
 };
 
+/**
+ * Dates default to empty and are filled on the CLIENT after mount.
+ *
+ * Reading the clock during render would be a hydration bug: the server renders
+ * one date into the HTML, the client computes another (a different tick, a
+ * different timezone, or midnight passing between the two), React finds a
+ * mismatch and throws the whole tree away. lib/time.ts's header calls this out
+ * explicitly — "nothing reads the clock at module scope, because that would
+ * differ between the server render and the client render and blow up
+ * hydration" — and this file was violating it.
+ */
 const todayPlus = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
 export default function Home() {
@@ -60,8 +72,14 @@ export default function Home() {
   const [travelers, setTravelers] = useState('1 Traveler');
   const [from, setFrom] = useState('BOM - Mumbai');
   const [to, setTo] = useState('DEL - New Delhi');
-  const [departDate, setDepartDate] = useState(todayPlus(7));
-  const [returnDate, setReturnDate] = useState(todayPlus(12));
+  const [departDate, setDepartDate] = useState('');
+  const [returnDate, setReturnDate] = useState('');
+
+  // Client-only, after hydration has already matched on the empty value.
+  useEffect(() => {
+    setDepartDate((d) => d || todayPlus(7));
+    setReturnDate((d) => d || todayPlus(12));
+  }, []);
 
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<SearchResponse | null>(null);
@@ -224,6 +242,29 @@ export default function Home() {
         </div>
 
         {error && <div className="amex-notice amex-notice-bad">{error}</div>}
+
+        {/* The search clears `results` before it fetches, so without this the
+            page simply drops back to the promos and then jumps a card's worth
+            of height when the schedules land. */}
+        {searching && (
+          <div className="amex-results" role="status" aria-busy="true" aria-live="polite">
+            <span className="sk-sr">Searching for flights</span>
+            <div aria-hidden="true">
+              <h2><SkLine w="24ch" h=".8em" /></h2>
+              <p className="amex-results-note"><SkText lines={2} last="52%" /></p>
+              <div className="amex-flight-list">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div className="amex-flight-row" key={i} style={{ pointerEvents: 'none' }}>
+                    <span className="amex-flight-code"><SkLine w="5em" /></span>
+                    <span className="amex-flight-times"><SkLine w="9em" /></span>
+                    <span className="amex-flight-meta"><SkLine w={i % 2 ? '12em' : '15em'} /></span>
+                    <span className="amex-flight-pick"><SkLine w="4em" /></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {results && (
           <div className="amex-results">

@@ -9,6 +9,7 @@ import { BAND_SAY, GLOW } from '@/lib/thresholds';
 import { usePoll } from '@/lib/usePoll';
 import { dayLabel } from '@/lib/time';
 import type { PreAuthResponse } from '@/lib/apiTypes';
+import { FlightsSkeleton } from '@/components/PageSkeletons';
 
 export default function FlightsPage() {
   const { passengerId, schedule } = useWorld();
@@ -34,9 +35,45 @@ export default function FlightsPage() {
     next && !nextDisrupted && passengerId ? `/api/flights/${next.id}/preauth` : null, 5000,
   );
 
-  if (!schedule || !next) return <div className="amex-page"><div className="amex-container"><div className="page-h"><h1>Your flights</h1></div></div></div>;
+  // Two different states used to share one guard. `!schedule` is genuinely
+  // loading, and gets the same skeleton app/flights/loading.tsx just showed —
+  // so the handover from "route still loading" to "route loaded, data still
+  // loading" is invisible. `schedule && !next` is a member with nothing
+  // upcoming, which is a finished answer, so it gets a real empty state
+  // further down; shimmering at them forever would be a lie.
+  if (!schedule) return <FlightsSkeleton />;
 
   const consent = schedule.passenger.consent;
+
+  if (!next) {
+    return (
+      <div className="amex-page">
+        <div className="amex-container">
+          <div className="skeleton">
+            <div className="page-h">
+              <h1>Your flights</h1>
+              <p>
+                Nothing upcoming. Book a flight and we start watching it for cancellation risk the
+                moment it&apos;s confirmed — you don&apos;t have to turn anything on.
+              </p>
+            </div>
+            <p>
+              <Link href="/" className="back" style={{ margin: 0 }}>Book a flight →</Link>
+            </p>
+            {past.length > 0 && (
+              <>
+                <div className="sect">Recent history</div>
+                <HistoryTable rows={past.slice(0, 4)} />
+                <p style={{ marginTop: 14 }}>
+                  <Link href="/history" className="back" style={{ margin: 0 }}>See all {past.length} flights →</Link>
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="amex-page">

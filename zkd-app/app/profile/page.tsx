@@ -5,11 +5,13 @@ import { useWorld } from '@/components/WorldProvider';
 import { usePoll } from '@/lib/usePoll';
 import { hhmm } from '@/lib/time';
 import type { Passenger } from '@/server/domain/types';
+import { ProfileSkeleton } from '@/components/PageSkeletons';
 
 export default function ProfilePage() {
   const { passengerId, schedule } = useWorld();
   const { data: passenger } = usePoll<Passenger>(passengerId ? `/api/passengers/${passengerId}` : null, 8000);
-  if (!schedule || !passenger) return <div className="page-h"><h1>Your details</h1></div>;
+
+  if (!schedule || !passenger) return <ProfileSkeleton />;
 
   return (
     <div className="skeleton">

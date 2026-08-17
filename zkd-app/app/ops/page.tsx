@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { usePoll } from '@/lib/usePoll';
 import { hhmm, money } from '@/lib/time';
 import type { FlightSummary, DisruptionOpsView } from '@/lib/apiTypes';
+import { SkTableRows, SkLine } from '@/components/Skeletons';
 
 type PassengerRow = { id: string; displayName: string; consent: string };
 
@@ -128,6 +129,9 @@ export default function OpsPage() {
                 </td>
               </tr>
             ))}
+            {/* undefined is "still fetching", [] is "there are none" — the two
+                had the same (empty) rendering before, which read as an answer. */}
+            {!flights && <SkTableRows cols={7} rows={4} />}
             {flights && flights.length === 0 && (
               <tr><td colSpan={7} style={{ color: 'var(--mist2)' }}>No flights yet.</td></tr>
             )}
@@ -156,6 +160,16 @@ export default function OpsPage() {
         <div>
           <div className="lbl" style={{ marginBottom: 8 }}>Passengers on this flight</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {!passengers && ['7em', '5.5em', '8em', '6em'].map((w) => (
+              <span
+                key={w}
+                className="opt"
+                style={{ padding: '7px 14px', width: 'auto', pointerEvents: 'none' }}
+                aria-hidden="true"
+              >
+                <SkLine w={w} />
+              </span>
+            ))}
             {(passengers ?? []).map((p) => (
               <button
                 type="button"
@@ -175,10 +189,24 @@ export default function OpsPage() {
       </form>
 
       <div className="sect">Active disruptions</div>
-      {(disruptions ?? []).length === 0 ? (
+      {!disruptions ? (
+        <div className="g panel" style={{ marginBottom: 14 }} aria-hidden="true">
+          <h3><SkLine w="6em" /></h3>
+          <table className="tbl" style={{ marginTop: 8 }}>
+            <thead>
+              <tr>
+                {['5em', '3em', '3.5em', '6em', '4em', '3em', '5em'].map((w, i) => (
+                  <th key={w} className={i === 6 ? 'ar' : undefined}><SkLine w={w} /></th>
+                ))}
+              </tr>
+            </thead>
+            <tbody><SkTableRows cols={7} rows={2} /></tbody>
+          </table>
+        </div>
+      ) : disruptions.length === 0 ? (
         <p style={{ color: 'var(--mist2)', fontSize: 13.5 }}>Nothing triggered right now.</p>
       ) : (
-        (disruptions ?? []).map((d) => (
+        disruptions.map((d) => (
           <div className="g panel" key={d.flightId} style={{ marginBottom: 14 }}>
             <h3>
               {d.flightCode}

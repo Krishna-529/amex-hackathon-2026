@@ -8,6 +8,7 @@ import { usePoll } from '@/lib/usePoll';
 import { money } from '@/lib/time';
 import { roomsFor, vehiclesFor } from '@/lib/partyCost';
 import type { FlightDetail, PreAuthResponse } from '@/lib/apiTypes';
+import { PrepareSkeleton } from '@/components/PageSkeletons';
 
 export default function PreparePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -31,12 +32,14 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
     setCabId((v) => v ?? detail.candidates.cabs.find((c) => c.ok)?.id ?? detail.candidates.cabs[0]?.id ?? null);
   }, [detail]);
 
-  if (!schedule || !detail) return <div className="page-h"><h1>Getting ahead of it</h1></div>;
+  if (!schedule || !detail) return <PrepareSkeleton />;
 
   const alt = detail.candidates.alts.find((a) => a.id === altId);
   const hotel = detail.candidates.hotels.find((h) => h.id === hotelId);
   const cab = detail.candidates.cabs.find((c) => c.id === cabId);
-  if (!alt || !hotel || !cab) return <div className="page-h"><h1>Getting ahead of it</h1></div>;
+  // The selection effect above runs after the first render that has `detail`,
+  // so there is one frame where the candidates exist but nothing is picked yet.
+  if (!alt || !hotel || !cab) return <PrepareSkeleton />;
 
   const fc = detail.forecast;
   const partySize = detail.booking?.partySize ?? 1;

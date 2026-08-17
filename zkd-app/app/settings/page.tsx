@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useWorld } from '@/components/WorldProvider';
 import { days, ddMon } from '@/lib/time';
+import { SettingsSkeleton } from '@/components/PageSkeletons';
 
 const CHOICES = [
   {
@@ -26,7 +27,7 @@ const CHOICES = [
 
 export default function SettingsPage() {
   const { schedule, setConsent } = useWorld();
-  if (!schedule) return <div className="page-h"><h1>Your card</h1></div>;
+  if (!schedule) return <SettingsSkeleton />;
 
   const activated = days(new Date(), -412);
   const consent = schedule.passenger.consent;

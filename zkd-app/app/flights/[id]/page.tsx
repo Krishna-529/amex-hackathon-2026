@@ -12,6 +12,7 @@ import { hhmm, mins, dayLabel, money } from '@/lib/time';
 import type { FlightDetail, FlightForecast, ReverifyResult } from '@/lib/apiTypes';
 import type { PastFlight } from '@/server/domain/types';
 import ForecastAudit from '@/components/ForecastAudit';
+import { FlightDetailSkeleton, RiskBodySkeleton } from '@/components/PageSkeletons';
 
 const RING = 2 * Math.PI * 92;
 
@@ -66,7 +67,7 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
     }
   }
 
-  if (!schedule) return <div className="page-h"><h1>Loading your flight</h1></div>;
+  if (!schedule) return <FlightDetailSkeleton />;
   if (!upcoming && !past) notFound();
 
   const routeOf = upcoming ?? past!;
@@ -135,7 +136,18 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
     );
   }
 
-  if (!detail) return <div className="skeleton">{head}<div className="page-h"><h1>Loading risk detail…</h1></div></div>;
+  // The head is already real here — only the risk body is still in flight, so
+  // only that part is replaced, and only that part is hidden from assistive
+  // tech. Nothing above the split moves when `detail` lands.
+  if (!detail) {
+    return (
+      <div className="skeleton" aria-busy="true">
+        {head}
+        <span className="sk-sr" role="status">Loading the risk detail for this flight</span>
+        <div aria-hidden="true"><RiskBodySkeleton /></div>
+      </div>
+    );
+  }
 
   const fc = liveForecast ?? detail.forecast;
   const tone = fc?.tone ?? 'low';

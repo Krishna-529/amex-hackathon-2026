@@ -10,6 +10,7 @@ import {
 import { secs, money, agoLabel, hhmm } from '@/lib/time';
 import type { RecoveryView, FlightDetail, PreAuthResponse } from '@/lib/apiTypes';
 import type { ResolveAction } from '@/server/engine/simulation';
+import { RecoverySkeleton } from '@/components/PageSkeletons';
 
 export default function RecoveryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -35,9 +36,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
     }).catch(() => {});
   };
 
-  if (!schedule || !view || !detail || !f || !booking) {
-    return <div className="page-h"><h1>Recovering your trip</h1></div>;
-  }
+  if (!schedule || !view || !detail || !f || !booking) return <RecoverySkeleton />;
 
   const alt = detail.candidates.alts.find((a) => a.id === view.chosenAltId);
   const hotel = detail.candidates.hotels.find((h) => h.id === view.chosenHotelId) ?? detail.candidates.hotels[0];

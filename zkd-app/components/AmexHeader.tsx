@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useWorld } from './WorldProvider';
+import { SkLine } from './Skeletons';
 
 /**
  * The Amex-style two-tier header (white account bar + blue "TRAVEL" bar),
@@ -14,9 +15,12 @@ export default function AmexHeader() {
   const path = usePathname();
   const { status, displayName, signOut } = useWorld();
   const authed = status === 'authenticated';
+  // Until /api/auth/me answers we know neither way. Showing "Log In" and then
+  // swapping it for a name is a claim we can't back yet, and it moves the bar.
+  const loading = status === 'loading';
 
   return (
-    <header className="amex-header">
+    <header className="amex-header" aria-busy={loading || undefined}>
       <div className="amex-topbar">
         <Link href="/" className="amex-mark" aria-label="ZKD Concierge home">
           <span className="box">
@@ -30,7 +34,12 @@ export default function AmexHeader() {
           <Link href="/how-it-works">How it works</Link>
         </nav>
         <span className="sp" />
-        {authed ? (
+        {loading ? (
+          <div className="amex-who" aria-hidden="true">
+            <SkLine w="10em" />
+            <SkLine w="5em" h="2.3em" style={{ borderRadius: 99 }} />
+          </div>
+        ) : authed ? (
           <div className="amex-who">
             <span>Welcome, {displayName ?? '…'}</span>
             <button type="button" onClick={signOut}>Sign out</button>
@@ -44,11 +53,20 @@ export default function AmexHeader() {
           <span className="wd">TRAVEL</span>
           <nav>
             <Link href="/" className={path === '/' ? 'on' : ''}>Book</Link>
+            {loading && (
+              <span aria-hidden="true" style={{ display: 'flex', gap: 20 }}>
+                <SkLine w="5em" /><SkLine w="4.5em" />
+              </span>
+            )}
             {authed && <Link href="/flights" className={path === '/flights' ? 'on' : ''}>My Trips</Link>}
             {authed && <Link href="/history">History</Link>}
           </nav>
           <span className="sp" />
-          <span className="amex-welcome">{authed ? `Welcome, ${displayName ?? 'Traveler'}` : 'Welcome, Traveler'}</span>
+          <span className="amex-welcome">
+            {loading
+              ? <SkLine w="10em" />
+              : authed ? `Welcome, ${displayName ?? 'Traveler'}` : 'Welcome, Traveler'}
+          </span>
         </div>
       </div>
     </header>

@@ -2,10 +2,12 @@
 
 import { useWorld } from '@/components/WorldProvider';
 import HistoryTable from '@/components/HistoryTable';
+import { HistorySkeleton } from '@/components/PageSkeletons';
 
 export default function HistoryPage() {
   const { schedule } = useWorld();
-  if (!schedule) return <div className="page-h"><h1>History</h1></div>;
+
+  if (!schedule) return <HistorySkeleton />;
 
   const cancelled = schedule.past.filter((p) => p.outcome === 'cancelled').length;
   const delayed = schedule.past.filter((p) => p.outcome === 'delayed').length;
