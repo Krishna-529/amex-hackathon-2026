@@ -51,14 +51,21 @@ def build_features() -> pd.DataFrame:
     bts_path = PROCESSED_DIR / "bts_normalized.parquet"
     anac_path = PROCESSED_DIR / "anac_normalized.parquet"
     uk_caa_path = PROCESSED_DIR / "uk_caa_normalized.parquet"
+    bitre_path = PROCESSED_DIR / "bitre_normalized.parquet"
+    aqst_path = PROCESSED_DIR / "aqst_normalized.parquet"
     if bts_path.exists():
         parts.append(pd.read_parquet(bts_path))
     if anac_path.exists():
         parts.append(pd.read_parquet(anac_path))
     if uk_caa_path.exists():
         parts.append(pd.read_parquet(uk_caa_path))
+    if bitre_path.exists():
+        parts.append(pd.read_parquet(bitre_path))
+    if aqst_path.exists():
+        parts.append(pd.read_parquet(aqst_path))
     if not parts:
-        raise FileNotFoundError("run src/ingest_bts.py, src/ingest_anac.py and src/ingest_uk_caa.py first")
+        raise FileNotFoundError("run src/ingest_bts.py, src/ingest_anac.py, src/ingest_uk_caa.py, "
+                                 "src/ingest_bitre.py and src/ingest_aqst.py first")
 
     df = pd.concat(parts, ignore_index=True)
     if "international" not in df.columns:

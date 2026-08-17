@@ -354,6 +354,8 @@ def train() -> dict:
             "BTS_US": int((df["country"] == "US").sum()),
             "ANAC_BR": int((df["country"] == "BR").sum()),
             "UK_CAA_GB": int((df["country"] == "GB").sum()),
+            "BITRE_AU": int((df["country"] == "AU").sum()),
+            "AQST_FR": int((df["country"] == "FR").sum()),
         },
         "baseline_base_rate": baseline_base_rate,
         "baseline_logistic_regression": baseline_logistic_regression,
