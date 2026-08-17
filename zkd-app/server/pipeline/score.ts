@@ -98,11 +98,28 @@ export function applyHardRules(alts: PartyAlt[], ctx: ScoreContext): FilterOutco
   const removed: FilterOutcome['removed'] = [];
   const kept: PartyAlt[] = [];
 
+  // "I must be there by X" is the thing the member is actually trying to
+  // achieve, so an option that misses it is disqualified, not discounted — a
+  // weighted sum must never be able to hand someone a cheap flight that lands
+  // after the event they were flying to. Unknown arrival times are NOT removed:
+  // we cannot prove they miss the deadline, and silently dropping every option
+  // from a source that publishes no arrival time would be worse than ranking
+  // them (score() already scores an unknown arrival neutrally).
+  const deadline = ctx.flight.hardDeadlineISO ? Date.parse(ctx.flight.hardDeadlineISO) : NaN;
+
   for (const a of alts) {
     const carrier = a.code.split(/\s+/)[0]?.toUpperCase() ?? '';
 
     if (ctx.rules.avoidAirlines.includes(carrier)) {
       removed.push({ id: a.id, code: a.code, rule: `you asked us never to book ${carrier}` });
+      continue;
+    }
+    if (!Number.isNaN(deadline) && typeof a.arrivesAt === 'number' && a.arrivesAt > deadline) {
+      removed.push({
+        id: a.id,
+        code: a.code,
+        rule: `arrives after the ${new Date(deadline).toUTCString().slice(0, 16)} deadline you gave us`,
+      });
       continue;
     }
     // Never split a party — the guarantee altsForParty already makes.

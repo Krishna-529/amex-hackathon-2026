@@ -167,6 +167,25 @@ export type Flight = {
   connectionSlackMinutes: number | null;
   /** a late arrival breaks something that matters — an onward leg, a commitment */
   hasHardConstraint: boolean;
+  /**
+   * The instant the member must have ARRIVED by — "I have to be there for the
+   * wedding on Saturday". Null when they gave us no deadline.
+   *
+   * `hasHardConstraint` above says only THAT a late arrival breaks something,
+   * which is enough to weight the ranking toward earlier arrivals
+   * (server/preferences/presets.ts boosts the arrival criterion 1.5x) but not
+   * enough to rule anything out — with only a boolean, an option landing two
+   * days after the thing it was supposed to reach still scores, just lower.
+   * With a real instant, missing it becomes a HARD RULE
+   * (server/pipeline/score.ts's applyHardRules) rather than a penalty a
+   * weighted sum can outvote.
+   *
+   * Invariant, enforced where flights are created: a non-null deadline implies
+   * `hasHardConstraint: true`. Stored rather than derived because the whole
+   * Flight is JSON-serialised into one Postgres column, so there is nowhere for
+   * a getter to live.
+   */
+  hardDeadlineISO?: string | null;
   /** fetched from the forecaster, cached here; undefined until the first refresh */
   forecast?: FlightForecast;
   /** every real forecast this flight has ever received, oldest first, capped

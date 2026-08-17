@@ -70,6 +70,7 @@ export async function toFlightDetail(flight: Flight, viewerPassengerId: string):
     },
     connectionSlackMinutes: flight.connectionSlackMinutes,
     hasHardConstraint: flight.hasHardConstraint,
+    hardDeadlineISO: flight.hardDeadlineISO ?? null,
     rescheduledToISO: flight.rescheduledToISO,
     forecastHistory: flight.forecastHistory ?? [],
     bookings: own

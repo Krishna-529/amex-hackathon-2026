@@ -93,6 +93,10 @@ export type FlightDetail = FlightSummary & {
   candidates: { alts: PartyAlt[]; hotels: HotelOpt[]; cabs: CabOpt[]; cabLegs: CabLeg[] };
   connectionSlackMinutes: number | null;
   hasHardConstraint: boolean;
+  /** the instant the member said they must have arrived by, if they gave one —
+   *  shown back to them so a commitment they typed at booking is visibly
+   *  recorded, and enforced as a hard rule in rebooking */
+  hardDeadlineISO?: string | null;
   rescheduledToISO?: string;
   /** every real score this flight has received, oldest first — what the
    *  audit graph plots. Empty until the first refresh/reverify/batch tick. */

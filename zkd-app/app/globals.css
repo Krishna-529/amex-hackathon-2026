@@ -1244,3 +1244,141 @@ body:has(.amex-page) footer {
   color: var(--amex-muted);
 }
 
+
+/* ── Booking flow: results list and the confirm panel ──────────────────────
+   Appended to the Amex skin above and scoped under `.amex-page`, same as the
+   rest of it, so nothing here can reach the dark theme on other routes. */
+
+.amex-notice {
+  background: #fff;
+  border: 1px solid var(--amex-line, #d3d3d3);
+  border-left: 4px solid var(--amex-blue, #006fcf);
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin: 20px 0;
+  color: var(--amex-ink, #00175a);
+  font-size: 14px;
+}
+.amex-notice-bad {
+  border-left-color: #d9615a;
+}
+
+.amex-results,
+.amex-booking {
+  background: #fff;
+  border: 1px solid var(--amex-line, #d3d3d3);
+  border-radius: 10px;
+  padding: 26px 28px;
+  margin: 24px 0;
+}
+.amex-results h2,
+.amex-booking h2 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 24px;
+  color: var(--amex-ink, #00175a);
+  margin: 0 0 6px;
+}
+.amex-results-note {
+  color: var(--amex-muted, #53565a);
+  font-size: 13px;
+  margin: 0 0 18px;
+  max-width: 70ch;
+}
+
+.amex-flight-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.amex-flight-row {
+  display: grid;
+  /* Fixed code/action columns keep the times aligned down the list; the meta
+     column is the one that absorbs a long aircraft or terminal string. */
+  grid-template-columns: 110px 160px 1fr 110px;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--amex-line, #d3d3d3);
+  border-radius: 8px;
+  padding: 14px 18px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--amex-ink, #00175a);
+  transition: border-color .15s, box-shadow .15s;
+}
+.amex-flight-row:hover:not(:disabled) {
+  border-color: var(--amex-blue, #006fcf);
+  box-shadow: 0 1px 6px rgba(0, 111, 207, .15);
+}
+.amex-flight-row.selected {
+  border-color: var(--amex-blue, #006fcf);
+  box-shadow: inset 0 0 0 1px var(--amex-blue, #006fcf);
+}
+.amex-flight-row:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.amex-flight-code { font-weight: 700; }
+.amex-flight-times { font-variant-numeric: tabular-nums; font-size: 15px; }
+.amex-flight-meta { color: var(--amex-muted, #53565a); font-size: 13px; }
+.amex-flight-pick {
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--amex-blue, #006fcf);
+}
+
+.amex-booking-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  margin-bottom: 20px;
+}
+.amex-booking-grid small {
+  display: block;
+  margin-top: 6px;
+  color: var(--amex-muted, #53565a);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.amex-consent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.amex-consent > label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--amex-line, #d3d3d3);
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+.amex-consent > label.active {
+  border-color: var(--amex-blue, #006fcf);
+  box-shadow: inset 0 0 0 1px var(--amex-blue, #006fcf);
+}
+.amex-consent span {
+  display: block;
+  font-size: 13px;
+  color: var(--amex-muted, #53565a);
+  line-height: 1.45;
+}
+.amex-consent strong {
+  display: block;
+  color: var(--amex-ink, #00175a);
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+@media (max-width: 720px) {
+  .amex-flight-row {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 6px;
+  }
+  .amex-flight-pick { text-align: left; }
+}

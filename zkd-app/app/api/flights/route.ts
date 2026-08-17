@@ -20,6 +20,8 @@ type CreateFlightRequest = {
   aircraft?: string; terminal?: string;
   connectionSlackMinutes?: number | null;
   hasHardConstraint?: boolean;
+  /** the instant the member must have arrived by; implies hasHardConstraint */
+  hardDeadlineISO?: string | null;
   passengerIds?: string[];
 };
 
@@ -44,7 +46,10 @@ export async function POST(req: NextRequest) {
     id, code: body.code, from: body.from, to: body.to, depISO: body.depISO, durationMin: body.durationMin,
     aircraft: body.aircraft, terminal: body.terminal,
     connectionSlackMinutes: body.connectionSlackMinutes ?? null,
-    hasHardConstraint: body.hasHardConstraint ?? false,
+    hardDeadlineISO: body.hardDeadlineISO ?? null,
+    // A deadline IS a hard constraint — keeping the two in step here is what
+    // stops a flight existing with a deadline the ranking never treats as one.
+    hasHardConstraint: body.hasHardConstraint ?? !!body.hardDeadlineISO,
     candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
   };
   await store.createFlight(flight);
