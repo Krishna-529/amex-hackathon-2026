@@ -1553,3 +1553,107 @@ body:has(.amex-page) footer {
   .pred { position: static; border-radius: 0 0 16px 16px }
   .up-list { border-radius: 16px 16px 0 0 }
 }
+
+/* ── /flights/[id] in the Amex skin ────────────────────────────────────────
+   The detail page is reached straight from the skinned flights list, so a dark
+   page here read as a different product. Everything below is scoped under
+   .amex-page and overrides shared class names rather than renaming them, so
+   /prepare, /recovery, /profile, /settings, /history and /ops — which use the
+   same .g/.panel/.kv/.gauge classes — are provably untouched.
+
+   Risk colours are deliberately NOT re-tinted to Amex blue: red and amber
+   carry meaning on this page, and the .acting highlight already has a
+   light-theme variant to match. */
+
+.amex-page .g,
+.amex-page .g.panel,
+.amex-page .g.plan {
+  background: #fff;
+  border: 1px solid var(--amex-line);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0, 23, 90, .06);
+}
+.amex-page .panel h3,
+.amex-page .plan h3,
+.amex-page .flow h3 { color: var(--amex-mist2) }
+.amex-page .panel p,
+.amex-page .plan p { color: var(--amex-mist) }
+
+/* Key/value rows — the booking details and threshold table. */
+.amex-page .kv { border-bottom-color: var(--amex-line2) }
+.amex-page .kv .k { color: var(--amex-mist2) }
+.amex-page .kv .v { color: var(--amex-text) }
+.amex-page .kv .v.ok { color: #1a7f4b }
+.amex-page .kv .v.warn { color: #a86a00 }
+.amex-page .kv .v.bad { color: #c0392b }
+
+/* The risk gauge. Only the TRACK changes — the coloured arc and the figure
+   inside it are semantic and keep their own scale. */
+.amex-page .gauge .track { stroke: #e3e9f2 }
+.amex-page .gauge .val .c { color: var(--amex-mist2) }
+.amex-page .gauge .say { color: var(--amex-mist) }
+.amex-page .gauge .val .n.low { color: #1a7f4b }
+.amex-page .gauge .val .n.mid { color: #a86a00 }
+.amex-page .gauge .band.low { color: #1a7f4b }
+.amex-page .gauge .band.mid { color: #a86a00 }
+
+/* Primary action, matching the hero's Search button rather than the dark
+   theme's translucent glass. */
+.amex-page .cta {
+  background: var(--amex-blue);
+  border: 1px solid var(--amex-blue);
+  color: #fff;
+  font-weight: 600;
+}
+.amex-page .cta:hover { background: var(--amex-blue-dark); border-color: var(--amex-blue-dark) }
+
+/* Timeline / evidence rows and any inline table on this page. */
+.amex-page .ev { border-color: var(--amex-line2) }
+.amex-page .ev .n { color: var(--amex-text) }
+.amex-page .ev .s, .amex-page .ev .d { color: var(--amex-mist) }
+.amex-page .tbl th { color: var(--amex-mist2); border-bottom-color: var(--amex-line) }
+.amex-page .tbl td { color: var(--amex-text); border-bottom-color: var(--amex-line2) }
+
+/* The SHAP audit chart's own chrome. The BARS keep their validated colours —
+   see the note in components/ForecastAudit.tsx; the blue/red pair was chosen
+   because the app's green/red safe/risk pair failed CVD separation, and it is
+   re-validated against this background rather than re-tinted on assumption. */
+.amex-page .audit-axis,
+.amex-page .audit-label { color: var(--amex-mist2) }
+.amex-page .audit-grid { stroke: var(--amex-line2) }
+
+/* ── Re-point the dark-theme tokens inside the Amex skin ───────────────────
+   Several pages set colours INLINE — `style={{ color: 'var(--mist) }}` and
+   friends — which a class-based override cannot beat, however specific. On
+   /flights/[id] that left body copy at rgba(228,234,244,.62): a near-white
+   grey designed for a near-black background, rendering as barely-visible text
+   on the Amex white. (Seen live: the "If this one goes" paragraph was legible
+   only if you knew it was there.)
+
+   Redefining the tokens themselves under .amex-page fixes every inline use at
+   once, and keeps working for any inline style added later. Scoped to the
+   skinned subtree, so the dark routes that share these tokens are untouched.
+
+   --safe/--warn/--risk are re-pointed rather than dropped: the same hues at
+   dark-background luminance fail contrast on white, and these three carry
+   meaning (they are the band colours), so they need adjusting, not removing. */
+.amex-page {
+  --text: var(--amex-text);
+  --mist: var(--amex-mist);
+  --mist2: var(--amex-mist2);
+  --edge: var(--amex-line);
+  --edge-2: var(--amex-line2);
+  --glass: #fff;
+  --iris: var(--amex-blue);
+  --safe: #1a7f4b;
+  --warn: #a86a00;
+  --risk: #c0392b;
+}
+
+/* `.amex-page` paints its own light background but the BODY underneath is
+   still the dark theme's near-black, so any pixel past the wrapper's box —
+   below the content on a short page, or past its padding on a long one —
+   showed as a dark band under the footer area. Painting the body too means
+   there is nothing dark left to bleed through. Scoped with :has() so only the
+   skinned routes are affected. */
+body:has(.amex-page) { background: var(--amex-bg) }

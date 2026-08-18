@@ -34,6 +34,29 @@ const DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://zkdapp:zkdapp@local
  */
 export const sql = postgres(DATABASE_URL, {
   max: 10,
+  /**
+   * ── Without these two, connections leak until the server stops answering ──
+   *
+   * `max: 10` bounds ONE process. postgres.js defaults `idle_timeout` to 0,
+   * meaning an idle connection is never handed back — so every process that
+   * touches the store holds its pool open for as long as it lives, and in
+   * development there are a lot of processes: each `npm run dev` restart, and
+   * each parallel vitest worker that imports this module.
+   *
+   * Observed twice on 2026-08-17/18: 97 of Postgres' 100 slots held by idle
+   * `zkdapp` backends, at which point every query fails with
+   *   FATAL: remaining connection slots are reserved for roles with the
+   *   SUPERUSER attribute
+   * and the app surfaces that as a failed login — so it looks like a wrong
+   * password, which is where the debugging time actually goes.
+   *
+   * 20s idle is comfortably longer than any request here and short enough that
+   * a killed dev server's slots are reclaimed before the next one boots.
+   * `max_lifetime` recycles long-lived connections so a process that stays up
+   * for days cannot pin a slot against a server-side change.
+   */
+  idle_timeout: 20,
+  max_lifetime: 60 * 30,
   ...(process.env.DATABASE_PASSWORD ? { password: process.env.DATABASE_PASSWORD } : {}),
 });
 

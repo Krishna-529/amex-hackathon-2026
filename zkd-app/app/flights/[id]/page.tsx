@@ -21,7 +21,25 @@ function routeRecord(past: PastFlight[], from: string, to: string) {
   return { flown: rows.length, cancelled: rows.filter((p) => p.outcome === 'cancelled').length };
 }
 
+/**
+ * Wraps whatever the page renders in the Amex skin's page/container shell.
+ *
+ * Done once here rather than at each of the five return points inside
+ * FlightBody (past flight, two loading states, not-found, and the live view) —
+ * one of them would inevitably get missed, and a return without the wrapper
+ * renders a dark-theme page on a light background.
+ */
 export default function FlightPage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <div className="amex-page">
+      <div className="amex-container">
+        <FlightBody params={params} />
+      </div>
+    </div>
+  );
+}
+
+function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { schedule } = useWorld();
 
@@ -318,10 +336,27 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
                 its copy never claims a hold, and this line was quietly saying
                 the opposite on the screen a member actually reads.
               */}
-              We&apos;ve lined up {usableAlts.length} alternative{usableAlts.length === 1 ? '' : 's'} that
-              {f.booking && f.booking.partySize > 1 ? ` seat all ${f.booking.partySize} of you and` : ''} fit your
-              policy and protect your onward connection — re-checked continuously, so they&apos;re
-              still valid the moment we need them.
+              {usableAlts.length === 0 ? (
+                /*
+                  Alternative search is gated on the risk band — a low-risk
+                  flight deliberately never spends a supplier call. Saying "we've
+                  lined up 0 alternatives" reads as a failure when it is the
+                  system working correctly, so say what is actually true: we are
+                  not searching yet, and here is what would make us.
+                */
+                <>
+                  We haven&apos;t needed to search yet. This flight isn&apos;t risky enough to
+                  spend a supplier call on — if that changes, we start lining up alternatives
+                  automatically, before anything is cancelled.
+                </>
+              ) : (
+                <>
+                  We&apos;ve lined up {usableAlts.length} alternative{usableAlts.length === 1 ? '' : 's'} that
+                  {f.booking && f.booking.partySize > 1 ? ` seat all ${f.booking.partySize} of you and` : ''} fit your
+                  policy and protect your onward connection — re-checked continuously, so they&apos;re
+                  still valid the moment we need them.
+                </>
+              )}
             </p>
             {usableAlts.map((a) => (
               <div className="kv" key={a.id}>

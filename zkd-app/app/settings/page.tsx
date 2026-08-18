@@ -19,7 +19,9 @@ const CHOICES = [
     title: 'Ask me first',
     sub: 'Every time',
     body:
-      'We do all the work — detect it, search, check your policy, hold the seats — then stop and wait for your go-ahead before spending anything of yours.',
+      // "hold the seats" was a leftover from the design that had speculative
+      // holds in it. Nothing is held — see lib/noHoldsCopy.test.ts.
+      'We do all the work — detect it, search, check your policy, line up the seats — then stop and wait for your go-ahead before spending anything of yours.',
     best:
       'If you do not answer and the recovery costs you nothing, we book it anyway rather than leave you stranded — there is no spend to consult you about. If it would cost you money, we stop and hold.',
   },

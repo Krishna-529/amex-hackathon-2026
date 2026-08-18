@@ -21,8 +21,25 @@ import { join } from 'node:path';
  */
 const MEMBER_PAGES = ['app/flights', 'app/prepare', 'app/recovery', 'app/profile', 'app/settings'];
 
-/** Claims of a reservation, in prose rather than in code. */
-const FORBIDDEN = /\b(we(?:'re| are|&apos;re)\s+(?:already\s+)?holding|held for you|reserved for you|we(?:'ve| have|&apos;ve)\s+(?:already\s+)?(?:held|reserved))\b/i;
+/**
+ * Claims of a reservation, in prose rather than in code.
+ *
+ * Widened after the first version missed "…check your policy, hold the seats…"
+ * on /settings: it only matched the possessive forms ("we're holding", "held
+ * for you") and not the bare verb phrase. Any "hold/holding/reserve the seat(s)"
+ * is a claim we cannot honour, whoever the subject is.
+ */
+const FORBIDDEN = new RegExp(
+  [
+    String.raw`we(?:'re| are|&apos;re)\s+(?:already\s+)?holding`,
+    String.raw`we(?:'ve| have|&apos;ve)\s+(?:already\s+)?(?:held|reserved)`,
+    String.raw`held for you`,
+    String.raw`reserved for you`,
+    // bare verb + the thing being held, in either order of article
+    String.raw`\b(?:hold|holds|holding|reserve|reserves|reserving)\s+(?:the\s+|your\s+|a\s+)?(?:seat|seats|room|rooms|option|options|alternative|alternatives|booking|bookings)\b`,
+  ].join('|'),
+  'i',
+);
 
 async function tsxFilesUnder(dir: string, out: string[] = []): Promise<string[]> {
   let entries;
@@ -68,5 +85,11 @@ describe('member-facing copy never claims an option is held', () => {
     // Legitimate identifiers must NOT trip it.
     expect(FORBIDDEN.test('const hold = await holdHotel(offer)')).toBe(false);
     expect(FORBIDDEN.test("band === 'hold-gate'")).toBe(false);
+    // The phrasing that slipped through the first version of this guard.
+    expect(FORBIDDEN.test('check your policy, hold the seats — then stop')).toBe(true);
+    expect(FORBIDDEN.test('we reserve a room for you')).toBe(true);
+    // Still must not fire on identifiers or on describing what we do NOT do.
+    expect(FORBIDDEN.test('firstHoldable(offers)')).toBe(false);
+    expect(FORBIDDEN.test('HOLD_PENDING')).toBe(false);
   });
 });
