@@ -86,6 +86,27 @@ export type TopReason = {
   featureKey?: string;
 };
 
+export type OptionReasonKind = 'deterministic-score' | 'llm-refined';
+
+/**
+ * Why a rebooking option (flight/hotel/cab alternative) suits this member —
+ * same shape family as TopReason above, applied to rebooking options
+ * instead of risk predictions, for one consistent "why" pattern across the
+ * app. See server/pipeline/score.ts's explain() for 'deterministic-score'
+ * (always present, computed synchronously, never depends on an LLM) and
+ * server/engine/refine.ts for 'llm-refined' (only present after a member's
+ * free-text preference prompt actually produced a usable patch).
+ */
+export type OptionReason = {
+  kind: OptionReasonKind;
+  /** Always non-empty. The 'deterministic-score' variant never depends on
+   *  an external LLM call succeeding. */
+  text: string;
+  leadingCriterion: 'arrival' | 'cost' | 'reliability' | 'cabin' | 'loyalty' | 'effort';
+  /** present only when kind === 'llm-refined' — the member's own prompt that produced this */
+  prompt?: string;
+};
+
 /**
  * A lightweight point in a flight's prediction history — enough to draw the
  * time-series graph without carrying a full explanation payload on every
@@ -123,6 +144,16 @@ export type Passenger = {
   loyalty: { airline: string; number: string; tier: string }[];
   prefs: { k: string; v: string }[];
   payment: { card: string; method: string };
+  /** The wire preference profile (server/preferences/schema.ts), stored
+   *  verbatim in this JSONB row — see store.ts's updatePreferencesWire.
+   *  Absent for any passenger who hasn't set explicit preferences;
+   *  adapt()'s WIRE_DEFAULTS degrade a missing/partial profile to sane
+   *  defaults (server/preferences/defaultWireFor for the fully-absent
+   *  case), so every reader must treat this as optional. `consent` above
+   *  remains the ONE authoritative field for autopilot/ask branching
+   *  everywhere in the app — this profile's own `auto_approve_rebooking`
+   *  is never read live as a second source of truth for that decision. */
+  preferencesWire?: import('../preferences/schema').TravelerPreferencesWire;
 };
 
 /**
@@ -354,6 +385,23 @@ export type RecoveryTask = {
   chosenHotelId: string;
   chosenCabId: string;
   rejectedAltIds: string[];
+  /** Why chosenAltId was picked — always non-null whenever chosenAltId is
+   *  set (server/engine/planningGraph.ts's flightSpecialistNode always
+   *  attaches one). See OptionReason above. */
+  chosenAltReason: OptionReason | null;
+  /** The full ranked candidate list (not just the winner) surviving hard
+   *  rules, each with its own reasoning — what the "browse other options"
+   *  UI reads so every shown option (not only the top pick) can explain
+   *  itself. */
+  rankedOptions: { altId: string; reason: OptionReason }[];
+  /** Candidates removed by a hard rule (avoid_airlines, party-fit, cabin
+   *  downgrade not allowed) before scoring — kept for transparency so a
+   *  member can see WHY an option isn't offered, not just that it's absent. */
+  excludedAlts: { altId: string; code: string; rule: string }[];
+  /** true only while an async server/engine/refine.ts call is in flight for
+   *  this task — the UI shows a "thinking about your preference" state and
+   *  the countdown holds, same visual treatment as phase:'choosing'. */
+  refining: boolean;
   shown: Step[];
   note: string | null;
   resolution: DisruptionResolution | null;

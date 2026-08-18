@@ -10,6 +10,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1111.0",
     "@aws-sdk/client-s3": "^3.1111.0",
     "@langchain/core": "^1.2.8",
     "@langchain/langgraph": "^1.4.10",
@@ -18,7 +19,8 @@
     "postgres": "^3.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "zkd-shared": "file:../zkd-shared"
+    "zkd-shared": "file:../zkd-shared",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

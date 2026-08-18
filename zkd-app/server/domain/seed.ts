@@ -9,6 +9,7 @@ import { ensureReady, withAdvisoryLock, SEED_LOCK_KEY } from './db';
 import { hashPassword } from '../auth/passwords';
 import { DEMO_ACCOUNTS } from '@/lib/demoAccounts';
 import type { Passenger, Flight, PastFlight, Traveller } from './types';
+import type { TravelerPreferencesWire } from '../preferences/schema';
 
 const now = Date.now();
 const MIN = 60_000;
@@ -101,6 +102,48 @@ async function seedCredentials() {
   }
 }
 
+/**
+ * Two real wire preference profiles (server/preferences/schema.ts), on the
+ * two non-flagship passengers deliberately — Priya/Arjun's own booking
+ * behavior stays exactly what it was before this feature, since they're
+ * what the existing demo narrative and planningGraph.test.ts's expectations
+ * are built around. Without a saved profile a passenger still ranks
+ * correctly (server/preferences/adapt.ts's defaultWireFor() synthesizes a
+ * sane earliest_arrival default) — these two exist purely so the
+ * member-preference-driven ranking is actually demonstrable end to end.
+ */
+function preferencesWireFor(
+  identity: { legalName: string; dob: string; gender: 'MALE' | 'FEMALE'; homeAirport: string },
+  strategy: TravelerPreferencesWire['autonomous_rebooking_rules']['optimization_strategy'],
+  flightPrefs: TravelerPreferencesWire['flight_preferences'] = {},
+): TravelerPreferencesWire {
+  return {
+    traveler_identity: {
+      full_legal_name: identity.legalName,
+      date_of_birth: identity.dob,
+      gender: identity.gender,
+      nationality: 'IN',
+      home_airport_code: identity.homeAirport,
+    },
+    contact_and_notifications: {
+      primary_phone: '+91 ••••• 0000',
+      primary_email: 'member@•••••.com',
+      preferred_alert_channels: ['push'],
+    },
+    loyalty_programs: {},
+    flight_preferences: { preferred_cabin: 'economy', ...flightPrefs },
+    ground_transport_preferences: {},
+    autonomous_rebooking_rules: {
+      optimization_strategy: strategy,
+      // Matches the demo default consent ('autopilot' — see base() below);
+      // never read back into Passenger.consent itself, see adapt.ts.
+      auto_approve_rebooking: true,
+      hotel_trigger_threshold_hours: 6,
+      rental_car_trigger_threshold_hours: 24,
+    },
+  };
+}
+
 async function seedPassengers() {
   const base = (over: Partial<Passenger> & Pick<Passenger, 'id' | 'displayName' | 'legalName'>): Passenger => ({
     dob: '—', gender: '—', nationality: 'Indian',
@@ -119,8 +162,20 @@ async function seedPassengers() {
   }));
   await store.createPassenger(base({ id: 'p-arjun', displayName: 'Arjun M.', legalName: 'ARJUN MEHTA', dob: '02 Jul 1991', gender: 'Male' }));
   await store.createPassenger(base({ id: 'p-fatima', displayName: 'Fatima S.', legalName: 'FATIMA SHEIKH', dob: '19 Nov 1994', gender: 'Female' }));
-  await store.createPassenger(base({ id: 'p-rohan', displayName: 'Rohan V.', legalName: 'ROHAN VERMA', dob: '30 Jan 1985', gender: 'Male' }));
-  await store.createPassenger(base({ id: 'p-ananya', displayName: 'Ananya I.', legalName: 'ANANYA IYER', dob: '08 Sep 1997', gender: 'Female' }));
+  await store.createPassenger(base({
+    id: 'p-rohan', displayName: 'Rohan V.', legalName: 'ROHAN VERMA', dob: '30 Jan 1985', gender: 'Male',
+    preferencesWire: preferencesWireFor(
+      { legalName: 'ROHAN VERMA', dob: '1985-01-30', gender: 'MALE', homeAirport: 'DEL' },
+      'minimize_layovers', { max_acceptable_layovers: 0 },
+    ),
+  }));
+  await store.createPassenger(base({
+    id: 'p-ananya', displayName: 'Ananya I.', legalName: 'ANANYA IYER', dob: '08 Sep 1997', gender: 'Female',
+    preferencesWire: preferencesWireFor(
+      { legalName: 'ANANYA IYER', dob: '1997-09-08', gender: 'FEMALE', homeAirport: 'BLR' },
+      'lowest_cost',
+    ),
+  }));
 }
 
 async function seedFlights() {

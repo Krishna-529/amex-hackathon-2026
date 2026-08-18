@@ -20,12 +20,13 @@
 import {
   DECIDE_STEPS, ACT_STEPS, DECIDE_TOTAL, PLAY, FLOOR,
 } from '@/lib/recovery';
-import { confirmWindow, windowRationale } from '@/lib/confirmWindow';
+import { confirmWindow, windowRationale, AUTOPILOT_NOTICE_CEILING_SECONDS } from '@/lib/confirmWindow';
 import { isInternational } from '../airportDirectory';
 import { revalidateOffer, type Offer } from '../suppliers';
 import { altsForParty } from '../domain/altsForParty';
 import { costFor, type PartyCost } from '../domain/pricing';
 import { DEFAULT_PER_TRANSACTION_CAP, fetchProfile } from '../myca';
+import { adapt, defaultWireFor } from '../preferences/adapt';
 import { money } from '@/lib/time';
 import * as store from '../domain/store';
 import { ensureSeeded } from '../domain/seed';
@@ -66,6 +67,17 @@ export type RecoveryView = {
   chosenHotelId: string;
   chosenCabId: string;
   rejectedAltIds: string[];
+  /** Why chosenAltId was picked — see server/domain/types.ts's OptionReason. */
+  chosenAltReason: RecoveryTask['chosenAltReason'];
+  /** The full ranked candidate portfolio (not just the winner), each with its
+   *  own reasoning — what the "browse other options" list reads. */
+  rankedOptions: RecoveryTask['rankedOptions'];
+  /** Candidates a hard rule (avoid_airlines, party-fit, cabin downgrade)
+   *  removed before scoring, and why — for transparency. */
+  excludedAlts: RecoveryTask['excludedAlts'];
+  /** true while an async server/engine/refine.ts call is in flight for this
+   *  task — the UI shows a "thinking about your preference" state. */
+  refining: boolean;
   owedNow: number;
   cost: PartyCost;
   note: string | null;
@@ -202,6 +214,10 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
     chosenHotelId: '',
     chosenCabId: '',
     rejectedAltIds: [],
+    chosenAltReason: null,
+    rankedOptions: [],
+    excludedAlts: [],
+    refining: false,
     shown: [...DECIDE_STEPS],
     note: null,
     resolution: null,
@@ -224,24 +240,27 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
 
   // Layer A's read-only planning graph (server/engine/planningGraph.ts):
   // classifies the disruption, then one specialist per leg proposes a
-  // candidate — carrier-owed seats first (party-aware, via altsForParty),
-  // never a market alt that can't seat the whole party. A reschedule the
-  // connection survives comes back with needsRebooking=false and no chosen
-  // seat at all — nothing to consent to, only hotel/ground re-timing.
+  // candidate — a real, member-preference-aware ranking (server/pipeline/score.ts,
+  // see server/preferences/), never a market alt that can't seat the whole
+  // party. A reschedule the connection survives comes back with
+  // needsRebooking=false and no chosen seat at all — nothing to consent to,
+  // only hotel/ground re-timing.
+  const profile = await fetchProfile(passenger.id);
+  const wire = passenger.preferencesWire ?? defaultWireFor(passenger, profile);
+  const adaptedPreferences = adapt(wire, profile.payment.billingCurrency);
+
   const plan = await planRecovery({
     flight, partySize: task.partySize, rejectedAltIds: task.rejectedAltIds, signal: signalFor(flight),
+    adaptedPreferences, cap: profile.preferences.perTransactionCap,
   });
   task.needsRebooking = plan.needsRebooking;
   task.chosenAltId = plan.chosenAltId ?? '';
   task.chosenHotelId = plan.chosenHotelId ?? '';
   task.chosenCabId = plan.chosenCabId ?? '';
+  task.chosenAltReason = plan.chosenAltReason;
+  task.rankedOptions = plan.rankedAlts;
+  task.excludedAlts = plan.excludedAlts;
 
-  // Autopilot has no one to wait for. The derived window below exists to give
-  // a human enough time to notice a push, think and answer it — standing
-  // consent already answered that question, so we re-validate the pick
-  // against real inventory (the same check a human's explicit approve gets)
-  // and act immediately, exactly like the preAuth-and-intact branch above.
-  // Only 'ask' consent still needs the window that follows this block.
   if (passenger.consent === 'autopilot') {
     const cost = costOf(flight, task);
     if (cost.overCap) {
@@ -252,10 +271,46 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
       await finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
       return;
     }
-    const switched = task.needsRebooking ? await revalidateChoice(task, flight) : null;
-    task.note = switched ?? "Autopilot is your standing permission, so we went ahead the moment the airline filed — there was no one to wait for.";
+
+    if (!task.needsRebooking) {
+      // A free re-time (connection survives) has no seat decision to weigh
+      // in on — a notice-and-override window here would be pure friction
+      // with nothing to override. Acts immediately, unchanged from before
+      // this feature.
+      task.note = 'Autopilot is your standing permission, so we went ahead the moment the airline filed — there was no seat decision to weigh in on.';
+      await store.setRecoveryTask(task);
+      await finalizeResolution(task, buildResolution('autopilot', task, flight));
+      return;
+    }
+
+    // NEW: autopilot used to have no window at all for a real seat decision
+    // — it acted instantly. It now gets a real, bounded notice (see
+    // AUTOPILOT_NOTICE_CEILING_SECONDS for why 180s) so the member has a
+    // genuine chance to intervene before the default action proceeds.
+    const chosenForNotice = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
+    const noticeWindow = confirmWindow({
+      offerExpiresAt: chosenForNotice?.expiresAt ?? null,
+      departureAt: new Date(flight.depISO).getTime(),
+      international: isInternational(flight.from, flight.to),
+      ceilingSeconds: AUTOPILOT_NOTICE_CEILING_SECONDS,
+    });
+    task.windowBoundBy = noticeWindow.boundBy;
+
+    if (!noticeWindow.askable) {
+      // Too little time even for the short notice — proceed exactly as
+      // autopilot always has.
+      task.windowExpiresAt = 0;
+      const switched = await revalidateChoice(task, flight);
+      task.note = switched ?? 'Autopilot is your standing permission, so we went ahead the moment the airline filed — there was no time even for a heads-up.';
+      await store.setRecoveryTask(task);
+      await finalizeResolution(task, buildResolution('autopilot', task, flight));
+      return;
+    }
+
+    task.windowExpiresAt = noticeWindow.expiresAt;
+    task.note = `We're about to book this automatically — ${windowRationale(noticeWindow)} Say the word if you'd like to change or stop it.`;
     await store.setRecoveryTask(task);
-    await finalizeResolution(task, buildResolution('autopilot', task, flight));
+    setTimeout(() => { void settleExpired(flight.id, passenger.id); }, noticeWindow.seconds * 1000);
     return;
   }
 
@@ -289,9 +344,12 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
 
 /**
  * The window ran out with nobody having acted — resolves it on schedule
- * regardless of whether anyone is watching. Consent tier here is always
- * 'ask': autopilot never reaches this function — it resolves immediately in
- * createTaskForBooking, with no window to expire.
+ * regardless of whether anyone is watching. Reached by BOTH consent tiers
+ * now: 'ask''s real decision window (unchanged behavior below), and
+ * 'autopilot''s new short notice window (createTaskForBooking) — a seat
+ * decision is the only case either tier reaches here for; a free re-time or
+ * an over-cap decision both resolve immediately without ever scheduling
+ * this call.
  */
 async function settleExpired(flightId: string, passengerId: string) {
   const task = await store.getRecoveryTask(flightId, passengerId);
@@ -301,6 +359,21 @@ async function settleExpired(flightId: string, passengerId: string) {
 
   const cost = costOf(flight, task);
   let resolution: DisruptionResolution;
+
+  if (passenger.consent === 'autopilot') {
+    // The notice's whole point is fast default action. The per-transaction
+    // cap was already checked BEFORE this window ever opened
+    // (createTaskForBooking's overCap branch) — so proceeding here can
+    // never exceed what the card actually authorises. Silence is not
+    // indifference here; it is literally what autopilot means — never
+    // escalates on cost the way 'ask' below does.
+    const switched = await revalidateChoice(task, flight);
+    task.note = switched ?? "You didn't say otherwise, so we went ahead — exactly what autopilot means.";
+    resolution = buildResolution('autopilot', task, flight);
+    await finalizeResolution(task, resolution);
+    return;
+  }
+
   // Silence means different things depending on what was asked for — but consent
   // gates SPENDING, not care. If the recovery costs nothing there is nothing to
   // consent to, and stranding someone because they didn't pick up is worse.
@@ -745,6 +818,7 @@ export async function getRecoveryView(flightId: string, passengerId: string): Pr
       taskId: null, flightId, detectedAt: event.detectedAt, phase: 'deciding', terminal: null,
       shown: [], secondsLeft: 0, windowSeconds: 0, windowBoundBy: 'ceiling', partySize: 1,
       chosenAltId: '', chosenHotelId: '', chosenCabId: '', rejectedAltIds: [],
+      chosenAltReason: null, rankedOptions: [], excludedAlts: [], refining: false,
       owedNow: 0, cost: ZERO_COST, note: null, resolution: null,
     };
   }
@@ -765,6 +839,8 @@ export async function getRecoveryView(flightId: string, passengerId: string): Pr
     shown: task.shown, secondsLeft, windowSeconds, windowBoundBy: task.windowBoundBy, partySize: task.partySize,
     chosenAltId: task.chosenAltId, chosenHotelId: task.chosenHotelId, chosenCabId: task.chosenCabId,
     rejectedAltIds: task.rejectedAltIds,
+    chosenAltReason: task.chosenAltReason, rankedOptions: task.rankedOptions, excludedAlts: task.excludedAlts,
+    refining: task.refining,
     owedNow: cost.total, cost, note: task.note, resolution: task.resolution,
   };
 }

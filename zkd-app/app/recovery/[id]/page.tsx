@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { use } from 'react';
+import { use, useState } from 'react';
 import { useWorld } from '@/components/WorldProvider';
 import { usePoll } from '@/lib/usePoll';
 import {
@@ -33,6 +33,28 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action }),
     }).catch(() => {});
+  };
+
+  const [refinePrompt, setRefinePrompt] = useState('');
+  const [refineError, setRefineError] = useState<string | null>(null);
+  const submitRefine = async () => {
+    if (!refinePrompt.trim()) return;
+    setRefineError(null);
+    try {
+      const res = await fetch(`/api/disruptions/${id}/refine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: refinePrompt.trim() }),
+      });
+      if (res.status === 429) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setRefineError(body.error ?? 'Too many requests — please slow down.');
+        return;
+      }
+      setRefinePrompt('');
+    } catch {
+      setRefineError('Could not reach the server — try again.');
+    }
   };
 
   if (!schedule || !view || !detail || !f || !booking) {
@@ -152,10 +174,40 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                               {partySize > 1 ? `${partySize} seats` : `seat ${booking.seat}`}
                               {alt.kind === 'carrier-protected' && ' · owed by the airline'}
                             </span>
+                            {view.chosenAltReason && (
+                              <span className="t3" style={{ display: 'block', marginTop: 3, color: 'var(--mist2)', fontSize: 11.5 }}>
+                                {view.chosenAltReason.kind === 'llm-refined' ? '✦ ' : ''}{view.chosenAltReason.text}
+                              </span>
+                            )}
                           </span>
                           <span className={`r ${alt.partyFare ? '' : 'free'}`}>
                             {alt.partyFare ? money(alt.partyFare) : 'no cost'}
                           </span>
+                        </div>
+                      </div>
+
+                      <div className="refine-box" style={{ margin: '10px 0' }}>
+                        <textarea
+                          value={refinePrompt}
+                          onChange={(e) => setRefinePrompt(e.target.value)}
+                          placeholder="Want something different? e.g. &quot;arrive before 6pm&quot; or &quot;avoid layovers&quot;"
+                          disabled={view.refining}
+                          maxLength={240}
+                          rows={2}
+                          style={{ width: '100%', resize: 'vertical', fontSize: 12.5 }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                          <span style={{ fontSize: 10.5, color: 'var(--mist2)' }}>
+                            {view.refining ? 'Thinking about your preference…' : refineError ?? ''}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={submitRefine}
+                            disabled={view.refining || !refinePrompt.trim()}
+                            style={{ fontSize: 11.5 }}
+                          >
+                            {view.refining ? '…' : 'Find something else'}
+                          </button>
                         </div>
                       </div>
 
@@ -210,6 +262,11 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                         {detail.candidates.alts.map((a) => {
                           const excluded = view.rejectedAltIds.includes(a.id);
                           const usable = a.ok && !excluded;
+                          // A hard-rule exclusion (avoid_airlines, party-fit, cabin
+                          // downgrade — server/pipeline/score.ts) is more specific
+                          // than the generic policy `why`, so prefer it when present.
+                          const excludedRule = view.excludedAlts?.find((e) => e.altId === a.id)?.rule;
+                          const reason = view.rankedOptions?.find((r) => r.altId === a.id)?.reason;
                           return (
                             <button
                               key={a.id}
@@ -222,10 +279,17 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                                 <span className="mt">
                                   {excluded
                                     ? 'You rejected this — it can never be re-proposed'
-                                    : a.ok
-                                      ? `arrives ${a.arr} · ${a.cabin} · ${a.seats} seats left`
-                                      : a.why}
+                                    : excludedRule
+                                      ? excludedRule
+                                      : a.ok
+                                        ? `arrives ${a.arr} · ${a.cabin} · ${a.seats} seats left`
+                                        : a.why}
                                 </span>
+                                {reason && usable && (
+                                  <span className="mt" style={{ display: 'block', color: 'var(--mist2)', fontSize: 10.5 }}>
+                                    {reason.kind === 'llm-refined' ? '✦ ' : ''}{reason.text}
+                                  </span>
+                                )}
                                 {a.id === view.chosenAltId && <span className="rec">✓ we picked this</span>}
                               </span>
                               <span className="r">
@@ -236,6 +300,31 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                             </button>
                           );
                         })}
+                      </div>
+
+                      <div className="refine-box" style={{ margin: '14px 0 0' }}>
+                        <textarea
+                          value={refinePrompt}
+                          onChange={(e) => setRefinePrompt(e.target.value)}
+                          placeholder="Want something different? e.g. &quot;arrive before 6pm&quot; or &quot;avoid layovers&quot;"
+                          disabled={view.refining}
+                          maxLength={240}
+                          rows={2}
+                          style={{ width: '100%', resize: 'vertical', fontSize: 12.5 }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                          <span style={{ fontSize: 10.5, color: 'var(--mist2)' }}>
+                            {view.refining ? 'Thinking about your preference…' : refineError ?? ''}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={submitRefine}
+                            disabled={view.refining || !refinePrompt.trim()}
+                            style={{ fontSize: 11.5 }}
+                          >
+                            {view.refining ? '…' : 'Find something else'}
+                          </button>
+                        </div>
                       </div>
 
                       <div className="lbl" style={{ fontFamily: 'var(--mono)', fontSize: 9,

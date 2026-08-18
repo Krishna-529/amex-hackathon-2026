@@ -198,6 +198,21 @@ export async function updateConsent(passengerId: string, consent: Passenger['con
   return p;
 }
 
+/** Same shape as updateConsent above. `consent` (the field, not this wire
+ *  profile) stays the one authoritative source for autopilot/ask branching
+ *  everywhere in the app — see server/domain/types.ts's Passenger comment. */
+export async function updatePreferencesWire(
+  passengerId: string,
+  wire: Passenger['preferencesWire'],
+): Promise<Passenger | undefined> {
+  const q = await db();
+  const p = await getPassenger(passengerId);
+  if (!p) return undefined;
+  p.preferencesWire = wire;
+  await q`update passengers set data = ${q.json(p)} where id = ${passengerId}`;
+  return p;
+}
+
 // ------------------------------------------------------------- credentials --
 
 export async function createCredential(c: Credential): Promise<void> {

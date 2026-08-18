@@ -45,7 +45,41 @@ export type WindowInputs = {
   departureAt: number;
   international: boolean;
   now?: number;
+  /** Overrides WINDOW_CEILING_SECONDS for this call only — see
+   *  AUTOPILOT_NOTICE_CEILING_SECONDS below. Never overrides
+   *  WINDOW_FLOOR_SECONDS, which stays the one universal minimum: "below
+   *  this the ask is theatre" applies identically to a notice as to a real
+   *  ask — a notice still has to be noticed and read. Omit for the existing
+   *  ask-tier behavior, unchanged. */
+  ceilingSeconds?: number;
 };
+
+/**
+ * The autopilot notice's ceiling (server/engine/simulation.ts's autopilot
+ * branch of createTaskForBooking). Autopilot had NO window at all before
+ * this — it booked instantly. This gives the member a real, bounded chance
+ * to intervene before it does, reasoned as follows:
+ *
+ *  - The floor (120s) above is reused UNCHANGED — a notice needs the exact
+ *    same minimum real time to be noticed and read as a full ask,
+ *    regardless of tier, so it is never shortened below what this file
+ *    already established as "theatre."
+ *  - The ceiling is short because autopilot's whole value proposition is
+ *    fast default action, and this window is an override OPPORTUNITY, not
+ *    a required decision — unlike 'ask', silence here is not "we assume
+ *    yes," it is the literal thing autopilot means.
+ *  - Real seat-churn risk runs for the whole notice period (this file's own
+ *    answer — re-validate at confirm time, never a shorter window — still
+ *    applies at expiry via revalidateChoice, but a longer notice is still
+ *    more exposure for zero member benefit once nobody is looking at it).
+ *  - 180s sits just above the floor (clearly distinguishable from "no
+ *    notice at all") and stays an order of magnitude below the 20-minute
+ *    ask ceiling (15% of it), so autopilot never quietly turns into a
+ *    second ask flow — chosen at the short end of common "we'll proceed
+ *    automatically unless you say otherwise" grace-period patterns
+ *    deliberately, since speed is what this consent tier sells.
+ */
+export const AUTOPILOT_NOTICE_CEILING_SECONDS = 180;
 
 export type ConfirmWindow = {
   seconds: number;
@@ -70,7 +104,7 @@ export function confirmWindow(input: WindowInputs): ConfirmWindow {
   const candidates: [number, ConfirmWindow['boundBy']][] = [
     [fromOffer, 'offer-expiry'],
     [fromCheckIn, 'check-in'],
-    [WINDOW_CEILING_SECONDS, 'ceiling'],
+    [input.ceilingSeconds ?? WINDOW_CEILING_SECONDS, 'ceiling'],
   ];
   const [rawSeconds, boundBy] = candidates.reduce((a, b) => (b[0] < a[0] ? b : a));
 

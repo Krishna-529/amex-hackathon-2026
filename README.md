@@ -13,6 +13,8 @@ and an Android app, both wired to real sandbox APIs.
 | I want to… | Go to |
 |---|---|
 | Run the actual product | [`zkd-app/`](#zkd-app--the-round-2-product-start-here) below, or `cd zkd-app && npm install && npm run dev` |
+| Get current architecture + known gaps without re-reading the whole repo | [`context.md`](context.md) (kept current after every real change — see also `memory.md`'s dated work log) |
+| Run the real booking/saga engine locally | `docker-compose up` (repo root) — see [`zkd-execute/`, `zkd-shared/`, `policy/`](#zkd-execute-zkd-shared-policy--the-real-execution-plane) below |
 | See the submission package (videos, APK, docs) | [`SUBMISSION.md`](documentation/project/SUBMISSION.md) |
 | Read the design docs | [`documentation/`](documentation/README.md) |
 | Check which APIs are wired vs. stubbed | [`round2-api-requirements.xlsx`](assets/data/round2-api-requirements.xlsx) / `.csv` |
@@ -66,6 +68,38 @@ to the existing mock data if a provider is down — no vendor name is ever shown
 To actually use the live integrations, copy `zkd-app/.env.example` to `zkd-app/.env.local` and
 fill in the keys documented there (`assets/data/round2-api-requirements.xlsx` has signup links and free-tier
 details for each). Without it, the app runs entirely on its built-in mock data.
+
+**The rebooking "brain" (`server/engine/planningGraph.ts`) is a real LangGraph.js graph. Its own
+nodes are still deterministic TypeScript** — a real six-criterion, member-preference-aware ranker
+(`server/pipeline/score.ts`), not an LLM call — over the already-fetched candidate set; no
+negotiation loop (the spec's halt-condition logic exists in `zkd-shared` but has no caller yet).
+**Bedrock does have a real, narrower use as of 2026-08-18**: if a member types a free-text
+preference ("arrive before 6pm") on the rebooking notice, `server/bedrock.ts` parses it into a
+strict, schema-constrained patch that the SAME deterministic ranker re-ranks against — Bedrock
+narrates the preference into structure, it never picks a flight directly. Gemini remains a
+separate, narrower use (`/api/explain`) that only narrates an already-decided number. See
+`context.md`'s "Known gaps" before assuming the agent-spec docs' full multi-agent negotiation
+loop describes what's running — it doesn't, yet.
+
+## `zkd-execute/`, `zkd-shared/`, `policy/` — the real execution plane
+
+`zkd-app` above ("PLAN") never books or spends anything — it has no dependency on `zkd-execute` at
+all, so that's a structural fact, not just a convention. The plane that actually can:
+
+- **`zkd-execute/`** — a standalone Temporal worker running the real LIFO saga
+  (`reserveVAN → bookFlight → bookHotel → bookGround`, with `cancelGround → cancelHotel → voidFlight
+  → releaseVAN` compensation on any failure). Every activity calls the real OPA policy
+  (`policy/execute.rego`, default-deny) immediately before its real (Duffel) or mocked side effect.
+- **`zkd-shared/`** — the types + idempotency-key derivation + OPA client shared by both planes, so
+  neither can drift out of sync with the other's contract.
+- **`policy/`** — the OPA/Rego policy itself (`execute.rego`, `execute_test.rego`).
+- **`docker-compose.yml`** (repo root) stands up the whole thing locally for real: Postgres,
+  Temporal + its UI, an OPA sidecar, and the `zkd-execute` worker — no cloud account required.
+- **`infra/execution-plane/`** has real, `terraform validate`-clean (never `apply`'d) Terraform for
+  running this on AWS ECS Fargate.
+
+(`amex-travel-disruption-concierge/`, described further below, is a *separate*, earlier
+proof-of-concept of the same saga pattern — don't confuse it with the real plane above.)
 
 ## `zkd-android/` — the mobile app
 

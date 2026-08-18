@@ -39,9 +39,15 @@ carrier, and stop safely when it cannot.
 | `documentation/project/` | `SUBMISSION.md` — what was submitted and what is honestly not built |
 | `assets/` | `deck/` the pitch deck · `data/` API-requirements tracker · `reference/` PDFs and mockups · `builds/` the APK · `media/` the demo videos |
 | `tools/` | One-off scripts that are not part of either app |
-| `zkd-app/` | Next.js web app. Routes: `/flights`, `/flights/[id]`, `/prepare/[id]`, `/recovery/[id]`, `/profile`, `/settings`, `/history`, `/how-it-works`, `/ops` |
+| `zkd-app/` | **PLAN plane.** Next.js web app. Routes: `/flights`, `/flights/[id]`, `/prepare/[id]`, `/recovery/[id]`, `/profile`, `/settings`, `/history`, `/how-it-works`, `/ops`. Zero execution authority — no dependency on `zkd-execute` |
+| `zkd-execute/` | **EXECUTE plane.** Standalone Temporal worker — the only package that can actually book/pay. Every activity is OPA-gated before its side effect (`policy/execute.rego`) |
+| `zkd-shared/` | Contract package shared by both planes: types, `idempotency.ts`, `opaClient.ts`, `haltConditions.ts`, `ledger.ts` |
+| `policy/` | Real OPA/Rego policy (`execute.rego` + tests) enforced by `zkd-execute` |
+| `infra/execution-plane/` | Terraform for the EXECUTE plane's AWS shape (unapplied) |
+| `docker-compose.yml` (root) | The real local stack: Postgres, Temporal + UI, OPA, `zkd-execute` — runnable end-to-end with no cloud account |
 | `zkd-android/` | Expo / React Native Android app (subset of the web app: 4 screens) |
 | `zkd-risk-model/` | The real, self-trained cancellation-prediction model — data, features, training, serving, AWS Terraform |
+| `amex-travel-disruption-concierge/` | A separate, earlier saga/rollback proof-of-concept — not part of the Round 2 bundle, don't confuse with `zkd-execute` |
 | `ZKD Website/` | Production builds of the three demo sites + `serve.js` (ports 5173/5174/5175) |
 | `README.md`, `context.md`, `memory.md` | Kept at the root deliberately — landing page, fast orientation, and the running decision record |
 | `iropssim.py` | Monte Carlo simulator behind every `sim`-tier number. Stays at the root because the metrics site cites `python iropssim.py` as its reproduction command |
@@ -58,11 +64,23 @@ carrier, and stop safely when it cannot.
 - No live supplier integrations exist; Duffel / LiteAPI sandboxes are the intended proving ground.
 - Safety rests on the WAIT / consent gate and a default-deny policy layer. Quote numbers with
   their evidence tier (`verified` / `calc` / `sim` / `assumed` / `budget` / `deck`).
-- When you change behavior, update `memory.md`.
+- **`zkd-app` (PLAN) must never gain a dependency on `zkd-execute` (EXECUTE)** — that's not a style
+  preference, it's the mechanism that makes "zero execution authority" a structural fact rather
+  than a policy.
+- **Documentation is not optional cleanup — treat it as part of the change.** Every task that
+  touches code or repo files ends with: update `memory.md` (always — add a dated entry, even a
+  short one); update `context.md` if the change affects architecture, status, or a known
+  gap/limitation (keep its "Last refreshed" date current); update `README.md` if the change is
+  user-facing or changes how to run/set up something. A future session should be able to trust
+  `context.md` at face value instead of re-exploring the whole repo — treat a stale `context.md` as
+  a bug.
 
 ## Workflow
 
 1. Run reproducible checks before and after edits (`iropssim.py` diff, canon hashes).
 2. Apply changes to all four canon files as one scripted change-set, never one copy.
-3. After finishing a task, record decisions/insights in `memory.md` and refresh `context.md`.
+3. After finishing a task, record decisions/insights in `memory.md`, refresh `context.md` if
+   architecture/status changed, and refresh `README.md` if anything user-facing changed. Do this
+   every time, not just for large changes — small drifts are what make these files stop being
+   trustworthy.
 4. Don't touch `Code/` and `zkd-sites/` — they were committed as inert gitlinks and hold no source.
