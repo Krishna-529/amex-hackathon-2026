@@ -190,7 +190,8 @@ contract: a hotel task without a `flight_offer_id` is malformed.
 
 | Provider | What it gives | Status |
 |---|---|---|
-| **MyCa** (Amex card member app) | Identity, passport, travel preferences, cabin entitlement, per-transaction cap, card product terms, payment instrument reference | `sandbox` (mocked) |
+| **MyCa** (Amex card member app) | Identity, passport, travel preferences, cabin entitlement, card product terms, payment instrument reference | `sandbox` (mocked) |
+| **FX reference rates** (`server/fx.ts`) | Daily published rates, so a fare quoted in a supplier's currency can be shown against the card's billing currency. Keyless, cached for the day, with a committed fallback table — a rates outage must never blank the option list | live, no key required |
 
 **The concierge is not the system of record.** Preferences are read from MyCa at recovery time and
 no copy is kept — a local copy would drift from the card, and we would rank replacement flights

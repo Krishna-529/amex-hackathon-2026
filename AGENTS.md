@@ -56,7 +56,13 @@ carrier, and stop safely when it cannot.
   fixed at 25/55/80. The confirmation window is derived from supplier offer expiry, not a flat 90
   seconds.
 - No live supplier integrations exist; Duffel / LiteAPI sandboxes are the intended proving ground.
-- Safety rests on the WAIT / consent gate and a default-deny policy layer. Quote numbers with
+- Safety rests on the WAIT window plus a **notification ladder**, not a spend ceiling — the
+  ₹25,000 per-transaction cap was removed on 2026-08-19 and silence now proceeds to book. The
+  member is told the risk crossed, told the moment it cancelled, and told the exact delta with a
+  window to stop it. **This makes an undeliverable channel a safety defect**: check
+  `server/notify/index.ts` and the ledger before assuming an alert was seen. The default-deny
+  policy layer in `server/policy/` remains designed-and-tested but is still not wired into the
+  live path. Quote numbers with
   their evidence tier (`verified` / `calc` / `sim` / `assumed` / `budget` / `deck`).
 - When you change behavior, update `memory.md`.
 

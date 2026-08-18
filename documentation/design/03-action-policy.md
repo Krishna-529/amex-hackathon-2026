@@ -214,7 +214,7 @@ terminal:
 | `voluntary_under_autopilot` | The original flight operated — the change is the member's, not the carrier's |
 | `member_rejected_offer` | The offer is in `rejected_offer_ids` |
 | `fare_class_ceiling` | Cabin exceeds entitlement |
-| `fare_delta_cap` | Cost exceeds the declared per-transaction cap |
+| `fare_delta_cap` | Cost exceeds a budget **the member themselves stated** (`RebookingRules.outOfPocketCap`). The card's own per-transaction ceiling was removed on 2026-08-19 — see §10 |
 | `travel_window` | Departure falls outside the stated window |
 | `seat_exists` | No free seat |
 
@@ -320,22 +320,66 @@ card.** This is the routing invariant, stated once here so every other document 
 
 Two mechanisms enforce it, both already in the engine:
 
-1. **Spend is capped at the card's authorisation limit.** The per-transaction cap
-   (`fare_delta_cap` in §5; `DEFAULT_PER_TRANSACTION_CAP` in `server/myca.ts`) is checked on
-   *every* spend path — explicit approve, autopilot, and the silent-timeout path. If the plan
-   exceeds the cap, the engine stops before anything is charged, explains, and hands over to the
-   member. The cap is the card's real limit, not a preference, so even an explicit approval
-   cannot pass it (`server/engine/simulation.ts`).
+1. **The member is told what is about to be spent, before it is spent, with time to stop it.**
+
+   This replaced a per-transaction cap on **2026-08-19**, and the change is worth stating
+   plainly rather than quietly. There used to be a ₹25,000 ceiling checked on every spend path;
+   exceeding it stopped the recovery and handed over. It was removed because it was doing more
+   harm than good in the case that matters most: a member stranded overnight could be shown the
+   only remaining seat home greyed out as *"over your cap"*, which is not protection, it is a
+   refusal dressed as one.
+
+   What enforces the invariant now is the notification ladder
+   (`server/notify/templates.ts`), and it is a genuinely different guarantee — one of
+   **informed consent by default** rather than a hard ceiling:
+
+   | Rung | What the member is told | If they say nothing |
+   |---|---|---|
+   | 1 | This flight is at risk of cancellation — tell us what you'd prefer | keep watching |
+   | 2 | It cancelled. We have already ranked your alternatives | proceed to 3 |
+   | 3 | We are about to book *X* for *₹N after your refund*. You have *M* minutes to stop us | **book it** |
+   | 4 | Booked. Here is the itinerary and what comes back to your card | — |
+
+   Rung 3 quotes the **delta** after the expected refund on the original ticket, never the gross
+   fare: announcing ₹18,000 when ₹14,000 of it is returning is true and misleading, and this
+   message only works if it is neither.
+
+   This restores the frozen canon's Tier A mechanics — *notify → quiet window → proceed if
+   silent* — which the application had drifted away from by treating silence plus a cost as a
+   stop condition.
+
+   **The honest cost of the trade:** an unattended recovery can now spend an arbitrary amount if
+   the member never answers. What stands between them and that is rung 3 *actually arriving*.
+   That makes an undeliverable notification channel a real safety defect rather than a cosmetic
+   one — which is why every dispatch attempt, delivered or skipped, is written to the decision
+   ledger and surfaced on `/ops`. A budget the *member themselves* states still applies as a hard
+   rule (`RebookingRules.outOfPocketCap`); the distinction is that it is their choice rather than
+   the card's refusal.
+
 2. **Money returns to where it was drawn from.** A duty-of-care reimbursement or a cancelled
    ticket's refund lands on the same card the recovery was charged to, so spend and credit are
    always the same instrument and net out on one statement.
+
+   As of 2026-08-19 this is **computed**, not merely asserted. `server/domain/refund.ts`
+   estimates what comes back — the original fare (in full when the carrier cancelled, since
+   statutory entitlement overrides the fare rules that govern a passenger changing their mind),
+   less cancellation charges on any stay or transfer being unwound. Member-facing surfaces show
+   three figures rather than one: **what the plan costs**, **what comes back**, and **what you
+   end up paying**. Where we have no record of what the member paid, the refund reads *"not known
+   yet"* and never ₹0 — a guessed refund becomes a wrong delta, and the delta is the number a
+   member decides on.
 
 Ordering note (this is why the invariant matters during recovery): the replacement is booked and
 confirmed **before** the original is disposed (§6 — disposal is last, outside the rollback
 chain). The refund of the original is therefore always an event that follows a *completed*
 recovery, never one the pipeline depends on to fund the next step — the card must be able to
-carry the recovery charge on its own. If it cannot, the cap check in (1) stops the flow rather
-than starting a chain that needs a not-yet-arrived refund to clear.
+carry the recovery charge on its own.
+
+This is exactly why *expected* and *recovered* are tracked as separate fields on a
+`RefundClaim` (`server/ledger/reconciliation.ts`), and why the delta shown to a member is
+labelled as what they will end up paying rather than what they are charged today. Canon's
+**initiated is not completed** rule applies to money as much as to bookings: the refund is
+quoted because the member needs it to decide, not because it has arrived.
 
 Member-facing copy wherever a price is shown should say the same thing: *"Charged to your Amex;
 anything refunded comes back to the same card."*

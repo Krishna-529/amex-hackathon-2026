@@ -357,9 +357,16 @@ prove the engine is jurisdiction-neutral; more is a data exercise.
 carrier. We do not model carrier nationality, so we apply the departure rule — the one that always
 holds — and under-claim on the arrival case.
 
-**Known gap:** the per-transaction cap is set in the card's billing currency and we hold no FX
-rates, so a fare quoted in another currency cannot be compared to it. Those candidates are marked
-as needing conversion rather than silently approved or silently blocked.
+**Closed 2026-08-19:** this used to read as a known gap — the per-transaction cap was set in the
+card's billing currency, we held no FX rates, and a fare quoted in another currency was therefore
+marked as needing conversion rather than approved or blocked. In practice that emptied the option
+list, because live Duffel inventory prices in EUR: on a real search every bookable row disappeared
+behind the refusal. `server/fx.ts` now converts through published daily reference rates, keeps the
+supplier's original figure alongside the converted one so a settled charge can be reconciled
+against the quote, records the rate and its timestamp with the decision, and falls back to a
+committed table so a rates outage can never blank the screen. The member is told the figure is a
+market-rate conversion and that the amount charged may differ. The cap the refusal was protecting
+no longer exists (§3 of `03-action-policy.md`).
 
 ---
 

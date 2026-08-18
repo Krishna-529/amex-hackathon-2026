@@ -2,6 +2,110 @@
 
 ## Recent work
 
+- 2026-08-19 — **Free-text intent at the 80% gate, real refund maths, and automatic cancellation
+  detection.** Branch `worktree-intent-refund-detection`, three commits. Everything below is
+  green: `npm test` (147 passed / 5 skipped), `npm run verify` (all three executable checkers),
+  `npm run build`.
+
+  **Three findings from the audit that prompted this, worth keeping even if the code changes:**
+
+  1. **Nothing ever detected a cancellation.** `detectDisruption` was reachable from exactly one
+     place — the ops console's "Trigger disruption" button. `app/api/flight-status/route.ts`,
+     which does the real AviationStack lookup and classifies it against what the member booked,
+     had **zero callers**. `batchScorer` re-ran the *prediction* on three tiers of timer and never
+     once asked whether the flight had died. The parts were all built and tested; nobody had put a
+     timer behind them.
+  2. **Ranking never involved an LLM** and still does not. `rankAlts` is a six-criterion weighted
+     sum keyed off the MyCa `optimization_strategy` preset. Gemini's only job was, and remains,
+     narration. Worth knowing before anyone claims otherwise in a pitch.
+  3. **A fabricated option was moving a real alert.** `carrierProtectedAlt` took the cheapest
+     market offer, overwrote fare to 0 and seats to 99, and labelled it the airline's obligation.
+     `forecast.ts:108` counted those 99 imaginary seats into `seatsAvailable` whenever the
+     supplier search came back empty — and seat scarcity is what sets the threshold deciding how
+     early a real member gets warned.
+
+  **The per-transaction cap is gone (₹25,000).** Dhawal's call, and the reasoning is sound: a
+  stranded member seeing the only seat home greyed out as "over your cap" is a refusal dressed as
+  protection. What replaced it is a four-rung notification ladder — risk crossed → it cancelled →
+  *about to spend ₹N after your refund, you have M minutes to stop us* → booked. Silence now
+  PROCEEDS on every consent tier. **This restores frozen canon rather than breaking it**: the A2
+  block already said "Notify → quiet window → proceed if silent", and it was the app's
+  ask-me-first branch (silence + cost = stop) that had drifted. No canon file changed, so the
+  four hashes are unaffected.
+
+  **The trade is real and is written down where it bites** (`03-action-policy.md` §10,
+  `pricing.ts`, `simulation.ts`): an unattended recovery can now spend an arbitrary amount if the
+  member never answers. The thing standing between them and that is rung 3 *arriving*. **An
+  undeliverable notification channel is therefore now a safety defect, not a cosmetic one** — and
+  WhatsApp is still blocked on the trial Twilio account and Android push is still untested. That
+  is the single most important open risk on this branch.
+
+  **FX: we now convert.** Dhawal's call again, and it fixed a bigger problem than it looked.
+  `needsConversion` forced `ok:false` on every fare outside the billing currency; live Duffel
+  inventory prices in EUR; so on a real search *every bookable row disappeared*. That was the
+  cause of the 2026-08-18 finding "the only bookable rows are the carrier-protected alt +
+  mock:travelport". `server/fx.ts` uses Frankfurter (ECB daily, keyless — deliberate, since
+  anything needing a secret would be unconfigured on a fresh clone and put us straight back to an
+  empty list), keeps the supplier's original quote alongside, records rate + timestamp with the
+  decision, and falls back to a committed table so a rates outage cannot blank the screen.
+
+  **Refunds are computed, not asserted.** `server/domain/refund.ts` + `Booking.farePaid` (optional,
+  JSON column so no migration). Statutory entitlement overrides fare rules when the *carrier*
+  cancels — the fee that governs a passenger changing their mind does not govern the airline
+  changing theirs. Absent a recorded fare it returns `known: false` and the UI says "not known
+  yet", never ₹0: a guessed refund becomes a wrong delta and the delta is what the member decides
+  on. `server/ledger/reconciliation.ts` was already a complete claim ledger and was entirely
+  unused — it now has a caller.
+
+  **Free-text box on `/prepare`.** The architectural rule, which should survive any rewrite:
+  **the LLM translates, it never selects and never spends.** It emits a constrained delta; the
+  delta is validated, clamped, shown back, and then the *same* deterministic scorer ranks. The
+  clamp — not the prompt — is the security boundary: Gemini's structured output decides *shape*,
+  `validate()` decides *legality*, and every correction is reported to the member rather than
+  applied silently. Injection is handled by what the schema cannot express (there is no field for
+  "book this" and none for raising an entitlement), so a successful injection buys the attacker a
+  differently-sorted list of their own flights. Failure is **no change**, explicitly.
+
+  **Two real bugs found while doing this, both fixed:**
+  1. **Nothing ever filtered on `Alt.ok`.** An option outside the card's cabin entitlement could
+     out-rank everything on price and be selected automatically. It was masked because the other
+     cause of `ok: false` was the cap, which had its own stop at spend time — remove the cap and
+     the hole opens. Entitlement is now a hard rule in `applyHardRules`, filtered not penalised.
+  2. **`noHoldsCopy.test.ts` scanned `.tsx` under `app/` only**, so four "Your seats are still
+     held" strings in `simulation.ts` — rendered verbatim on `/recovery` — passed it cleanly the
+     entire time the claim was reaching members. The guard now follows the copy, not the file
+     type, via a `MEMBER_COPY_MODULES` list.
+
+  **Detection, two lanes, because neither is enough alone:**
+  - `server/engine/statusPoller.ts` — the missing timer. **The binding constraint is the free
+    tier, not compute**: AviationStack allows 100 calls/MONTH. A naive poller exhausts that in an
+    afternoon and leaves the product blind for 29 days — worse than not polling, because the
+    failure is silent and arrives when demand peaks. So: 'critical' flights only (reusing
+    `tierFor`, not re-deriving it), leaning on the existing per-flight-per-day cache so the unit
+    of spend is a *distinct flight-day* rather than a tick, hard ceiling of 45, and it says so on
+    `/ops` rather than going quiet. Most flights stay unwatched most of the time. That is why the
+    second lane exists.
+  - `server/engine/memberReports.ts` — a report is a **claim, never an event**. It starts the
+    *reporter's* recovery immediately (disbelieving a truthful stranded member is the exact
+    failure this product exists to prevent) and everyone else's only once corroborated: 3
+    independent reporters, or the carrier's feed, or a forecast already at hold-gate, or an
+    operator. Three not two — two is reachable by one person with two accounts.
+
+  **Also:** the first piece of good news the system can send. `crossedUpward` alerts on escalation
+  only, so every message a member ever received was alarming — which matters more now that
+  ignoring one ends in a charge. A flight that reached hold-gate and genuinely fell back to
+  `watch` gets exactly one stand-down.
+
+  **Scoring change to know about:** cost is now scored against the *spread of prices actually on
+  the table* rather than a fixed ceiling (there is no ceiling any more). The executable checks
+  caught the failure mode immediately — normalising over a bare range lets a ₹100 gap on a ₹7,000
+  fare saturate the scale and outvote reliability — so there is a `MATERIAL_SPREAD_FRACTION` floor
+  of 10%. The three old guards against the fabricated `fare: 0` row are all deleted.
+
+  **Still not wired:** `server/policy/index.ts` (the default-deny layer with `exposure_cap_exceeded`
+  etc.) has no importers anywhere in the live path. It is designed and unit-tested and inert. Left
+  alone deliberately — it was out of scope — but do not cite it as an active safeguard.
+
 - 2026-08-17 — **OAG Flight Instances is WORKING — the query shape is resolved and returning real
   Indian flight data.** This had been the open blocker since 2026-08-14 ("one more real call would
   close it out"). It took one call.
