@@ -4,6 +4,8 @@ import type {
 } from '@/server/domain/types';
 import type { PartyAlt } from '@/server/domain/altsForParty';
 import type { PartyCost } from '@/server/domain/pricing';
+import type { RefundEstimate } from '@/server/domain/refund';
+export type { RefundEstimate };
 import type { ReverifyResult } from '@/server/engine/forecast';
 export type { ReverifyResult };
 import type { RecoveryView } from '@/server/engine/simulation';
@@ -96,6 +98,13 @@ export type FlightDetail = FlightSummary & {
   /** alts are projected through altsForParty for the VIEWER's own party size —
    *  no party-fit logic reaches the client at all */
   candidates: { alts: PartyAlt[]; hotels: HotelOpt[]; cabs: CabOpt[]; cabLegs: CabLeg[] };
+  /**
+   * What the member gets back if this flight cancels — the other half of the
+   * price. Null when the viewer has no booking on this flight; `known: false`
+   * inside it when we have no record of the fare they paid, which the UI must
+   * show as "unknown" and never as zero. See server/domain/refund.ts.
+   */
+  refund: RefundEstimate | null;
   connectionSlackMinutes: number | null;
   hasHardConstraint: boolean;
   /** the instant the member said they must have arrived by, if they gave one —

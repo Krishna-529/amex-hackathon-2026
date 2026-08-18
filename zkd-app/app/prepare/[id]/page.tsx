@@ -10,6 +10,24 @@ import { roomsFor, vehiclesFor } from '@/lib/partyCost';
 import type { FlightDetail, PreAuthResponse } from '@/lib/apiTypes';
 import { PrepareSkeleton } from '@/components/PageSkeletons';
 
+/**
+ * What POST /api/flights/[id]/intent hands back. The route applies nothing —
+ * this is a preview the member confirms or discards.
+ */
+type IntentResult = {
+  understood: boolean;
+  message?: string;
+  restated?: string | null;
+  confidence?: 'high' | 'medium' | 'low';
+  diff?: {
+    changes: string[];
+    clamped: string[];
+    unsupported: { asked: string; why: string }[];
+  };
+  removed?: { id: string; code: string; rule: string }[];
+  options?: { id: string; code: string; dep: string; arr: string; partyFare: number; ok: boolean; why: string }[];
+};
+
 export default function PreparePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -24,6 +42,44 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
   const [hotelId, setHotelId] = useState<string | null>(null);
   const [cabId, setCabId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+
+  // Free-text intent. `intent` is a PREVIEW: nothing it contains has been
+  // applied to the member's profile or to any recovery until they press the
+  // confirm button, which is what makes it safe to let a language model near
+  // the input at all.
+  const [text, setText] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const [intent, setIntent] = useState<IntentResult | null>(null);
+
+  const ask = () => {
+    if (!text.trim() || thinking) return;
+    setThinking(true);
+    fetch(`/api/flights/${id}/intent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+      .then((r) => r.json())
+      .then((r: IntentResult) => {
+        setIntent(r);
+        // Move their selection to the new top option, but only when we actually
+        // understood them and something survived their own rules.
+        if (r.understood && r.options?.length) {
+          const best = r.options.find((o) => o.ok) ?? r.options[0];
+          setAltId(best.id);
+          setOpen(true);
+        }
+      })
+      .catch(() =>
+        setIntent({ understood: false, message: 'We could not reach that service. Your preferences are unchanged.' }),
+      )
+      .finally(() => setThinking(false));
+  };
+
+  const discardIntent = () => {
+    setIntent(null);
+    setText('');
+  };
 
   useEffect(() => {
     if (!detail) return;
@@ -49,6 +105,16 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
   const hotelCost = hotelUnit * rooms;
   const cabCost = cab.extra * vehicles;
   const owed = alt.partyFare + hotelCost + cabCost;
+
+  // What actually comes back, and therefore what this really costs. `refund`
+  // is null when the viewer has no booking here, and `known: false` when we
+  // have no record of the fare they paid — both render as "unknown" rather
+  // than as zero, because a wrong refund becomes a wrong delta and the delta
+  // is the number they decide on.
+  const refund = detail.refund;
+  const refundKnown = !!refund?.known;
+  const refundTotal = refundKnown ? refund!.total : 0;
+  const delta = owed - refundTotal;
 
   const authorise = () => {
     // passengerId is not sent — the server reads it from the session, the
@@ -108,6 +174,107 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
               <p style={{ margin: 0, color: 'var(--mist)', fontSize: 13.5 }}>
                 Checking this flight against the disruption forecast.
               </p>
+            )}
+          </div>
+
+          <div className="g panel" style={{ marginBottom: 16 }}>
+            <h3>Tell us what matters</h3>
+            <p style={{ margin: '0 0 12px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
+              In your own words — a time you have to be there by, an airline you would rather not
+              fly, how much of your own money you are willing to spend. We will re-order the
+              options below and show you exactly what changed before anything is set.
+            </p>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              maxLength={600}
+              rows={3}
+              placeholder="e.g. I have to be in Delhi before 9pm for my sister's wedding, and I'd rather not fly Air India"
+              style={{
+                width: '100%', padding: '10px 12px', borderRadius: 8, resize: 'vertical',
+                background: 'rgba(255,255,255,.03)', color: 'inherit', fontSize: 13.5,
+                border: '1px solid rgba(255,255,255,.14)', fontFamily: 'inherit', lineHeight: 1.5,
+              }}
+            />
+            <div className="acts" style={{ marginTop: 10 }}>
+              <button onClick={ask} disabled={thinking || !text.trim()}>
+                {thinking ? 'Reading that…' : 'Use this'}
+              </button>
+              {intent && <button onClick={discardIntent}>Undo</button>}
+            </div>
+
+            {intent && !intent.understood && (
+              <p style={{ margin: '12px 0 0', color: 'var(--risk)', fontSize: 13.5, lineHeight: 1.6 }}>
+                {intent.message}
+              </p>
+            )}
+
+            {intent?.understood && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.1)' }}>
+                {intent.restated && (
+                  <p style={{ margin: '0 0 10px', fontSize: 14, lineHeight: 1.6 }}>
+                    <b>{intent.restated}</b>
+                  </p>
+                )}
+
+                {!!intent.diff?.changes.length && (
+                  <>
+                    <div className="lbl" style={{ marginBottom: 6 }}>What we will do</div>
+                    <ul style={{ margin: '0 0 12px', paddingLeft: 18, color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.7 }}>
+                      {intent.diff.changes.map((c) => <li key={c}>{c}</li>)}
+                    </ul>
+                  </>
+                )}
+
+                {/* Anything we altered from what was proposed is stated, never
+                    silently corrected — a member who asked for something we
+                    bent is owed the fact that we bent it. */}
+                {!!intent.diff?.clamped.length && (
+                  <>
+                    <div className="lbl" style={{ marginBottom: 6 }}>What we adjusted</div>
+                    <ul style={{ margin: '0 0 12px', paddingLeft: 18, color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.7 }}>
+                      {intent.diff.clamped.map((c) => <li key={c}>{c}</li>)}
+                    </ul>
+                  </>
+                )}
+
+                {!!intent.diff?.unsupported.length && (
+                  <>
+                    <div className="lbl" style={{ marginBottom: 6 }}>What we cannot do</div>
+                    <ul style={{ margin: '0 0 12px', paddingLeft: 18, color: 'var(--risk)', fontSize: 13.5, lineHeight: 1.7 }}>
+                      {intent.diff.unsupported.map((u) => (
+                        <li key={u.asked}>{u.asked} — {u.why}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+
+                {/* "We found nothing" and "your own instruction excluded
+                    everything" are different answers, and the member is owed
+                    the second one. */}
+                {!!intent.removed?.length && (
+                  <>
+                    <div className="lbl" style={{ marginBottom: 6 }}>Ruled out by what you told us</div>
+                    <ul style={{ margin: '0 0 12px', paddingLeft: 18, color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.7 }}>
+                      {intent.removed.map((r) => <li key={r.id}>{r.code} — {r.rule}</li>)}
+                    </ul>
+                  </>
+                )}
+
+                {intent.options?.length === 0 && (
+                  <p style={{ margin: 0, color: 'var(--risk)', fontSize: 13.5, lineHeight: 1.6 }}>
+                    Nothing we can see meets all of that. Loosen one of the conditions above, or
+                    press Undo and choose from the full list yourself.
+                  </p>
+                )}
+
+                {intent.confidence === 'low' && (
+                  <p style={{ margin: '4px 0 0', color: 'var(--mist)', fontSize: 12.5, lineHeight: 1.6 }}>
+                    We were not very sure about this one — worth checking the list below before you
+                    confirm.
+                  </p>
+                )}
+              </div>
             )}
           </div>
 
@@ -194,6 +361,14 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
                         <span className={`pr ${a.ok && !a.partyFare ? 'free' : ''}`}>
                           {a.ok ? (a.partyFare ? money(a.partyFare) : 'no cost to you') : 'not bookable'}
                         </span>
+                        {/* Where a fare was converted, the supplier's own
+                            number stays visible beside ours — the conversion
+                            is honest only if the original is still there. */}
+                        {a.quoted && (
+                          <span className="mt" style={{ display: 'block', opacity: 0.7, fontSize: 11.5 }}>
+                            {a.quoted.currency} {a.quoted.amount.toLocaleString('en-IN')} converted
+                          </span>
+                        )}
                       </span>
                     </button>
                   ))}
@@ -250,10 +425,58 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
         <div>
           <div className="g panel" style={{ marginBottom: 16, borderColor: 'rgba(47,127,240,.34)' }}>
             <h3 style={{ color: 'var(--iris)' }}>What you are agreeing to</h3>
+
+            {/* Three rows, not one. The price of the replacement is only half
+                the story — the airline owes the original ticket back, and the
+                number that actually matters is the difference. Showing only
+                the first would overstate what this costs by the whole fare. */}
             <div className="kv">
-              <span className="k">Charged if it cancels</span>
+              <span className="k">This plan costs</span>
               <span className={`v ${owed ? 'warn' : 'ok'}`}>{owed ? money(owed) : 'nothing'}</span>
             </div>
+            <div className="kv">
+              <span className="k">Comes back to your card</span>
+              <span className={`v ${refundKnown && refundTotal > 0 ? 'ok' : ''}`}>
+                {refundKnown ? (refundTotal > 0 ? money(refundTotal) : 'nothing') : 'not known yet'}
+              </span>
+            </div>
+            <div className="kv">
+              <span className="k"><b>You end up paying</b></span>
+              <span className={`v ${delta > 0 ? 'warn' : 'ok'}`}>
+                {!refundKnown
+                  ? `${money(owed)} before any refund`
+                  : delta > 0
+                    ? money(delta)
+                    : delta < 0
+                      ? `${money(-delta)} back to you`
+                      : 'nothing'}
+              </span>
+            </div>
+
+            {refundKnown && !!refund?.lines.length && (
+              <div style={{ margin: '10px 0 4px' }}>
+                {refund.lines.map((l) => (
+                  <div className="kv" key={l.label} style={{ opacity: 0.75, fontSize: 12.5 }}>
+                    <span className="k">{l.label}</span>
+                    <span className="v">{l.amount >= 0 ? money(l.amount) : `−${money(-l.amount)}`}</span>
+                  </div>
+                ))}
+                {refund.statutory && (
+                  <p className="why" style={{ marginTop: 6 }}>
+                    {refund.lines[0]?.basis}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {!refundKnown && (
+              <p className="why">
+                We do not have a record of what you paid for this ticket, so we are not going to
+                guess what comes back. The figure above is what the replacement costs before any
+                refund is applied.
+              </p>
+            )}
+
             <div className="kv"><span className="k">Charged if it operates</span><span className="v ok">nothing</span></div>
             <div className="kv"><span className="k">Booked right now</span><span className="v ok">nothing</span></div>
             <div className="kv"><span className="k">If this plan is gone by then</span><span className="v">we ask you again</span></div>

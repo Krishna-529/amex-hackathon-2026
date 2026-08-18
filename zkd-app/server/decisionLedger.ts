@@ -24,6 +24,7 @@ const PREDICTIONS_PATH = join(STATE_DIR, 'predictions.jsonl');
 const OUTCOMES_PATH = join(STATE_DIR, 'outcomes.jsonl');
 const THRESHOLDS_PATH = join(STATE_DIR, 'threshold-evaluations.jsonl');
 const NOTIFICATIONS_PATH = join(STATE_DIR, 'notifications.jsonl');
+const INTENTS_PATH = join(STATE_DIR, 'member-intents.jsonl');
 
 function appendLine(path: string, obj: unknown): void {
   if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
@@ -126,5 +127,43 @@ export function logNotification(entry: Omit<NotificationLedgerEntry, 'loggedAt'>
     appendLine(NOTIFICATIONS_PATH, { ...entry, loggedAt: Date.now() } satisfies NotificationLedgerEntry);
   } catch (e) {
     console.error('[decisionLedger] failed to log notification:', e);
+  }
+}
+
+export type MemberIntentLedgerEntry = {
+  flightId: string;
+  passengerId: string;
+  /** how we read them back to themselves — not their raw text, see below */
+  restated: string | null;
+  confidence: string;
+  /** what we said we would change */
+  changes: string[];
+  /** what we altered from the model's proposal, and told them about */
+  clamped: string[];
+  /** what they asked for that we could not do */
+  unsupported: string[];
+  keptCount: number;
+  removedCount: number;
+  loggedAt: number;
+};
+
+/**
+ * What a member asked for in their own words, and what we did with it.
+ *
+ * Worth logging for the same reason predictions are: a stated deadline can
+ * remove every option and a stated budget is a hard rule, so "you told us to"
+ * needs to be checkable after the fact rather than taken on trust.
+ *
+ * The member's RAW TEXT is deliberately not stored. It is free-form prose typed
+ * under stress and can contain anything — a medical reason for the deadline, a
+ * family situation, a phone number. The restated one-liner is what we acted on
+ * and is enough to reconstruct the decision, so the ledger keeps that and the
+ * structured changes instead of the original sentence.
+ */
+export function logMemberIntent(entry: Omit<MemberIntentLedgerEntry, 'loggedAt'>): void {
+  try {
+    appendLine(INTENTS_PATH, { ...entry, loggedAt: Date.now() } satisfies MemberIntentLedgerEntry);
+  } catch (e) {
+    console.error('[decisionLedger] failed to log member intent:', e);
   }
 }

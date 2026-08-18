@@ -3,6 +3,7 @@ import * as store from './store';
 import { refreshIfStale } from '../engine/forecast';
 import { altsForParty } from './altsForParty';
 import { costFor } from './pricing';
+import { estimateRefund } from './refund';
 import { BILLING_CURRENCY } from '../myca';
 import type { Flight, Booking } from './types';
 import type { FlightSummary, FlightDetail, DisruptionOpsView } from '@/lib/apiTypes';
@@ -79,12 +80,34 @@ export async function toFlightDetail(flight: Flight, viewerPassengerId: string):
     own ? store.getPassenger(own.passengerId) : Promise.resolve(undefined),
   ]);
 
+  // What comes BACK if this flight dies. Computed once per detail request and
+  // sent with the options, because the number a member decides on is not the
+  // price of the replacement — it is the price minus what they get refunded.
+  // `known: false` when we have no record of what they paid, and the UI must
+  // render that as "unknown" rather than as zero.
+  const refund = own
+    ? estimateRefund({
+        flight,
+        booking: own,
+        cancelledBy: 'carrier',
+        // Absent a filed cancellation we assume the disruption is severe enough
+        // to engage duty of care, which for a cancellation it is by definition.
+        delayHours: 24,
+        // Only stays tied to THIS flight can be unwound by its cancellation —
+        // a hotel the member booked for a different trip is not a cancellation
+        // charge this recovery caused.
+        stays: (await store.getStaysForPassenger(viewerPassengerId).catch(() => []))
+          .filter((s) => s.flightId === flight.id),
+      })
+    : null;
+
   return {
     ...summary,
     candidates: {
       ...flight.candidates,
       alts: altsForParty(flight.candidates.alts, partySize),
     },
+    refund,
     connectionSlackMinutes: flight.connectionSlackMinutes,
     hasHardConstraint: flight.hasHardConstraint,
     hardDeadlineISO: flight.hardDeadlineISO ?? null,
