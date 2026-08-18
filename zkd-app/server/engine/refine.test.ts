@@ -1,9 +1,9 @@
 /**
  * The safety-envelope guarantees behind server/engine/refine.ts, against a
  * real Postgres (same describe.skipIf(!hasDb) pattern as
- * store.integration.test.ts) with Bedrock itself mocked — this file proves
- * the MERGE/re-rank logic is safe regardless of what a (mocked) LLM
- * returns, not that Bedrock is reachable.
+ * store.integration.test.ts) with the refine LLM itself mocked — this file
+ * proves the MERGE/re-rank logic is safe regardless of what a (mocked) LLM
+ * returns, not that Gemini is reachable.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Flight, Passenger, RecoveryTask } from '../domain/types';
@@ -11,7 +11,7 @@ import type { Flight, Passenger, RecoveryTask } from '../domain/types';
 const hasDb = !!process.env.DATABASE_URL;
 
 const parsePreferencePromptMock = vi.fn();
-vi.mock('../bedrock', () => ({ parsePreferencePrompt: (...a: unknown[]) => parsePreferencePromptMock(...a) }));
+vi.mock('../geminiRefine', () => ({ parsePreferencePrompt: (...a: unknown[]) => parsePreferencePromptMock(...a) }));
 
 describe.skipIf(!hasDb)('refineWithPreference — safety envelope', () => {
   let store: typeof import('../domain/store');
@@ -134,7 +134,7 @@ describe.skipIf(!hasDb)('refineWithPreference — safety envelope', () => {
     expect(after?.refining).toBe(false);
   });
 
-  test('a null patch (Bedrock failure) re-ranks unchanged and leaves an honest fallback note', async () => {
+  test('a null patch (LLM failure) re-ranks unchanged and leaves an honest fallback note', async () => {
     const { flightId, passengerId } = await seed('null-patch-fallback', {
       alts: [alt('only-1')],
     });

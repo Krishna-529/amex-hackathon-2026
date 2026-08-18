@@ -8,14 +8,14 @@ import { consumeToken } from '@/server/rateLimit';
 
 /**
  * Separate from ../consent/route.ts deliberately: resolveTask() (behind
- * consent) is fully synchronous, but this needs to `await` a real Bedrock
+ * consent) is fully synchronous, but this needs to `await` a real LLM
  * call — see server/engine/refine.ts. consent/route.ts's own isResolveBody
  * already rejects an unrecognized 'refine' action kind (its SIMPLE_KINDS
  * allowlist doesn't include it), so there's no risk of the two routes
  * fighting over the same action.
  *
  * Rate-limited per member (not per IP — the abuse surface here is a real
- * Bedrock call, occasionally a real supplier fan-out, both billed per
+ * LLM call, occasionally a real supplier fan-out, both billed per
  * account, not per network address). Tighter than reverify's 5/1 (the
  * closest precedent, app/api/flights/[id]/reverify/route.ts) since this is
  * strictly more expensive per call.

@@ -1,6 +1,8 @@
 /**
- * What Bedrock is allowed to produce when a member types a free-text
- * refine prompt ("arrive before 6pm," "avoid layovers") — and nothing else.
+ * What the refine LLM (server/geminiRefine.ts, or server/bedrock.ts if that
+ * provider is swapped back in) is allowed to produce when a member types a
+ * free-text refine prompt ("arrive before 6pm," "avoid layovers") — and
+ * nothing else.
  * The LLM's job is narrow: natural-language-to-structured-constraint
  * parsing, never flight selection (server/engine/refine.ts still runs the
  * real deterministic scorer, server/pipeline/score.ts, on whatever this

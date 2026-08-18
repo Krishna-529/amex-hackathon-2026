@@ -2,8 +2,8 @@
  * A member's free-text preference prompt ("arrive before 6pm," "avoid
  * layovers") re-ranks the SAME candidate portfolio server/engine/simulation.ts
  * already picked from — never a flight the member wasn't already shown a
- * chance to book. Bedrock (server/bedrock.ts) only ever parses the prompt
- * into a structured, narrow patch (server/preferences/refinePatch.ts); the
+ * chance to book. The refine LLM (server/geminiRefine.ts) only ever parses
+ * the prompt into a structured, narrow patch (server/preferences/refinePatch.ts); the
  * actual ranking is always the real deterministic scorer
  * (server/pipeline/score.ts), so a member can never be routed to a flight
  * that doesn't survive the same hard rules and MyCa gates every other
@@ -20,7 +20,7 @@ import * as store from '../domain/store';
 import { fetchProfile } from '../myca';
 import { adapt, defaultWireFor } from '../preferences/adapt';
 import type { RebookingRules } from '../preferences/adapt';
-import { parsePreferencePrompt } from '../bedrock';
+import { parsePreferencePrompt } from '../geminiRefine';
 import { altsForParty } from '../domain/altsForParty';
 import { applyHardRules, rankAlts, type ScoreContext } from '../pipeline/score';
 import { localTime } from '../airportDirectory';
@@ -62,7 +62,7 @@ export async function refineWithPreference(flightId: string, passengerId: string
     const profile = await fetchProfile(passenger.id);
     const wire = passenger.preferencesWire ?? defaultWireFor(passenger, profile);
     const adapted = adapt(wire, profile.payment.billingCurrency);
-    const patch = await parsePreferencePrompt(prompt); // null on any Bedrock failure — see bedrock.ts
+    const patch = await parsePreferencePrompt(prompt); // null on any Gemini failure — see geminiRefine.ts
 
     const mergedRules: RebookingRules = patch
       ? {
