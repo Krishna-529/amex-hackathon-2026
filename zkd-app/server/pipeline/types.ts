@@ -38,6 +38,7 @@
  */
 
 import type { Step, RecoveryTaskPhase } from '../domain/types';
+import type { PreferenceDelta } from '../preferences/refine';
 import type { OptimizationStrategy } from '../preferences/schema';
 
 export type PipelineState =
@@ -129,6 +130,7 @@ export type PipelineEventKind =
   | 'composed'
   | 'ranked'
   | 'ranking-not-ready'
+  | 'refined'
   | 'filtered'
   | 'refresh'
   | 'invalidated'
@@ -189,6 +191,15 @@ export type PipelineRun = {
    * not a parsed log line.
    */
   excluded: { code: string; rule: string }[];
+  /**
+   * Constraints the member typed during this recovery, session-scoped.
+   *
+   * Deliberately on the run and not on the Passenger record: "I need to be
+   * there before nine" is true of this trip, not of the member. It dies with
+   * the run, which is why it can be permissive about being wrong — the next
+   * disruption starts from their standing preferences again.
+   */
+  refinement: PreferenceDelta | null;
   /** per-source status from the last search, for /ops */
   sources: Record<string, string>;
   /** components actually committed, in order — the rollback stack */

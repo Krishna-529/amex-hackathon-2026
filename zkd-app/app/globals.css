@@ -388,6 +388,13 @@ footer p{margin:0;max-width:70ch}
 .ev .s{font-size:12.5px;color:var(--mist2);line-height:1.5}
 
 /* option rows */
+.refine{margin-top:18px;padding:13px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.02)}
+.refine label{display:block;font-size:13.5px;font-weight:500;margin-bottom:5px}
+.refine p{margin:0 0 9px;color:var(--mist2);font-size:12.5px;line-height:1.55}
+.refine textarea{width:100%;box-sizing:border-box;resize:vertical;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:rgba(0,0,0,.18);color:inherit;font:inherit;font-size:13px;line-height:1.5}
+.refine textarea:focus{outline:none;border-color:rgba(47,127,240,.55)}
+.refine textarea:disabled{opacity:.55}
+.refine .go{margin-top:9px}
 .excl{list-style:none;margin:8px 0 0;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.02)}
 .excl li{color:var(--mist2);font-size:12.5px;line-height:1.55}
 .excl li+li{margin-top:5px}

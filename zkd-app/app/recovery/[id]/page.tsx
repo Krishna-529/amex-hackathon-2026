@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { use } from 'react';
+import { use, useState } from 'react';
 import { useWorld } from '@/components/WorldProvider';
 import { usePoll } from '@/lib/usePoll';
 import {
@@ -25,16 +25,22 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
   const { data: detail } = usePoll<FlightDetail>(passengerId ? `/api/flights/${id}` : null, 5000);
   const { data: preAuth } = usePoll<PreAuthResponse>(passengerId ? `/api/flights/${id}/preauth` : null, 10000);
 
+  // Declared before the loading early-return below, so the hook order is stable
+  // across renders.
+  const [refineText, setRefineText] = useState('');
+  const [refining, setRefining] = useState(false);
+
   const f = schedule?.upcoming.find((x) => x.id === id);
   const booking = f?.booking;
 
-  const act = (action: ResolveAction) => {
+  // Returns the promise so the refine button can show progress. Everything else
+  // still fires and forgets — the next poll reports the result either way.
+  const act = (action: ResolveAction) =>
     fetch(`/api/disruptions/${id}/consent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action }),
-    }).catch(() => {});
-  };
+    }).then(() => undefined).catch(() => undefined);
 
   if (!schedule || !view || !detail || !f || !booking) return <RecoverySkeleton />;
 
@@ -296,6 +302,38 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                             </span>
                           </button>
                         ))}
+                      </div>
+
+                      {/* The clock is already held in this phase, which is the
+                          only reason it is affordable to ask a model to read a
+                          sentence here. */}
+                      <div className="refine">
+                        <label htmlFor="refine-text">None of these work?</label>
+                        <p>
+                          Tell us what you actually need and we will search again. A time you have to
+                          arrive by, an airline to avoid, how many stops you will accept. We cannot
+                          change what your card will authorise.
+                        </p>
+                        <textarea
+                          id="refine-text"
+                          value={refineText}
+                          maxLength={400}
+                          rows={3}
+                          placeholder="I have to be in Delhi before 9am and I can't fly SpiceJet."
+                          onChange={(e) => setRefineText(e.target.value)}
+                          disabled={refining}
+                        />
+                        <button
+                          className="go"
+                          disabled={refining || refineText.trim().length === 0}
+                          onClick={() => {
+                            setRefining(true);
+                            act({ kind: 'refine', text: refineText })
+                              .finally(() => { setRefining(false); setRefineText(''); });
+                          }}
+                        >
+                          {refining ? 'Searching again…' : 'Search again with this'}
+                        </button>
                       </div>
 
                       <div className="acts" style={{ marginTop: 16 }}>

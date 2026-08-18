@@ -76,6 +76,7 @@ export function ensureRun(flightId: string, passengerId: string): PipelineRun {
     committed: [],
     orphans: [],
     excluded: [],
+    refinement: null,
     mutationsEnabled: process.env.PIPELINE_ALLOW_MUTATIONS === '1',
     journal: [],
   };

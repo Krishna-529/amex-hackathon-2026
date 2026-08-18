@@ -37,6 +37,7 @@ import { searchGround, withinGroundCap, toCabOpt } from '../ground';
 import { airport, countryCodeOf } from '../airportDirectory';
 import { adapt, type AdaptedPreferences } from '../preferences/adapt';
 import { WIRE_DEFAULTS, type OptimizationStrategy } from '../preferences/schema';
+import { describeDelta, type PreferenceDelta } from '../preferences/refine';
 import * as journal from './journal';
 import { applyHardRules, rankAlts, type ScoreContext } from './score';
 import { composeConnections, needsOvernight, needsRentalCar } from './compose';
@@ -213,7 +214,7 @@ async function plan(run: PipelineRun): Promise<void> {
 
   if (!journal.transition(run, 'EVALUATING', 'scoring the portfolio against the member profile').ok) return;
 
-  const ctx: ScoreContext = {
+  const ctx: ScoreContext = applyRefinement({
     flight,
     rules: prefs.rules,
     preferredCabin: prefs.preferredCabin,
@@ -221,7 +222,7 @@ async function plan(run: PipelineRun): Promise<void> {
     cap: prefs.preferences.perTransactionCap,
     preferredCarriers: prefs.preferences.preferredCarriers,
     hasHardConstraint: flight.hasHardConstraint,
-  };
+  }, run.refinement, prefs.hotel);
 
   const party = altsForParty(flight.candidates.alts, partySize);
   const { kept, removed } = applyHardRules(party, ctx);
@@ -406,6 +407,89 @@ export function summaryFor(flightId: string, passengerId: string) {
     heuristicFallback: run.journal.some((e) => e.kind === 'ranking-not-ready'),
     timings: journal.timings(run),
   };
+}
+
+/**
+ * Lays this run's free-text refinement over the member's standing preferences.
+ *
+ * Every field it can touch is one `applyHardRules`/`rankAlts` already read, so
+ * refining changes *what is asked of the existing scorer*, never how the scorer
+ * works. Three things it deliberately cannot do:
+ *
+ *   - Raise a cap. `cap` is not copied from the delta because the delta has no
+ *     monetary field at all (see preferences/refine.ts) — §10 makes the card's
+ *     limit the ceiling, and a preference may never lift its own ceiling.
+ *   - Emit weights. Only `strategy` crosses, so `weightsFor()` and its
+ *     RELIABILITY_FLOOR still do the arithmetic.
+ *   - Loosen a standing rule by accident. `avoidAirlines` is unioned and the
+ *     numeric limits take the tighter of the two, so a refinement can add a
+ *     constraint but never quietly delete one the member already set.
+ *
+ * The deadline is written onto a *copy* of the flight: it is true of this
+ * recovery, not of the flight, and must not reach the stored aggregate where
+ * another passenger on the same flight would inherit it.
+ */
+function applyRefinement(
+  ctx: ScoreContext,
+  delta: PreferenceDelta | null,
+  hotel: AdaptedPreferences['hotel'],
+): ScoreContext {
+  if (!delta) return ctx;
+
+  const rules = { ...ctx.rules };
+  if (delta.strategy) rules.strategy = delta.strategy;
+  if (delta.avoidAirlines?.length) {
+    rules.avoidAirlines = [...new Set([...rules.avoidAirlines, ...delta.avoidAirlines])];
+  }
+  if (delta.maxLayovers !== undefined) {
+    rules.maxLayovers = Math.min(rules.maxLayovers, delta.maxLayovers);
+  }
+  if (delta.allowCabinDowngrade !== undefined) rules.allowCabinDowngrade = delta.allowCabinDowngrade;
+
+  if (delta.hotelMaxDistanceKm !== undefined) {
+    hotel.maxDistanceKm = Math.min(hotel.maxDistanceKm, delta.hotelMaxDistanceKm);
+  }
+  if (delta.hotelMustHaveAmenities?.length) {
+    hotel.mustHaveAmenities = [...new Set([...hotel.mustHaveAmenities, ...delta.hotelMustHaveAmenities])];
+  }
+
+  const flight = delta.hardDeadlineISO
+    ? { ...ctx.flight, hardDeadlineISO: delta.hardDeadlineISO, hasHardConstraint: true }
+    : ctx.flight;
+
+  return {
+    ...ctx,
+    flight,
+    rules,
+    hasHardConstraint: ctx.hasHardConstraint || !!delta.hardDeadlineISO,
+  };
+}
+
+/**
+ * "Here is what I actually need" — re-plans this recovery under constraints the
+ * member typed, without touching their standing profile.
+ *
+ * Sits strictly left of IRREVERSIBLE_EDGE: it requires HOLD_PENDING and goes
+ * back through the same SEARCHING/EVALUATING edges `replan` already uses, so a
+ * refinement can never be the thing that spends money. It only changes what is
+ * offered, before consent exists.
+ */
+export async function refineWith(
+  flightId: string,
+  passengerId: string,
+  delta: PreferenceDelta,
+): Promise<boolean> {
+  const run = store.getPipelineRun(flightId, passengerId);
+  if (!run || run.state !== 'HOLD_PENDING') return false;
+
+  // Layered rather than replaced: two refinements in one recovery should
+  // accumulate, the way a conversation does.
+  run.refinement = { ...(run.refinement ?? {}), ...delta };
+  journal.append(run, {
+    kind: 'refined',
+    detail: { asked: describeDelta(run.refinement).join('; ') || 'nothing usable' },
+  });
+  return replan(flightId, passengerId);
 }
 
 /**

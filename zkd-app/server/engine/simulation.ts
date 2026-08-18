@@ -32,6 +32,11 @@ import { money } from '@/lib/time';
 import * as store from '../domain/store';
 import { ensureSeeded } from '../domain/seed';
 import * as pipeline from '../pipeline';
+import { generateJson } from '../gemini';
+import {
+  buildRefinementPrompt, cleanRefinementText, describeDelta, validateDelta,
+  DELTA_RESPONSE_SCHEMA,
+} from '../preferences/refine';
 import type {
   DisruptionEvent, RecoveryTask, DisruptionResolution, Flight, Booking, Step, PreAuthRecord,
 } from '../domain/types';
@@ -43,7 +48,9 @@ export type ResolveAction =
   | { kind: 'back' }
   | { kind: 'choose'; altId: string }
   | { kind: 'swap-hotel'; hotelId: string }
-  | { kind: 'swap-cab'; cabId: string };
+  | { kind: 'swap-cab'; cabId: string }
+  /** free text: "none of these work, here is what I actually need" */
+  | { kind: 'refine'; text: string };
 
 /**
  * Shape check for a ResolveAction arriving over the wire.
@@ -70,6 +77,8 @@ export function isResolveAction(v: unknown): v is ResolveAction {
       return str('hotelId');
     case 'swap-cab':
       return str('cabId');
+    case 'refine':
+      return str('text');
     default:
       return false;
   }
@@ -497,6 +506,44 @@ export async function resolveTask(
       const cab = flight?.candidates.cabs.find((c) => c.id === action.cabId);
       task.chosenCabId = action.cabId;
       task.note = cab ? `Cab swapped to ${cab.kind}.` : task.note;
+      break;
+    }
+    case 'refine': {
+      // Holding the clock first, before anything slow runs. `browse` already
+      // establishes that stepping in stops the countdown, and this is the same
+      // promise: the member is not racing a timer while a model reads their
+      // sentence. It also means an LLM round-trip never sits on the critical
+      // path of an unattended recovery.
+      task.phase = 'choosing';
+
+      const text = cleanRefinementText(action.text);
+      if (!text) {
+        task.note = 'We could not read that — tell us in a sentence what you need and we will try again.';
+        break;
+      }
+
+      const raw = await generateJson(
+        buildRefinementPrompt(text, new Date().toISOString()),
+        DELTA_RESPONSE_SCHEMA,
+      );
+      const delta = validateDelta(raw);
+
+      // Every failure lands here identically: no API key, a timeout, malformed
+      // JSON, or a well-formed answer with nothing usable in it. The member
+      // keeps the options they already had — a refinement that cannot be
+      // understood must not silently narrow anything.
+      if (!delta) {
+        task.note = raw === null
+          ? 'We could not reach the assistant that reads these, so your options are unchanged. Pick from the list, or hand over to a human.'
+          : 'We could not turn that into anything we can search on, so your options are unchanged. Try naming a time, an airline to avoid, or how many stops you will accept.';
+        break;
+      }
+
+      const applied = await pipeline.refineWith(flightId, passengerId, delta);
+      const asked = describeDelta(delta).join(', ');
+      task.note = applied
+        ? `${delta.understood ?? 'Understood.'} We re-searched for: ${asked}.`
+        : `${delta.understood ?? 'Understood.'} We noted that, but this recovery has moved past the point where we can re-search it — the options below are the ones you have.`;
       break;
     }
     case 'approve': {
