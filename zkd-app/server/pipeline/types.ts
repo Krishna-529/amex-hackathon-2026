@@ -128,6 +128,7 @@ export type PipelineEventKind =
   | 'search'
   | 'composed'
   | 'ranked'
+  | 'ranking-not-ready'
   | 'filtered'
   | 'refresh'
   | 'invalidated'
@@ -178,6 +179,16 @@ export type PipelineRun = {
   replans: number;
   /** ids of the chosen plan, in the domain's own vocabulary */
   plan: { altId: string; hotelId: string; cabId: string } | null;
+  /**
+   * Options a hard rule disqualified, with the rule that did it.
+   *
+   * Member-facing, unlike `journal[].detail`: "we found nothing" and "your own
+   * settings excluded everything" are different answers and the recovery page
+   * already promises the second one in copy. Kept on the run rather than read
+   * back out of the journal so the wording reaching the member is a real field,
+   * not a parsed log line.
+   */
+  excluded: { code: string; rule: string }[];
   /** per-source status from the last search, for /ops */
   sources: Record<string, string>;
   /** components actually committed, in order — the rollback stack */

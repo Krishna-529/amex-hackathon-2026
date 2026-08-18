@@ -258,6 +258,23 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
     ?? partyAlts.find((a) => a.kind === 'carrier-protected' && a.ok)
     ?? partyAlts.find((a) => a.ok)
     ?? partyAlts[0];
+
+  // Record when the scorer's answer was not used. Falling back is correct — the
+  // pipeline may not block a recovery — but doing it invisibly meant a member
+  // could be shown, and could approve, a pick the scorer never made, with
+  // nothing anywhere saying the ranking had been bypassed. `finishDecide` runs
+  // on a ~1.5s timer while plan() is still searching, so this is a routine race,
+  // not an edge case.
+  if (!preferredAlt && defaultAlt) {
+    pipeline.noteRankingNotReady(
+      flight.id,
+      passenger.id,
+      defaultAlt.code ?? defaultAlt.id,
+      preferred
+        ? 'the scored option could not seat this party or was no longer bookable'
+        : 'scoring had not finished when the confirmation window opened',
+    );
+  }
   task.chosenAltId = defaultAlt?.id ?? '';
   task.chosenHotelId = preferred?.hotelId || flight.candidates.hotels[0]?.id || '';
   task.chosenCabId = preferred?.cabId || flight.candidates.cabs[0]?.id || '';

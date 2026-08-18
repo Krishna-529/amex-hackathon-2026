@@ -226,6 +226,10 @@ async function plan(run: PipelineRun): Promise<void> {
   const party = altsForParty(flight.candidates.alts, partySize);
   const { kept, removed } = applyHardRules(party, ctx);
 
+  // Kept on the run so the member can be told which of their own rules removed
+  // which option, rather than being shown a shorter list with no explanation.
+  run.excluded = removed.map((r) => ({ code: r.code, rule: r.rule }));
+
   if (removed.length > 0) {
     journal.append(run, {
       kind: 'filtered',
@@ -392,8 +396,38 @@ export function summaryFor(flightId: string, passengerId: string) {
     mutationsEnabled: run.mutationsEnabled,
     strategy: run.journal.find((e) => e.kind === 'ranked')?.detail.strategy ?? null,
     why: run.journal.find((e) => e.kind === 'ranked')?.detail.why ?? null,
+    excluded: run.excluded,
+    /**
+     * True when simulation.ts fell back to its own heuristic because this run
+     * had not finished ranking yet. The fallback is deliberate — the pipeline is
+     * never allowed to block a recovery — but it used to be silent, so a member
+     * could be shown a pick the scorer never made with nothing recording that.
+     */
+    heuristicFallback: run.journal.some((e) => e.kind === 'ranking-not-ready'),
     timings: journal.timings(run),
   };
+}
+
+/**
+ * Records that a recovery went ahead on simulation.ts's heuristic rather than
+ * on this module's ranking.
+ *
+ * The fallback itself is deliberate and stays — `preferredPlan` reads
+ * synchronously and returns null while `plan()` is still searching, so the
+ * pipeline can never delay a member. What was missing is the record: a member
+ * could be shown, and approve, a pick the scorer never made, with nothing
+ * anywhere saying so. Exported rather than letting simulation.ts reach into the
+ * journal, so every write to a run still goes through this module.
+ */
+export function noteRankingNotReady(
+  flightId: string,
+  passengerId: string,
+  chosen: string,
+  reason: string,
+): void {
+  const run = store.getPipelineRun(flightId, passengerId);
+  if (!run) return;
+  journal.append(run, { kind: 'ranking-not-ready', detail: { chosen, reason } });
 }
 
 // ── Crossing the gate ──────────────────────────────────────────────────────

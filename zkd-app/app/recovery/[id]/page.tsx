@@ -43,6 +43,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
   const cab = detail.candidates.cabs.find((c) => c.id === view.chosenCabId) ?? detail.candidates.cabs[0];
   const partySize = view.partySize;
   const bookable = detail.candidates.alts.filter((a) => a.ok && !view.rejectedAltIds.includes(a.id));
+  const excluded = view.pipeline?.excluded ?? [];
   const elapsed = view.shown.reduce((a, s) => a + s.d, 0);
   const consent = schedule.passenger.consent;
 
@@ -202,6 +203,16 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                         {bookable.length} of {detail.candidates.alts.length} work for you. The rest are blocked by
                         your own policy — we&apos;ll tell you which rule, not just &ldquo;unavailable&rdquo;.
                       </p>
+                      {/* That promise used to be copy with nothing behind it.
+                          applyHardRules records the rule for every option it
+                          removes, so name them. */}
+                      {excluded.length > 0 && (
+                        <ul className="excl">
+                          {excluded.map((x) => (
+                            <li key={x.code}><b>{x.code}</b> — {x.rule}</li>
+                          ))}
+                        </ul>
+                      )}
                       <div className="lbl" style={{ fontFamily: 'var(--mono)', fontSize: 9,
                         letterSpacing: '.16em', textTransform: 'uppercase',
                         color: 'var(--mist2)', margin: '4px 0 9px' }}>Flights</div>
@@ -308,10 +319,27 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
         </div>
 
         <div>
-          {view.note && view.phase !== 'handed' && (
+          {(view.note || view.pipeline?.why) && view.phase !== 'handed' && (
             <div className="g panel" style={{ marginBottom: 16, borderColor: 'rgba(47,127,240,.3)' }}>
               <h3>Why this happened</h3>
-              <p style={{ margin: 0, color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>{view.note}</p>
+              {view.note && (
+                <p style={{ margin: 0, color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>{view.note}</p>
+              )}
+              {/* The scorer's own sentence. It was being computed on every
+                  recovery and thrown away — the member was shown a ranked list
+                  with no statement of what it was ranked on. */}
+              {view.pipeline?.why && (
+                <p style={{ margin: view.note ? '10px 0 0' : 0, color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
+                  {view.pipeline.why}
+                </p>
+              )}
+              {view.pipeline?.heuristicFallback && (
+                <p style={{ margin: '10px 0 0', color: 'var(--mist2)', fontSize: 12.5, lineHeight: 1.6 }}>
+                  We had not finished scoring every option when your window opened, so this is our
+                  safe default rather than the ranked pick. Nothing is lost — you can still browse
+                  the full list below.
+                </p>
+              )}
             </div>
           )}
 
