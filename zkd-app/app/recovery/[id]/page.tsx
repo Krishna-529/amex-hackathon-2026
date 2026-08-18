@@ -149,7 +149,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
                             <span className="t2">
                               arrives {alt.arr} · {alt.cabin} ·{' '}
                               {partySize > 1 ? `${partySize} seats` : `seat ${booking.seat}`}
-                              {alt.kind === 'carrier-protected' && ' · owed by the airline'}
+
                             </span>
                           </span>
                           <span className={`r ${alt.partyFare ? '' : 'free'}`}>

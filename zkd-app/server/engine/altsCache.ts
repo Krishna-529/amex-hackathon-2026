@@ -46,7 +46,7 @@
  */
 import { searchInventory } from '../suppliers';
 import { fetchProfile } from '../myca';
-import { offersToAlts, carrierProtectedAlt } from '../domain/altsFromOffers';
+import { offersToAlts } from '../domain/altsFromOffers';
 import { maxPartyOnFlight } from './forecast';
 import { refreshIntervalFor, type RefreshInterval } from '@/lib/refreshInterval';
 import { sustainableIntervalMs, type Lane } from '../governor';
@@ -187,18 +187,18 @@ async function compute(flightId: string, lane: Lane): Promise<void> {
     fetchProfile('demo'),
   ]);
 
-  const market = offersToAlts(
+  // Every row is now real supplier inventory. The synthesised
+  // "the airline owes you this seat" option that used to be prepended here was
+  // removed on 2026-08-19 — see server/domain/types.ts's AltKind for why a
+  // fabricated free row was actively harmful. What the carrier owes is money,
+  // and it is computed in server/domain/refund.ts instead.
+  const fresh = await offersToAlts(
     offers,
     flight.from,
     flight.to,
     profile.preferences.cabinEntitlement,
-    profile.preferences.perTransactionCap,
+    profile.payment.billingCurrency,
   );
-  // Real inventory can genuinely be empty on a sparse sandbox route (Sabre cert
-  // especially) — carrierProtectedAlt returns null rather than fabricate a
-  // flight when there is nothing real to build one from.
-  const protectedAlt = carrierProtectedAlt(offers, flight.code, flight.from, flight.to, partySize);
-  const fresh = protectedAlt ? [protectedAlt, ...market] : market;
 
   // A search that came back with nothing is not evidence the route is empty —
   // it is far more often every supplier being keyless or throttled at once.

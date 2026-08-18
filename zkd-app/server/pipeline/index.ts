@@ -29,7 +29,7 @@
  */
 
 import * as store from '../domain/store';
-import { fetchProfile, DEFAULT_PER_TRANSACTION_CAP } from '../myca';
+import { fetchProfile, BILLING_CURRENCY } from '../myca';
 import { altsForParty } from '../domain/altsForParty';
 import { refreshAltsNow } from '../engine/altsCache';
 import { searchAccommodation, applyHotelRules, toHotelOpt, affordabilityVeto } from '../hotels';
@@ -93,11 +93,16 @@ async function preferencesFor(passengerId: string): Promise<AdaptedPreferences> 
     profile.cardMember.nationality === 'Indian' ? 'MAA' : '',
   );
   const adapted = adapt(wire, profile.payment.billingCurrency);
-  // MyCa remains the system of record for entitlement and cap — a preference
-  // document must never be able to raise its own ceiling.
+  // MyCa remains the system of record for ENTITLEMENT — a preference document
+  // must never be able to raise its own cabin ceiling.
+  //
+  // It is no longer the system of record for a spend ceiling, because there is
+  // no longer a spend ceiling (2026-08-19). `rules.outOfPocketCap` used to be
+  // overwritten here with the card's per-transaction limit; it now keeps
+  // whatever the member themselves stated, and is null when they stated
+  // nothing. That is the intended reading: a budget is the member's choice, not
+  // the card's refusal.
   adapted.preferences.cabinEntitlement = profile.preferences.cabinEntitlement;
-  adapted.preferences.perTransactionCap = profile.preferences.perTransactionCap;
-  adapted.rules.outOfPocketCap = profile.preferences.perTransactionCap;
   return adapted;
 }
 
@@ -161,7 +166,7 @@ async function plan(run: PipelineRun): Promise<void> {
     partySize,
     prefs.rules,
     prefs.preferences.cabinEntitlement,
-    prefs.preferences.perTransactionCap,
+    BILLING_CURRENCY,
   ).catch(() => ({ alts: [], hubsTried: [], callsSpent: 0 }));
 
   if (connections.alts.length > 0) {
@@ -189,7 +194,7 @@ async function plan(run: PipelineRun): Promise<void> {
     rules: prefs.rules,
     preferredCabin: prefs.preferredCabin,
     partySize,
-    cap: prefs.preferences.perTransactionCap,
+    displayCurrency: BILLING_CURRENCY,
     preferredCarriers: prefs.preferences.preferredCarriers,
     hasHardConstraint: flight.hasHardConstraint,
   };
@@ -282,7 +287,7 @@ async function arrangeOvernight(
       checkout,
       rooms,
       adults: partySize,
-      currency: prefs.preferences.perTransactionCap.currency,
+      currency: BILLING_CURRENCY,
       guestNationality: 'IN',
       lane: 'confirm',
     }),
@@ -290,7 +295,7 @@ async function arrangeOvernight(
       {
         fromLat: ap.lat, fromLon: ap.lon, toLat: ap.lat, toLon: ap.lon,
         seatsNeeded: partySize,
-        currency: prefs.preferences.perTransactionCap.currency,
+        currency: BILLING_CURRENCY,
         lane: 'confirm',
       },
       prefs.ground,
@@ -334,10 +339,10 @@ async function arrangeOvernight(
  * The plan the pipeline would choose, read synchronously.
  *
  * Must stay synchronous: `createTaskForBooking` runs inside a `setTimeout`
- * callback and cannot await, which is the same constraint that forced
- * DEFAULT_PER_TRANSACTION_CAP to exist as a sync export. Returns null when the
- * search has not finished, and the caller falls back to its own heuristic — so
- * the demo never stalls waiting on a supplier.
+ * callback and cannot await, which is the same constraint that forces
+ * BILLING_CURRENCY to exist as a sync export. Returns null when the search has
+ * not finished, and the caller falls back to its own heuristic — so the demo
+ * never stalls waiting on a supplier.
  */
 export function preferredPlan(
   flightId: string,
@@ -415,7 +420,7 @@ export async function execute(task: RecoveryTask, resolution: DisruptionResoluti
         flight,
         task,
         booking,
-        cap: DEFAULT_PER_TRANSACTION_CAP,
+        displayCurrency: BILLING_CURRENCY,
         intentOnly: !run.mutationsEnabled,
         nextLeg: nextLeg ? { code: nextLeg.flight.code, to: nextLeg.flight.to } : null,
       }),

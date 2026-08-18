@@ -3,7 +3,7 @@ import * as store from './store';
 import { refreshIfStale } from '../engine/forecast';
 import { altsForParty } from './altsForParty';
 import { costFor } from './pricing';
-import { DEFAULT_PER_TRANSACTION_CAP } from '../myca';
+import { BILLING_CURRENCY } from '../myca';
 import type { Flight, Booking } from './types';
 import type { FlightSummary, FlightDetail, DisruptionOpsView } from '@/lib/apiTypes';
 
@@ -110,7 +110,7 @@ export async function toDisruptionOpsView(flightId: string): Promise<DisruptionO
       secondsLeft: t.phase === 'waiting' ? Math.max(0, Math.ceil((t.windowExpiresAt - Date.now()) / 1000)) : 0,
       partySize: t.partySize,
       chosenAltCode: alt?.code ?? null,
-      owedNow: costFor(flight, t, t.partySize, DEFAULT_PER_TRANSACTION_CAP).total,
+      owedNow: costFor(flight, t, t.partySize, BILLING_CURRENCY).total,
       resolution: t.resolution,
     };
   }));

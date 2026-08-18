@@ -101,11 +101,19 @@ export async function applyScore(flight: Flight, score: ModelScore): Promise<Fli
   // "available" to a party of 6. Falls back to the seeded candidates when no
   // supplier returned anything, so the threshold never treats a dead sandbox
   // as a sold-out route.
+  //
+  // The fallback used to admit `carrier-protected` alts regardless of their
+  // seat count, and those were fabricated with `seats: 99`. On any route where
+  // the supplier search came back empty, one invented row therefore told the
+  // threshold logic the route had ninety-nine seats going spare — and seat
+  // scarcity is precisely what decides how early we warn a member. A made-up
+  // option was moving a real alert. The kind is gone (2026-08-19) and with it
+  // that exemption: every seat counted here now belongs to real inventory.
   const partySize = await maxPartyOnFlight(flight.id);
   const seatsAvailable = inventory.offers.length
     ? seatsAcross(inventory.offers.filter((o) => o.seatsRemaining >= partySize))
     : flight.candidates.alts
-        .filter((a) => a.ok && (a.kind === 'carrier-protected' || a.seats >= partySize))
+        .filter((a) => a.ok && a.seats >= partySize)
         .reduce((n, a) => n + a.seats, 0);
 
   const thresholds = thresholdsFor({

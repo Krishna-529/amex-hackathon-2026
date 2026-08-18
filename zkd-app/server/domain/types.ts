@@ -96,14 +96,23 @@ export type Passenger = {
 };
 
 /**
- * 'carrier-protected' is the involuntary re-accommodation the operating
- * carrier owes under DGCA CAR Section 3 Series M Part IV and EU261 Art. 8.
- * Both attach PER TICKET, so it covers every traveller on the PNR whatever
- * the open market has left — it is owed, not bought, and never expires the
- * way a fare quote does. 'market' is inventory we actually buy, which is why
- * it is the only kind seat-constrained by what a party can fit into.
+ * Every option is inventory we actually buy.
+ *
+ * There used to be a second kind, 'carrier-protected', standing for the
+ * involuntary re-accommodation the operating carrier owes under DGCA CAR
+ * Section 3 Series M Part IV and EU261 Art. 8. It was removed on 2026-08-19,
+ * because we have no airline NDC access and therefore never had a real
+ * carrier-issued seat to show. What the code did instead was take the cheapest
+ * market offer, overwrite its fare to 0 and its seat count to 99, and present
+ * the result as the airline's obligation — a fabricated option competing for a
+ * member's choice, defaulting autopilot's pick, and feeding 99 imaginary seats
+ * into the scarcity term that decides when we warn people.
+ *
+ * The entitlement itself was never the problem and has not gone away. It is a
+ * MONEY CLAIM, not a seat: server/domain/refund.ts computes what the carrier
+ * owes and server/ledger/reconciliation.ts tracks whether it ever arrives.
  */
-export type AltKind = 'carrier-protected' | 'market';
+export type AltKind = 'market';
 
 export type Alt = {
   id: string;
@@ -127,6 +136,22 @@ export type Alt = {
   fare: number;
   /** never assume one country's money */
   currency: string;
+  /**
+   * Set only when `fare` is a CONVERSION rather than the supplier's own number.
+   *
+   * Carrying the original alongside the converted figure is what makes the
+   * conversion honest rather than a silent rewrite: the member can see what was
+   * actually quoted, and a settled charge can be reconciled against the quote
+   * and the rate that produced it instead of against our arithmetic. See
+   * server/fx.ts.
+   */
+  quoted?: {
+    amount: number;
+    currency: string;
+    rate: number;
+    rateAsOf: number;
+    rateSource: 'live' | 'fallback' | 'identity';
+  };
   /** epoch ms the supplier stops honouring this price; null when unknown.
    *  This is what the member's decision window is derived from. */
   expiresAt: number | null;
@@ -323,6 +348,22 @@ export type Booking = {
   seats: SeatAssignment[];
   itineraryId?: string;
   legIndex?: number;       // position within that itinerary, 0-based
+  /**
+   * What the member actually paid for this ticket, PER TRAVELLER.
+   *
+   * Optional because seeded PNRs predate it and because a booking made
+   * elsewhere may genuinely reach us without a price. Absence is meaningful and
+   * must be handled as such: server/domain/refund.ts returns `known: false`
+   * rather than a plausible number, because this figure becomes the refund,
+   * the refund becomes the delta, and the delta is what the member decides on.
+   */
+  farePaid?: import('@/server/suppliers/types').Money;
+  /**
+   * The fare conditions the ticket was sold under. Only consulted when the
+   * MEMBER cancels — when the carrier cancels, statutory entitlement overrides
+   * fare rules entirely (see refund.ts).
+   */
+  fareBasis?: import('./refund').FareBasis;
 };
 
 /** A passenger's connected trip, e.g. MAA→DEL→LHR — two Bookings, one Itinerary. */

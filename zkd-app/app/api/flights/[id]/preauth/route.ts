@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as store from '@/server/domain/store';
 import { costFor } from '@/server/domain/pricing';
-import { DEFAULT_PER_TRANSACTION_CAP } from '@/server/myca';
+import { BILLING_CURRENCY } from '@/server/myca';
 import { requireSession } from '@/server/auth/guard';
 import type { PreAuthRequest, PreAuthResponse } from '@/lib/apiTypes';
 import { parseJsonBody, isNonEmptyString } from '@/server/jsonBody';
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     flight,
     { chosenAltId: body.altId, chosenHotelId: body.hotelId, chosenCabId: body.cabId },
     partySize,
-    DEFAULT_PER_TRANSACTION_CAP,
+    BILLING_CURRENCY,
   );
 
   const rec = {

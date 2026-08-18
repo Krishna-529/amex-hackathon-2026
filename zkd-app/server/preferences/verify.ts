@@ -106,8 +106,13 @@ console.log('\nMoney keeps its currency (no silent FX)');
     }),
     'INR',
   );
-  check('USD cap is not relabelled as INR', a.preferences.perTransactionCap.currency === 'USD',
-    `got ${a.preferences.perTransactionCap.currency}`);
+  // The card's per-transaction ceiling is gone (2026-08-19), but the member's
+  // OWN stated budget survives on rules.outOfPocketCap — and the currency trap
+  // it guards against is unchanged: a figure the wire schema names `_usd` must
+  // never be silently relabelled as the card's billing currency.
+  check('a USD budget is not relabelled as INR',
+    a.rules.outOfPocketCap !== null && a.rules.outOfPocketCap.currency === 'USD',
+    `got ${a.rules.outOfPocketCap?.currency}`);
   check('ground cap is separate from flight cap',
     a.rules.groundCap !== null && a.rules.groundCap.amount === 150);
 }

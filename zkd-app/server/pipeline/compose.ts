@@ -27,6 +27,7 @@
  */
 
 import { searchInventory } from '../suppliers';
+import { getRate, CONVERSION_NOTE } from '../fx';
 import { localTime, isInternational } from '../airportDirectory';
 import type { Offer } from '../suppliers/types';
 import type { Alt, Flight } from '../domain/types';
@@ -66,7 +67,7 @@ export async function composeConnections(
   partySize: number,
   rules: RebookingRules,
   entitledCabin: string,
-  cap: { amount: number; currency: string },
+  displayCurrency: string,
 ): Promise<ComposeResult> {
   const result: ComposeResult = { alts: [], hubsTried: [], callsSpent: 0 };
 
@@ -90,6 +91,14 @@ export async function composeConnections(
     ]);
     result.callsSpent += 2;
 
+    // One rate per currency for this hub's pairings, fetched before any
+    // materialisation: two legs of the same connection converted at two
+    // different rates would not sum to anything meaningful.
+    const rates = new Map<string, number>();
+    for (const c of new Set([...first.offers, ...second.offers].map((o) => o.price.currency))) {
+      rates.set(c, (await getRate(c, displayCurrency)).rate);
+    }
+
     for (const a of first.offers) {
       for (const b of second.offers) {
         const gap = b.departsAt - a.arrivesAt;
@@ -98,7 +107,7 @@ export async function composeConnections(
         // booked as one journey and altsForParty would reject it anyway.
         if (a.seatsRemaining > 0 && a.seatsRemaining < partySize) continue;
         if (b.seatsRemaining > 0 && b.seatsRemaining < partySize) continue;
-        result.alts.push(materialise(a, b, flight, hub, entitledCabin, cap));
+        result.alts.push(materialise(a, b, flight, hub, entitledCabin, displayCurrency, rates));
       }
     }
 
@@ -126,10 +135,17 @@ function materialise(
   flight: Flight,
   hub: string,
   entitledCabin: string,
-  cap: { amount: number; currency: string },
+  displayCurrency: string,
+  rates: Map<string, number>,
 ): Alt {
-  const fare = a.price.amount + b.price.amount;
-  const mixedCurrency = a.price.currency !== b.price.currency;
+  // Legs quoted in different currencies used to disqualify a connection
+  // outright. With server/fx.ts in place both legs convert into the card's
+  // billing currency and the sum is meaningful, so a mixed-currency connection
+  // is now an ordinary option rather than a refusal.
+  const rateA = rates.get(a.price.currency) ?? 1;
+  const rateB = rates.get(b.price.currency) ?? 1;
+  const converted = a.price.currency !== displayCurrency || b.price.currency !== displayCurrency;
+  const fare = Math.round(a.price.amount * rateA) + Math.round(b.price.amount * rateB);
   const expiries = [a.expiresAt, b.expiresAt].filter((e): e is number => e !== null);
   const seats = Math.min(
     a.seatsRemaining || Number.MAX_SAFE_INTEGER,
@@ -137,20 +153,17 @@ function materialise(
   );
   const gapMinutes = Math.round((b.departsAt - a.arrivesAt) / 60_000);
 
-  const comparable = !mixedCurrency && a.price.currency === cap.currency;
-  const overCap = comparable && fare > cap.amount;
   // Worst cabin across the legs decides: a business first leg does not
   // compensate for being downgraded on the second.
   const worstCabin = rankCabin(a.cabin) <= rankCabin(b.cabin) ? a.cabin : b.cabin;
   const overCabin = rankCabin(worstCabin) > rankCabin(entitledCabin);
 
-  const why = mixedCurrency
-    ? `Legs are priced in ${a.price.currency} and ${b.price.currency}; we will not add those together without converting`
-    : overCabin
-      ? `${worstCabin} is above the ${entitledCabin} your card entitles you to`
-      : overCap
-        ? `Combined fare is over your single-transaction cap`
-        : `Two legs via ${hub}, ${gapMinutes} min to connect. Both booked together or neither.`;
+  const base = `Two legs via ${hub}, ${gapMinutes} min to connect. Both booked together or neither.`;
+  const why = overCabin
+    ? `${worstCabin} is above the ${entitledCabin} your card entitles you to`
+    : converted
+      ? `${base} ${CONVERSION_NOTE}`
+      : base;
 
   return {
     id: `conn:${a.id}+${b.id}`,
@@ -162,13 +175,22 @@ function materialise(
     cabin: worstCabin,
     seats: seats === Number.MAX_SAFE_INTEGER ? 0 : seats,
     fare,
-    currency: a.price.currency,
+    currency: displayCurrency,
+    quoted: converted
+      ? {
+          amount: a.price.amount + b.price.amount,
+          currency: a.price.currency === b.price.currency ? a.price.currency : 'mixed',
+          rate: rateA,
+          rateAsOf: Date.now(),
+          rateSource: 'live',
+        }
+      : undefined,
     expiresAt: expiries.length ? Math.min(...expiries) : null,
     // Both legs must be live for the pair to be bookable as one journey.
     supplier: a.live && b.live ? a.supplier : undefined,
     supplierOfferId: undefined,
     kind: 'market',
-    ok: !mixedCurrency && !overCabin && !overCap && a.live && b.live,
+    ok: !overCabin && a.live && b.live,
     why,
   };
 }

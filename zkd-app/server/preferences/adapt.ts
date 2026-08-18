@@ -139,7 +139,6 @@ export function adapt(wire: TravelerPreferencesWire, billingCurrency: string): A
     preferredCarriers: (wire.loyalty_programs?.airlines ?? [])
       .map((a) => a.airline_code)
       .filter(Boolean),
-    perTransactionCap: capOf(rules.max_out_of_pocket_expense_usd, billingCurrency),
     avoidRedEye,
   };
 

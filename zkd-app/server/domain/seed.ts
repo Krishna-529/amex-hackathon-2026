@@ -311,15 +311,27 @@ async function cardMemberTraveller(passengerId: string): Promise<Omit<Traveller,
 }
 
 async function seedBookingsAndItineraries() {
-  const b1 = await store.createBooking({ flightId: 'u1', passengerId: 'p-priya', seat: '14C', pnr: 'QK7R2M', cabin: 'Economy' });
-  const b2 = await store.createBooking({ flightId: 'u2', passengerId: 'p-priya', seat: '22A', pnr: 'QK7R2M', cabin: 'Economy' });
+  const b1 = await store.createBooking({ flightId: 'u1', passengerId: 'p-priya', seat: '14C', pnr: 'QK7R2M', cabin: 'Economy',
+    farePaid: { amount: 7450, currency: 'INR' },
+    fareBasis: 'partially-refundable', });
+  const b2 = await store.createBooking({ flightId: 'u2', passengerId: 'p-priya', seat: '22A', pnr: 'QK7R2M', cabin: 'Economy',
+    farePaid: { amount: 48200, currency: 'INR' },
+    fareBasis: 'refundable', });
   await store.createItinerary('p-priya', [b1.id, b2.id]); // MAA→DEL→LHR, the layover/connection case
-  await store.createBooking({ flightId: 'u3', passengerId: 'p-priya', seat: '8F', pnr: 'LP4XZ1', cabin: 'Economy' });
-  await store.createBooking({ flightId: 'u4', passengerId: 'p-priya', seat: '11A', pnr: 'GV3K9R', cabin: 'Economy' });
+  await store.createBooking({ flightId: 'u3', passengerId: 'p-priya', seat: '8F', pnr: 'LP4XZ1', cabin: 'Economy',
+    farePaid: { amount: 5980, currency: 'INR' },
+    fareBasis: 'non-refundable', });
+  await store.createBooking({ flightId: 'u4', passengerId: 'p-priya', seat: '11A', pnr: 'GV3K9R', cabin: 'Economy',
+    farePaid: { amount: 6720, currency: 'INR' },
+    fareBasis: 'partially-refundable', });
   // The two extra high-risk flights, so the pre-fetch/consent path has more
   // than one chance to fire in a walkthrough.
-  await store.createBooking({ flightId: 'u5', passengerId: 'p-priya', seat: '9C', pnr: 'HT6M2B', cabin: 'Economy' });
-  await store.createBooking({ flightId: 'u6', passengerId: 'p-priya', seat: '4A', pnr: 'RN8W5D', cabin: 'Premium Economy' });
+  await store.createBooking({ flightId: 'u5', passengerId: 'p-priya', seat: '9C', pnr: 'HT6M2B', cabin: 'Economy',
+    farePaid: { amount: 8310, currency: 'INR' },
+    fareBasis: 'partially-refundable', });
+  await store.createBooking({ flightId: 'u6', passengerId: 'p-priya', seat: '4A', pnr: 'RN8W5D', cabin: 'Premium Economy',
+    farePaid: { amount: 14900, currency: 'INR' },
+    fareBasis: 'refundable', });
 
   // Arjun's party of 6 — himself, his spouse, two children, two grandparents.
   const arjun = await store.createTraveller(await cardMemberTraveller('p-arjun'));
@@ -331,6 +343,8 @@ async function seedBookingsAndItineraries() {
   const arjunTravellerIds = [arjun.id, spouse.id, child1.id, child2.id, grandpa.id, grandma.id];
   await store.createBooking({
     flightId: 'f-multi', passengerId: 'p-arjun', seat: '12A', pnr: 'MX9F2K', cabin: 'Economy',
+    farePaid: { amount: 6450, currency: 'INR' },
+    fareBasis: 'partially-refundable',
     travellerIds: arjunTravellerIds,
     seats: [
       { travellerId: arjun.id, seat: '12A' }, { travellerId: spouse.id, seat: '12B' },
@@ -346,6 +360,11 @@ async function seedBookingsAndItineraries() {
   const partner = await store.createTraveller(companion({ displayName: 'Kabir N.', legalName: 'KABIR NAIR', dob: '23 Aug 1987', gender: 'Male', type: 'adult' }));
   await store.createBooking({
     flightId: 'f-multi', passengerId: 'p-rohan', seat: '14C', pnr: 'RT4H8P', cabin: 'Economy',
+    // A different PNR on the same flight, bought later and dearer — so the
+    // refund arithmetic differs between two members on one aircraft, which is
+    // exactly the case a single flat "the airline owes you" row used to hide.
+    farePaid: { amount: 9180, currency: 'INR' },
+    fareBasis: 'non-refundable',
     travellerIds: [rohan.id, partner.id],
     seats: [{ travellerId: rohan.id, seat: '14C' }, { travellerId: partner.id, seat: '14D' }],
   });
@@ -358,11 +377,15 @@ async function seedBookingsAndItineraries() {
   const friend2 = await store.createTraveller(companion({ displayName: 'Imran S.', legalName: 'IMRAN SHEIKH', dob: '14 Oct 1990', gender: 'Male', type: 'adult' }));
   await store.createBooking({
     flightId: 'f-depth', passengerId: 'p-fatima', seat: '9A', pnr: 'FS3K9L', cabin: 'Economy',
+    farePaid: { amount: 5240, currency: 'INR' },
+    fareBasis: 'non-refundable',
     travellerIds: [fatima.id, friend1.id, friend2.id],
     seats: [{ travellerId: fatima.id, seat: '9A' }, { travellerId: friend1.id, seat: '9B' }, { travellerId: friend2.id, seat: '9C' }],
   });
 
-  await store.createBooking({ flightId: 'f-depth', passengerId: 'p-ananya', seat: '6D', pnr: 'AZ2N7Q', cabin: 'Economy' });
+  await store.createBooking({ flightId: 'f-depth', passengerId: 'p-ananya', seat: '6D', pnr: 'AZ2N7Q', cabin: 'Economy',
+    farePaid: { amount: 5240, currency: 'INR' },
+    fareBasis: 'non-refundable', });
 }
 
 async function seedPastFlights() {

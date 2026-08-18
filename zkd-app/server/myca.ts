@@ -23,8 +23,15 @@ export type TravelPreferences = {
   meal: string;
   cabinEntitlement: CabinClass;
   preferredCarriers: string[];
-  /** the member will not be auto-booked past this on one transaction */
-  perTransactionCap: { amount: number; currency: string };
+  /**
+   * `perTransactionCap` used to live here — a ₹25,000 ceiling the member could
+   * not be auto-booked past. Removed on 2026-08-19. It was the last hard stop
+   * on an unattended recovery, and it was also the reason a stranded member
+   * could be shown the only seat home greyed out as "over your cap". A budget
+   * the MEMBER states still applies, as a hard rule, and lives on
+   * RebookingRules.outOfPocketCap in server/preferences/adapt.ts — the
+   * distinction being that it is their choice rather than the card's refusal.
+   */
   /** avoid overnight arrivals, red-eyes, etc. — ranking hints, never hard rules */
   avoidRedEye: boolean;
 };
@@ -37,7 +44,21 @@ export type TravelPreferences = {
  * copy. Acceptable while there is one MyCa profile for every member (mock
  * only, no MYCA_API_KEY) — a per-member cap would need this threaded async.
  */
-export const DEFAULT_PER_TRANSACTION_CAP = { amount: 25000, currency: 'INR' };
+/**
+ * The card's billing currency, exported as a synchronous constant.
+ *
+ * Replaces DEFAULT_PER_TRANSACTION_CAP, which was removed on 2026-08-19 along
+ * with the per-transaction ceiling itself. The sync export survives for the
+ * same reason it existed: several call sites run inside setTimeout-driven state
+ * transitions and cannot await a profile fetch.
+ *
+ * What the ceiling used to do — stop an unattended recovery spending past a
+ * fixed number — is now done by telling the member what is about to be spent
+ * and giving them a window to stop it (server/notify/templates.ts). That is a
+ * real trade and it is documented where it bites, in server/domain/pricing.ts
+ * and server/engine/simulation.ts's silent-timeout branch.
+ */
+export const BILLING_CURRENCY = 'INR';
 
 export type PaymentInstrument = {
   /** display only — never a PAN, and never anything the agent could reuse */
@@ -113,7 +134,6 @@ function mockProfile(): MycaProfile {
       meal: 'Vegetarian (AVML)',
       cabinEntitlement: 'Economy',
       preferredCarriers: ['AI', '6E'],
-      perTransactionCap: DEFAULT_PER_TRANSACTION_CAP,
       avoidRedEye: true,
     },
     payment: {

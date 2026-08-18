@@ -27,7 +27,6 @@ import { isInternational } from '../airportDirectory';
 import { revalidateOffer, type Offer } from '../suppliers';
 import { altsForParty } from '../domain/altsForParty';
 import { costFor, type PartyCost } from '../domain/pricing';
-import { DEFAULT_PER_TRANSACTION_CAP } from '../myca';
 import { money } from '@/lib/time';
 import * as store from '../domain/store';
 import { ensureSeeded } from '../domain/seed';
@@ -81,9 +80,19 @@ function pipelineSummary(flightId: string, passengerId: string) {
   return pipeline.summaryFor(flightId, passengerId);
 }
 
+/**
+ * What every candidate has been converted into for display and comparison.
+ *
+ * A constant rather than an awaited MyCa read for the same reason `costOf`
+ * below is synchronous: this module runs inside setTimeout-driven state
+ * transitions, not request handlers. One mock profile serves every member
+ * today, so a constant and a lookup would return the same string.
+ */
+const BILLING_CURRENCY = 'INR';
+
 const ZERO_COST: PartyCost = {
   partySize: 1, fare: 0, rooms: 0, hotel: 0, vehicles: 0, cab: 0, total: 0,
-  currency: DEFAULT_PER_TRANSACTION_CAP.currency, cap: DEFAULT_PER_TRANSACTION_CAP.amount, overCap: false,
+  currency: BILLING_CURRENCY,
 };
 
 function isPlanIntact(flight: Flight, pre: PreAuthRecord): boolean {
@@ -95,14 +104,13 @@ function isPlanIntact(flight: Flight, pre: PreAuthRecord): boolean {
 }
 
 /**
- * The cap comes from a synchronous constant, not an awaited MyCa fetch: this
- * function runs inside setTimeout-driven state transitions, not a request
- * handler, so it cannot await. See server/myca.ts DEFAULT_PER_TRANSACTION_CAP
- * for why that is an acceptable simplification today (one mock profile for
- * every member) and what it would take to change.
+ * The billing currency comes from a synchronous constant, not an awaited MyCa
+ * fetch: this function runs inside setTimeout-driven state transitions, not a
+ * request handler, so it cannot await. Acceptable today because there is one
+ * mock profile for every member.
  */
 function costOf(flight: Flight, task: Pick<RecoveryTask, 'chosenAltId' | 'chosenHotelId' | 'chosenCabId' | 'partySize'>): PartyCost {
-  return costFor(flight, task, task.partySize, DEFAULT_PER_TRANSACTION_CAP);
+  return costFor(flight, task, task.partySize, BILLING_CURRENCY);
 }
 
 /**
@@ -224,8 +232,11 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
     ? partyAlts.find((a) => a.id === preferred.altId && a.ok)
     : undefined;
 
+  // The carrier-protected fallback that used to sit between these two lines is
+  // gone with the kind itself (2026-08-19). It made autopilot's default pick a
+  // fabricated row — the one option nobody had confirmed existed. The fallback
+  // is now simply the first genuinely bookable alternative.
   const defaultAlt = preferredAlt
-    ?? partyAlts.find((a) => a.kind === 'carrier-protected' && a.ok)
     ?? partyAlts.find((a) => a.ok)
     ?? partyAlts[0];
   task.chosenAltId = defaultAlt?.id ?? '';
@@ -239,15 +250,6 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
   // and act immediately, exactly like the preAuth-and-intact branch above.
   // Only 'ask' consent still needs the window that follows this block.
   if (passenger.consent === 'autopilot') {
-    const cost = costOf(flight, task);
-    if (cost.overCap) {
-      // The per-transaction cap is the card's actual authorisation limit, not
-      // a consent preference — the one rule autopilot cannot spend past.
-      task.note = `This would cost ${money(cost.total)}, over your ${money(cost.cap)} single-transaction cap — so we stopped, regardless of your standing permission. Nothing was booked and nothing was charged. Your seats are still held.`;
-      await store.setRecoveryTask(task);
-      await finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
-      return;
-    }
     const switched = await revalidateChoice(task, flight);
     task.note = switched ?? "Autopilot is your standing permission, so we went ahead the moment the airline filed — there was no one to wait for.";
     await store.setRecoveryTask(task);
@@ -298,22 +300,35 @@ async function settleExpired(flightId: string, passengerId: string) {
   if (!task || !flight || !passenger || task.resolution || task.phase !== 'waiting') return;
 
   const cost = costOf(flight, task);
-  let resolution: DisruptionResolution;
-  // Silence means different things depending on what was asked for — but consent
-  // gates SPENDING, not care. If the recovery costs nothing there is nothing to
-  // consent to, and stranding someone because they didn't pick up is worse.
-  if (cost.overCap) {
-    task.note = `This would cost ${money(cost.total)}, over your ${money(cost.cap)} single-transaction cap — so we stopped, regardless of your standing permission. Nothing was booked and nothing was charged. Your seats are still held.`;
-    resolution = { kind: 'handed-over', at: Date.now() };
-  } else if (cost.total === 0) {
-    const switched = await revalidateChoice(task, flight);
-    task.note = switched ?? "You didn't answer. This costs you nothing, so we booked it rather than leave you stranded — there was no spend to ask about.";
-    resolution = { kind: 'autopilot', at: Date.now(), altId: task.chosenAltId, hotelId: task.chosenHotelId, cabId: task.chosenCabId };
-  } else {
-    task.note = `You didn't answer, and this one would cost you ${money(cost.total)} — so we stopped. Nothing was booked and nothing was charged. Your seats are still held.`;
-    resolution = { kind: 'handed-over', at: Date.now() };
-  }
-  await finalizeResolution(task, resolution);
+
+  // ── Silence now proceeds, and that is a deliberate reversal ──────────────
+  //
+  // This branch used to stop whenever a recovery cost the member anything: no
+  // answer plus a price meant hand over. The reasoning was sound while there
+  // was a spend ceiling behind it, and it produced the wrong outcome anyway —
+  // the member most likely to miss a notification is the one already on a
+  // plane, in a queue, or asleep, and "we stopped because you didn't reply" is
+  // of no use to someone stranded at 1 a.m.
+  //
+  // What replaced it is not silence-equals-consent. It is a ladder: the member
+  // is told the risk crossed, told the moment it cancelled, and told exactly
+  // what is about to be spent with a window to stop it, before anything is
+  // charged (server/notify/templates.ts). Proceeding is the last rung, not the
+  // first. This matches the frozen canon's Tier A mechanics — notify, quiet
+  // window, proceed if silent.
+  //
+  // The load-bearing assumption is that the alerts ACTUALLY ARRIVE. That makes
+  // an undeliverable channel a genuine safety defect rather than a cosmetic
+  // one, which is why dispatch results are written to the decision ledger and
+  // surfaced on /ops.
+  const switched = await revalidateChoice(task, flight);
+  task.note = switched ?? (cost.total === 0
+    ? "You didn't answer. This costs you nothing, so we booked it rather than leave you stranded."
+    : `You didn't answer, so we went ahead with the plan we showed you — ${money(cost.total)}, charged to your Amex. Nothing was booked until this window closed.`);
+  await finalizeResolution(task, {
+    kind: 'autopilot', at: Date.now(),
+    altId: task.chosenAltId, hotelId: task.chosenHotelId, cabId: task.chosenCabId,
+  });
 }
 
 async function finalizeResolution(task: RecoveryTask, resolution: DisruptionResolution) {
@@ -456,24 +471,13 @@ export async function resolveTask(
       const flight = await store.getFlight(flightId);
       if (!flight) return task;
 
-      // The cap is the card's actual authorisation limit, not a consent
-      // preference — it has to hold whether the member clicked approve or
-      // stayed silent. Checking it only in the silent-timeout path would let
-      // an explicit click spend past what the card can actually authorise.
-      const preApproveCost = costOf(flight, task);
-      if (preApproveCost.overCap) {
-        task.note = `This would cost ${money(preApproveCost.total)}, over your ${money(preApproveCost.cap)} single-transaction cap — so we could not go ahead. Nothing was booked and nothing was charged. Your seats are still held.`;
-        await finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
-        return (await store.getRecoveryTask(flightId, passengerId)) ?? task;
-      }
-
       const switched = await revalidateChoice(task, flight);
       task.note = switched ?? 'You approved it, so we went straight through.';
       await finalizeResolution(task, { kind: 'approved', at: Date.now(), altId: task.chosenAltId, hotelId: task.chosenHotelId, cabId: task.chosenCabId });
       return (await store.getRecoveryTask(flightId, passengerId)) ?? task;
     }
     case 'hand-over': {
-      task.note = 'You took the wheel. We stopped immediately — nothing confirmed, nothing paid, and your held seats stay held.';
+      task.note = 'You took the wheel. We stopped immediately — nothing confirmed, nothing paid, and your original booking is untouched.';
       await finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
       return (await store.getRecoveryTask(flightId, passengerId)) ?? task;
     }

@@ -3,9 +3,32 @@
  * shape. Shared by the live alts cache (server/engine/altsCache.ts) and the
  * manual /api/alts diagnostic route, so there is exactly one place that knows
  * how a supplier offer becomes something a member is shown.
+ *
+ * ── Two rules that used to live here and no longer do ──────────────────────
+ *
+ * 1. **The per-transaction cap.** An option costing more than the card's
+ *    single-transaction ceiling was marked `ok: false` and greyed out. The cap
+ *    was removed on 2026-08-19: hiding the only seat home because it is
+ *    expensive serves nobody, and the protection it offered has been replaced
+ *    by telling the member what is about to be spent at every step and giving
+ *    them a window to stop it (server/notify/templates.ts).
+ *
+ * 2. **The refusal to convert currency.** A fare quoted outside the card's
+ *    billing currency was marked `needsConversion` and forced `ok: false`
+ *    rather than guess a rate. That was defensible while the converted number
+ *    would be compared against a hard spend ceiling. With the ceiling gone it
+ *    stopped protecting anyone and started emptying the option list — live
+ *    Duffel inventory prices in EUR, so on a real search every bookable row
+ *    disappeared. We now convert through server/fx.ts, show the original
+ *    alongside the converted figure, and say plainly that the rate is a market
+ *    rate and the charge may differ.
+ *
+ * What survives is the rule that was always the real one: **cabin entitlement
+ * comes from the card, and an option outside it is surfaced and marked, never
+ * silently dropped.** The member is allowed to see what was ruled out and why.
  */
-import { formatMoney } from '@/lib/airports';
 import { localTime } from '../airportDirectory';
+import { getRate, convertWith, CONVERSION_NOTE, type Rate } from '../fx';
 import type { Offer } from '../suppliers/types';
 import type { Alt } from './types';
 
@@ -16,20 +39,32 @@ const cabinRank = (c: string) => {
 };
 
 /**
- * Ranking is against MyCa's entitlement, not a hardcoded rule — the card is
- * the system of record for the cabin the member may be moved into and what a
- * single transaction may cost. A candidate outside either is surfaced and
- * marked, never silently dropped: the member is allowed to see what was
- * ruled out and why.
+ * Converts every offer against ONE rate, fetched once.
+ *
+ * Not a micro-optimisation. Awaiting a rate per offer would let two options in
+ * the same list be converted at two different rates, and a comparison between
+ * prices measured with different rulers is not a comparison. One rate per
+ * search is also what a member would expect if they asked.
  */
-export function offersToAlts(
+export async function offersToAlts(
   offers: Offer[],
   from: string,
   to: string,
   entitledCabin: string,
-  cap: { amount: number; currency: string },
-): Alt[] {
-  return offers.map((o) => marketAlt(o, from, to, entitledCabin, cap));
+  displayCurrency: string,
+): Promise<Alt[]> {
+  // Currencies actually present, so a single-currency search costs no lookup.
+  const currencies = [...new Set(offers.map((o) => o.price.currency))];
+  const rates = new Map<string, Rate>();
+  await Promise.all(
+    currencies.map(async (c) => {
+      rates.set(c, await getRate(c, displayCurrency));
+    }),
+  );
+
+  return offers.map((o) =>
+    marketAlt(o, from, to, entitledCabin, displayCurrency, rates.get(o.price.currency)),
+  );
 }
 
 function marketAlt(
@@ -37,25 +72,22 @@ function marketAlt(
   from: string,
   to: string,
   entitledCabin: string,
-  cap: { amount: number; currency: string },
+  displayCurrency: string,
+  rate: Rate | undefined,
 ): Alt {
   const overCabin = cabinRank(o.cabin) > cabinRank(entitledCabin);
-  // The cap is set in the card's billing currency. We hold no FX rates, so a
-  // fare quoted in another currency cannot be compared to it — and guessing
-  // would be worse than admitting it.
-  const comparable = o.price.currency === cap.currency;
-  const overCap = comparable && o.price.amount > cap.amount;
-  const needsConversion = !comparable;
+  const converted = rate && rate.source !== 'identity';
+  const fare = converted ? convertWith(o.price.amount, rate) : o.price.amount;
 
   const why = overCabin
     ? `${o.cabin} is above the ${entitledCabin} your card entitles you to`
-    : overCap
-      ? `${formatMoney(o.price.amount, o.price.currency)} is over your ${formatMoney(cap.amount, cap.currency)} single-transaction cap`
-      : needsConversion
-        ? `Priced in ${o.price.currency} while your cap is set in ${cap.currency} — we will not approve this automatically without converting it`
-        : o.live
-          ? 'Within your entitlement, from live supplier inventory'
-          : 'Within your entitlement — generated inventory, not a bookable seat';
+    : converted
+      ? o.live
+        ? `Priced by the supplier in ${o.price.currency}. ${CONVERSION_NOTE}`
+        : `Generated inventory, not a bookable seat. ${CONVERSION_NOTE}`
+      : o.live
+        ? 'From live supplier inventory'
+        : 'Generated inventory, not a bookable seat';
 
   return {
     id: o.id,
@@ -66,62 +98,21 @@ function marketAlt(
     arrivesAt: o.arrivesAt,
     cabin: o.cabin,
     seats: o.seatsRemaining,
-    fare: o.price.amount,
-    currency: o.price.currency,
+    fare,
+    currency: displayCurrency,
+    // What the supplier actually quoted, kept so the member can always see the
+    // real number behind a converted one — and so a settled charge can be
+    // reconciled against the quote rather than against our arithmetic.
+    quoted: converted
+      ? { amount: o.price.amount, currency: o.price.currency, rate: rate.rate, rateAsOf: rate.asOf, rateSource: rate.source }
+      : undefined,
     expiresAt: o.expiresAt,
     supplier: o.supplier,
     supplierOfferId: o.supplierOfferId,
-    // Supplier inventory is by definition bought, never a statutory
-    // entitlement — the carrier's own re-accommodation (below) is a
-    // domain-level concept built from the best real seat we can see, not
-    // something a supplier search itself returns.
     kind: 'market',
-    ok: !overCabin && !overCap && !needsConversion,
+    // Cabin entitlement is the only policy rule left that can disqualify an
+    // option outright. Price no longer can.
+    ok: !overCabin,
     why,
-  };
-}
-
-/**
- * There is no airline NDC access here, so we cannot fetch a real
- * airline-issued re-accommodation. The honest version: the best real seat we
- * can see on this route (same carrier as the cancelled flight preferred,
- * cheapest otherwise), fare zeroed and labelled `carrier-protected` — the
- * statutory entitlement (lib/entitlement.ts) says the airline owes this, not
- * that we invented a flight number for it. Returns null when there is
- * genuinely no real inventory to build one from — no fallback fabrication.
- */
-export function carrierProtectedAlt(
-  offers: Offer[],
-  bookedFlightCode: string,
-  from: string,
-  to: string,
-  partySize: number,
-): Alt | null {
-  if (!offers.length) return null;
-
-  const carrierPrefix = bookedFlightCode.split(' ')[0];
-  const sameCarrier = offers.filter((o) => o.flightCode.startsWith(carrierPrefix));
-  const pool = sameCarrier.length ? sameCarrier : offers;
-  const best = [...pool].sort((a, b) => a.price.amount - b.price.amount)[0];
-
-  return {
-    id: `cp-${best.id}`,
-    code: best.flightCode,
-    dep: localTime(from, best.departsAt),
-    arr: localTime(to, best.arrivesAt),
-    departsAt: best.departsAt,
-    arrivesAt: best.arrivesAt,
-    cabin: best.cabin,
-    seats: 99,
-    fare: 0,
-    currency: best.price.currency,
-    expiresAt: null,
-    supplier: best.supplier,
-    supplierOfferId: best.supplierOfferId,
-    kind: 'carrier-protected',
-    ok: true,
-    why: partySize > 1
-      ? `The airline cancelled, so it owes re-accommodation for all ${partySize} tickets on this booking — this is owed, not bought.`
-      : 'The airline owes you this seat — this is owed, not bought.',
   };
 }

@@ -19,21 +19,30 @@
  * flight on a blocked carrier is not a close call, it is disqualified. So they
  * run first, in `applyHardRules`, and what survives is scored.
  *
- * ── The carrier-protected `fare: 0` problem ────────────────────────────────
+ * ── What was removed here on 2026-08-19, and why ──────────────────────────
  *
- * `carrierProtectedAlt` zeroes the fare by construction, because the airline
- * owes it. On a naive weighted sum that sweeps every comparison on price alone
- * and a member optimising for "lowest cost" gets whatever is free regardless of
- * when it lands. Three guards, in increasing order of bluntness:
+ * This file used to carry three separate guards — a ceiling on the cost weight,
+ * a structural reliability penalty, and an outright override letting a paid
+ * option beat a free one — all of them defending against a single problem:
+ * `carrierProtectedAlt` fabricated an option with `fare: 0`, which swept every
+ * comparison on price alone. Three pieces of defensive machinery existed to
+ * contain one made-up row.
  *
- *   1. `cost` is capped at COST_WEIGHT_MAX of the total, so free-vs-paid can
- *      only ever move the needle so far.
- *   2. `reliability` structurally penalises it — a carrier-protected alt has no
- *      offer expiry and no NDC behind it, so it scores below a live bookable
- *      offer and gives back most of what it won on price.
- *   3. An explicit override: a paid option that arrives materially earlier and
- *      is within the member's cap wins outright. A system where "free" beats
- *      "four hours earlier" is wrong in a way no weight tuning fixes.
+ * The fabrication is gone (see server/domain/types.ts's AltKind), and all three
+ * guards went with it. Every candidate is now real supplier inventory with a
+ * real price, so cost can simply be scored against the range of real prices in
+ * the candidate set. What the carrier owes is computed as money in
+ * server/domain/refund.ts and shown to the member as a refund and a delta,
+ * which is what it always was.
+ *
+ * ── Cost is scored relatively, not against a ceiling ───────────────────────
+ *
+ * There is no per-transaction cap any more, so there is no fixed number to
+ * measure a fare against. Cost is normalised across the candidates actually on
+ * the table: cheapest scores 1, dearest scores 0, and a set of near-identical
+ * prices correctly makes cost stop discriminating. A member's OWN stated budget
+ * (Part A's free-text intent) is a hard rule, applied in `applyHardRules` where
+ * every other member-stated rule lives — never a soft penalty here.
  */
 
 // Explicit .ts on the two VALUE imports below (every type-only import is erased
@@ -55,21 +64,33 @@ const cabinRank = (c: string) => {
   return i === -1 ? 0 : i;
 };
 
-/** Ceiling on how much of the total the cost term may ever command. */
-const COST_WEIGHT_MAX = 0.4;
-
-/** A paid option arriving at least this much earlier beats a free one outright. */
-const TIE_ARRIVAL_MINUTES = 45;
-
 /** Beyond this much later than the best available arrival, everything scores 0. */
 const ARRIVAL_HORIZON_HOURS = 12;
+
+/**
+ * The smallest price gap allowed to saturate the cost scale, as a fraction of
+ * the cheapest option on the table.
+ *
+ * Normalising cost across the candidate range has one failure mode, and the
+ * executable checks caught it: when every fare is nearly the same, dividing by
+ * the range magnifies a trivial difference into a full-scale signal. Two
+ * options ₹100 apart on a ₹7,000 fare would score 1.0 and 0.0 on cost — enough
+ * to outvote reliability and hand the member the option we cannot confirm, over
+ * 1.4% of the price.
+ *
+ * So the denominator has a floor. Below a 10% spread, cost still ranks in the
+ * right direction but stops being decisive, which is the honest reading: a
+ * rounding difference is not a reason to choose a worse itinerary.
+ */
+const MATERIAL_SPREAD_FRACTION = 0.1;
 
 export type ScoreContext = {
   flight: Flight;
   rules: RebookingRules;
   preferredCabin: CabinClass;
   partySize: number;
-  cap: { amount: number; currency: string };
+  /** the currency every candidate has been converted into, for display and comparison */
+  displayCurrency: string;
   /** carriers the member holds status with, IATA codes */
   preferredCarriers: string[];
   hasHardConstraint: boolean;
@@ -135,6 +156,25 @@ export function applyHardRules(alts: PartyAlt[], ctx: ScoreContext): FilterOutco
       });
       continue;
     }
+    // `Alt.ok` is the card's own policy verdict — today that means cabin
+    // entitlement, the one thing MyCa is still the system of record for.
+    //
+    // This check is new (2026-08-19) and it closes a real gap. Nothing here
+    // ever filtered on `ok`, so an option the card does not entitle the member
+    // to could be scored, out-rank everything on price and arrival, and be
+    // selected. It never surfaced before because the other reason for
+    // `ok: false` was the per-transaction cap, and the cap had its own hard
+    // stop at spend time. That stop is gone, so this is now the only thing
+    // standing between an out-of-entitlement fare and an automatic booking.
+    //
+    // Filtered rather than penalised, for the reason stated at the top of this
+    // function: a weighted sum must never be able to outvote a rule. The
+    // member's own `why` carries through as the reason, so they are told what
+    // was excluded and on whose authority.
+    if (!a.ok) {
+      removed.push({ id: a.id, code: a.code, rule: a.why });
+      continue;
+    }
     kept.push(a);
   }
 
@@ -144,25 +184,22 @@ export function applyHardRules(alts: PartyAlt[], ctx: ScoreContext): FilterOutco
 export function rankAlts(alts: PartyAlt[], ctx: ScoreContext): ScoredAlt[] {
   if (alts.length === 0) return [];
 
-  const weights = capCost(weightsFor(ctx.rules.strategy, { hasHardConstraint: ctx.hasHardConstraint }));
+  const weights = weightsFor(ctx.rules.strategy, { hasHardConstraint: ctx.hasHardConstraint });
 
   const arrivals = alts.map((a) => a.arrivesAt).filter((n): n is number => typeof n === 'number');
   const bestArrival = arrivals.length ? Math.min(...arrivals) : null;
 
-  const scored = alts.map((a) => score(a, ctx, weights, bestArrival));
+  // Cost is relative to what is actually on the table, so the range has to be
+  // known before any single option can be scored.
+  const totals = alts.map((a) =>
+    costFor(ctx.flight, { chosenAltId: a.id, chosenHotelId: '', chosenCabId: '' }, ctx.partySize, ctx.displayCurrency).total,
+  );
+  const band = { min: Math.min(...totals), max: Math.max(...totals) };
+
+  const scored = alts.map((a) => score(a, ctx, weights, bestArrival, band));
   scored.sort((x, y) => y.score.total - x.score.total);
 
-  return applyEarlyArrivalOverride(scored, ctx);
-}
-
-function capCost(w: Weights): Weights {
-  if (w.cost <= COST_WEIGHT_MAX) return w;
-  const excess = w.cost - COST_WEIGHT_MAX;
-  const others = (Object.keys(w) as Criterion[]).filter((k) => k !== 'cost');
-  const sum = others.reduce((n, k) => n + w[k], 0);
-  const out = { ...w, cost: COST_WEIGHT_MAX };
-  if (sum > 0) for (const k of others) out[k] = w[k] + excess * (w[k] / sum);
-  return out;
+  return finalise(scored, ctx);
 }
 
 function score(
@@ -170,13 +207,14 @@ function score(
   ctx: ScoreContext,
   weights: Weights,
   bestArrival: number | null,
+  band: { min: number; max: number },
 ): ScoredAlt {
   const notes: string[] = [];
   const cost = costFor(
     ctx.flight,
     { chosenAltId: alt.id, chosenHotelId: '', chosenCabId: '' },
     ctx.partySize,
-    ctx.cap,
+    ctx.displayCurrency,
   );
 
   // ── arrival ──
@@ -196,44 +234,37 @@ function score(
   }
 
   // ── cost ──
-  // What the MEMBER pays, not the ticket price. On the involuntary path the
-  // carrier pays and this term correctly stops mattering.
-  const comparable = alt.currency === ctx.cap.currency;
-  const costScore = !comparable
-    ? 0.5
-    : ctx.cap.amount <= 0
-      ? 1
-      : clamp01(1 - cost.total / (ctx.cap.amount * 2));
-  if (!comparable) {
-    notes.push(`Priced in ${alt.currency} against a cap set in ${ctx.cap.currency} — we will not convert it automatically`);
-  } else if (cost.total === 0) {
-    notes.push('Costs you nothing — the airline is covering this');
-  } else if (cost.overCap) {
-    notes.push('Over the amount you pre-authorised, so it needs your explicit approval');
+  //
+  // Scored against the spread of prices actually on the table rather than
+  // against a fixed ceiling. When every candidate costs about the same, `span`
+  // collapses and cost stops discriminating — which is correct: a ₹200
+  // difference should not decide a member's day, and a fixed denominator would
+  // have let it.
+  const span = Math.max(band.max - band.min, band.min * MATERIAL_SPREAD_FRACTION);
+  const costScore = span <= 0 ? 1 : clamp01(1 - (cost.total - band.min) / span);
+  if (cost.total <= band.min) {
+    notes.push('Cheapest of everything we found');
+  } else {
+    notes.push(`${formatMoneyish(cost.total - band.min, cost.currency)} more than the cheapest option`);
+  }
+  if (alt.quoted) {
+    notes.push(
+      `Quoted by the supplier as ${alt.quoted.amount} ${alt.quoted.currency}, converted at market rates`,
+    );
   }
 
   // ── reliability ──
   //
-  // Guard 2 on the fare:0 problem, and it is deliberately gentle.
+  // Can we actually book this? An offer carrying a real expiry came from a
+  // supplier willing to honour a price for a stated period, which is the
+  // strongest signal of bookability available without attempting the booking.
+  // No expiry means generated or scraped inventory: worth showing, worth
+  // ranking, not worth trusting equally.
   //
-  // A carrier-protected alt is not *unlikely* — it is what the airline
-  // statutorily owes on an involuntary cancellation, and is probably the single
-  // most likely thing here to actually happen. The deduction reflects only that
-  // we cannot programmatically confirm or hold it (no NDC access, no offer
-  // expiry), not doubt that the member will be re-accommodated.
-  //
-  // An earlier draft scored it 0.6, and the executable checks caught what that
-  // did: a member who asked for `lowest_cost` was handed a paid fare that
-  // arrived twenty minutes earlier, because the reliability gap alone outvoted
-  // being free. That is overriding a stated preference, which is precisely what
-  // this guard must not do — and it also made Guard 3 unreachable, since
-  // reliability always decided first. Guard 2 should nudge; Guard 3 is what
-  // handles the genuinely lopsided cases.
-  const reliability = alt.kind === 'carrier-protected'
-    ? 0.8
-    : alt.expiresAt !== null
-      ? 1
-      : alt.ok ? 0.75 : 0.4;
+  // RELIABILITY_FLOOR in presets.ts holds this term's weight above zero under
+  // every strategy, so "lowest cost" can never talk the agent into an option it
+  // cannot book.
+  const reliability = alt.expiresAt !== null ? 1 : alt.ok ? 0.75 : 0.4;
 
   // ── cabin ──
   const drop = Math.max(0, cabinRank(ctx.preferredCabin) - cabinRank(alt.cabin));
@@ -278,35 +309,6 @@ function score(
   };
 }
 
-/**
- * Guard 3. A free option that lands hours later than a paid one the member has
- * already authorised is not the better answer, whatever the weights say.
- *
- * Deliberately narrow: it only fires when the paid option is genuinely within
- * cap and genuinely much earlier, so it cannot be used to justify spending.
- */
-function applyEarlyArrivalOverride(scored: ScoredAlt[], ctx: ScoreContext): ScoredAlt[] {
-  const leader = scored[0];
-  if (!leader || leader.alt.kind !== 'carrier-protected') return finalise(scored, ctx);
-  if (typeof leader.alt.arrivesAt !== 'number') return finalise(scored, ctx);
-
-  const challenger = scored.find(
-    (s) =>
-      s !== leader &&
-      s.alt.ok &&
-      !s.cost.overCap &&
-      typeof s.alt.arrivesAt === 'number' &&
-      leader.alt.arrivesAt! - s.alt.arrivesAt >= TIE_ARRIVAL_MINUTES * 60_000,
-  );
-  if (!challenger) return finalise(scored, ctx);
-
-  const minutes = Math.round((leader.alt.arrivesAt - challenger.alt.arrivesAt!) / 60_000);
-  challenger.score.notes.unshift(
-    `Gets you there ${formatHours(minutes / 60)} earlier than the free option, within what you authorised`,
-  );
-  return finalise([challenger, ...scored.filter((s) => s !== challenger)], ctx);
-}
-
 function finalise(scored: ScoredAlt[], ctx: ScoreContext): ScoredAlt[] {
   return scored.map((s) => ({ ...s, why: explain(s, ctx) }));
 }
@@ -333,6 +335,15 @@ function explain(s: ScoredAlt, ctx: ScoreContext): string {
 
   const detail = s.score.notes.slice(0, 2).join('. ');
   return `You asked us to optimise for ${STRATEGY_LABEL[ctx.rules.strategy]}, so we picked this because ${lead[contributions[0].k]}. ${detail}.`;
+}
+
+/**
+ * A bare number with its currency code. Deliberately not lib/time.ts's `money`,
+ * which hardcodes the rupee symbol — these notes now have to carry converted
+ * figures in whatever the card bills in.
+ */
+function formatMoneyish(amount: number, currency: string): string {
+  return `${currency} ${Math.round(amount).toLocaleString('en-IN')}`;
 }
 
 function formatHours(h: number): string {

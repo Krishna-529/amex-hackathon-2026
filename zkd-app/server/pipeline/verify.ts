@@ -1,11 +1,20 @@
 /**
  * Executable checks for the option scorer.
  *
- * The three guards on the carrier-protected `fare: 0` problem are the load-
- * bearing claims of this design: without them a member who asked for "lowest
- * cost" is handed whatever is free regardless of when it lands, because the
- * airline-owed alternative is zero-rated by construction. Claims that
- * consequential should be executable, not asserted in a comment.
+ * This file used to be dominated by three guards against a fabricated `fare: 0`
+ * option. That option is gone (see server/domain/types.ts's AltKind) and so are
+ * the guards. What remains to prove is the set of claims the scorer still
+ * makes, and they are the consequential ones:
+ *
+ *   - hard rules are FILTERS, not penalties — no weighted sum may outvote a
+ *     member's stated rule;
+ *   - cost is scored against the real spread of prices, so a near-uniform set
+ *     of fares correctly stops cost from deciding;
+ *   - reliability keeps an unbookable row from winning, whatever the strategy;
+ *   - strategy actually changes the answer.
+ *
+ * Claims that consequential should be executable rather than asserted in a
+ * comment.
  *
  * Run:  npm run verify:pipeline
  */
@@ -86,7 +95,7 @@ function ctxFor(alts: PartyAlt[], over: Partial<ScoreContext> = {}): ScoreContex
     rules: rules(),
     preferredCabin: 'Economy',
     partySize: 1,
-    cap: { amount: 25000, currency: 'INR' },
+    displayCurrency: 'INR',
     preferredCarriers: ['AI'],
     hasHardConstraint: false,
     ...over,
@@ -137,85 +146,84 @@ console.log('\nallow_cabin_downgrade:false is a hard filter that can leave nothi
   check('and is kept when downgrades are allowed', allowed.kept.length === 1);
 }
 
-console.log('\nGuard 1+2: free does not automatically beat better');
+console.log('\nCost is scored against the spread actually on the table');
 {
-  // The carrier-protected option is free but lands 4h later than a paid one
-  // that is comfortably inside the cap.
-  const free = alt({
-    id: 'cp-1', code: 'AI 900', kind: 'carrier-protected', fare: 0, partyFare: 0,
-    expiresAt: null, arrivesAt: hours(8),
-  });
-  const paid = alt({ id: 'm-1', code: 'AI 500', fare: 6000, partyFare: 6000, arrivesAt: hours(4) });
+  // Two options a hair apart on price. Cost must not be allowed to decide this
+  // — under a fixed denominator it could, which is why the denominator is now
+  // the real range.
+  const early = alt({ id: 'm-1', code: 'AI 500', fare: 6000, partyFare: 6000, arrivesAt: hours(2) });
+  const late = alt({ id: 'm-2', code: 'AI 600', fare: 5900, partyFare: 5900, arrivesAt: hours(9) });
+  const ranked = rankAlts([early, late], ctxFor([early, late], { rules: rules({ strategy: 'lowest_cost' }) }));
+  check('a ₹100 saving does not buy a 7-hour-later arrival',
+    ranked[0].alt.id === 'm-1', `winner=${ranked[0].alt.id}`);
+}
 
-  for (const strategy of ['earliest_arrival', 'minimize_layovers', 'stick_to_preferred_airline'] as OptimizationStrategy[]) {
-    const ctx = ctxFor([free, paid], { rules: rules({ strategy }) });
-    const ranked = rankAlts([free, paid], ctx);
-    check(`${strategy}: the 4h-earlier paid option wins`,
-      ranked[0].alt.id === 'm-1', `winner=${ranked[0].alt.id} total=${ranked[0].score.total}`);
+{
+  // A genuinely large price gap SHOULD win under lowest_cost. The point of
+  // relative scoring is that it still discriminates when there is something to
+  // discriminate on.
+  const dear = alt({ id: 'm-1', code: 'AI 500', fare: 42000, partyFare: 42000, arrivesAt: hours(3) });
+  const cheap = alt({ id: 'm-2', code: 'AI 600', fare: 4000, partyFare: 4000, arrivesAt: hours(5) });
+  const ranked = rankAlts([dear, cheap], ctxFor([dear, cheap], { rules: rules({ strategy: 'lowest_cost' }) }));
+  check('a 10x cheaper option two hours later wins under lowest_cost',
+    ranked[0].alt.id === 'm-2', `winner=${ranked[0].alt.id}`);
+}
+
+{
+  // Identical prices: cost contributes nothing and arrival must decide.
+  const a1 = alt({ id: 'm-1', code: 'AI 500', fare: 7000, partyFare: 7000, arrivesAt: hours(6) });
+  const a2 = alt({ id: 'm-2', code: 'AI 600', fare: 7000, partyFare: 7000, arrivesAt: hours(2) });
+  const ranked = rankAlts([a1, a2], ctxFor([a1, a2], { rules: rules({ strategy: 'lowest_cost' }) }));
+  check('with equal fares, the earlier arrival wins even under lowest_cost',
+    ranked[0].alt.id === 'm-2', `winner=${ranked[0].alt.id}`);
+}
+
+console.log('\nAn option outside the card entitlement is filtered, not ranked');
+{
+  // `ok: false` is the card's policy verdict. It must be a filter: cheaper and
+  // earlier must not be able to buy its way past an entitlement.
+  const notEntitled = alt({
+    id: 'm-1', code: 'AI 900', fare: 1000, partyFare: 1000,
+    ok: false, why: 'Business is above the Economy your card entitles you to',
+    arrivesAt: hours(2),
+  });
+  const entitled = alt({ id: 'm-2', code: 'AI 500', fare: 9000, partyFare: 9000, arrivesAt: hours(4) });
+  const { kept, removed } = applyHardRules([notEntitled, entitled], ctxFor([notEntitled, entitled]));
+  check('the out-of-entitlement option is removed', kept.length === 1 && kept[0].id === 'm-2');
+  check('and the reason names the entitlement',
+    removed[0]?.rule.includes('entitles you to') === true, removed[0]?.rule);
+
+  for (const strategy of ['lowest_cost', 'earliest_arrival'] as OptimizationStrategy[]) {
+    const ranked = rankAlts(kept, ctxFor([notEntitled, entitled], { rules: rules({ strategy }) }));
+    check(`${strategy}: it cannot win, because it never reaches the scorer`,
+      ranked[0].alt.id === 'm-2', `winner=${ranked[0].alt.id}`);
   }
 }
 
-console.log('\nGuard 3: the override backstops the lopsided cases');
+console.log('\nReliability separates two otherwise comparable options');
 {
-  // Constructed so the weighted sum alone gets it WRONG: near-cap fare drags
-  // the cost term down far enough that free edges ahead on total, despite
-  // landing ten hours later. This is the case Guard 3 exists for.
-  const free = alt({
-    id: 'cp-1', code: 'AI 900', kind: 'carrier-protected', fare: 0, partyFare: 0,
-    expiresAt: null, arrivesAt: hours(12),
+  // Both bookable and both within entitlement, near-identical on price and
+  // arrival. The one carrying a real supplier expiry is the one we can confirm.
+  const noExpiry = alt({
+    id: 'm-1', code: 'AI 900', fare: 7000, partyFare: 7000,
+    expiresAt: null, arrivesAt: hours(4),
   });
-  const paid = alt({ id: 'm-1', code: 'AI 500', fare: 24000, partyFare: 24000, arrivesAt: hours(2) });
-  const ctx = ctxFor([free, paid], { rules: rules({ strategy: 'lowest_cost' }) });
-  const ranked = rankAlts([free, paid], ctx);
-
-  check('a 10h-earlier in-cap option wins despite scoring lower on the sum',
-    ranked[0].alt.id === 'm-1', `winner=${ranked[0].alt.id}`);
-  check('and says why in the member-facing note',
-    ranked[0].score.notes.some((n) => /earlier than the free option/.test(n)),
-    ranked[0].score.notes[0]);
+  const withExpiry = alt({
+    id: 'm-2', code: 'AI 500', fare: 7100, partyFare: 7100,
+    expiresAt: T0 + 20 * 60_000, arrivesAt: hours(4),
+  });
+  const ranked = rankAlts([noExpiry, withExpiry], ctxFor([noExpiry, withExpiry]));
+  check('the offer with a real expiry wins the tie',
+    ranked[0].alt.id === 'm-2', `winner=${ranked[0].alt.id}`);
 }
 
-console.log('\nWhen plain scoring already gets it right, the override stays out of it');
+console.log('\nNo option is ever refused for being expensive');
 {
-  const free = alt({
-    id: 'cp-1', code: 'AI 900', kind: 'carrier-protected', fare: 0, partyFare: 0,
-    expiresAt: null, arrivesAt: hours(9),
-  });
-  const paid = alt({ id: 'm-1', code: 'AI 500', fare: 6000, partyFare: 6000, arrivesAt: hours(4) });
-  const ranked = rankAlts([free, paid], ctxFor([free, paid], { rules: rules({ strategy: 'lowest_cost' }) }));
-  check('the 5h-earlier cheap-enough option wins on the sum alone',
-    ranked[0].alt.id === 'm-1', `winner=${ranked[0].alt.id}`);
-  check('no override note, because none was needed',
-    !ranked[0].score.notes.some((n) => /earlier than the free option/.test(n)));
-}
-
-console.log('\nThe override is narrow — it must not justify spending');
-{
-  // Same money, but only 20 minutes earlier: under the TIE threshold.
-  const free = alt({
-    id: 'cp-1', code: 'AI 900', kind: 'carrier-protected', fare: 0, partyFare: 0,
-    expiresAt: null, arrivesAt: hours(4) + 20 * 60_000,
-  });
-  const paid = alt({ id: 'm-1', code: 'AI 500', fare: 6000, partyFare: 6000, arrivesAt: hours(4) });
-  const ctx = ctxFor([free, paid], { rules: rules({ strategy: 'lowest_cost' }) });
-  const ranked = rankAlts([free, paid], ctx);
-  check('a marginally-earlier paid option does NOT displace free under lowest_cost',
-    ranked[0].alt.id === 'cp-1', `winner=${ranked[0].alt.id}`);
-}
-
-{
-  // Over cap: the override must not fire however early it is.
-  const free = alt({
-    id: 'cp-1', code: 'AI 900', kind: 'carrier-protected', fare: 0, partyFare: 0,
-    expiresAt: null, arrivesAt: hours(12),
-  });
-  const pricey = alt({
-    id: 'm-1', code: 'AI 500', fare: 90000, partyFare: 90000, arrivesAt: hours(2),
-  });
-  const ctx = ctxFor([free, pricey], { rules: rules({ strategy: 'lowest_cost' }) });
-  const ranked = rankAlts([free, pricey], ctx);
-  check('an over-cap option never displaces free, however early',
-    ranked[0].alt.id === 'cp-1', `winner=${ranked[0].alt.id}`);
+  // The per-transaction cap is gone. An eye-wateringly dear option must still
+  // survive hard rules — the member is told the price, not denied the seat.
+  const dear = alt({ id: 'm-1', code: 'AI 500', fare: 250000, partyFare: 250000, arrivesAt: hours(3) });
+  const { kept, removed } = applyHardRules([dear], ctxFor([dear]));
+  check('a ₹250,000 option is kept, not filtered', kept.length === 1, `removed=${removed.length}`);
 }
 
 console.log('\nStrategy actually changes the ranking');

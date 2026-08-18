@@ -23,7 +23,13 @@ export async function GET(req: NextRequest) {
   ]);
 
   const body: AltsResponse = {
-    alts: offersToAlts(offers, origin, destination, profile.preferences.cabinEntitlement, profile.preferences.perTransactionCap),
+    alts: await offersToAlts(
+      offers,
+      origin,
+      destination,
+      profile.preferences.cabinEntitlement,
+      profile.payment.billingCurrency,
+    ),
     offers,
     seatsAvailable: seatsAcross(offers),
     sources,

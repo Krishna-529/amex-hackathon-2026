@@ -27,7 +27,8 @@ export type NarrationContext = {
   flight: Flight;
   task: RecoveryTask;
   booking: Booking;
-  cap: { amount: number; currency: string };
+  /** the currency every figure in this narration is quoted in */
+  displayCurrency: string;
   /** true when nothing was actually mutated — the member is owed that fact */
   intentOnly: boolean;
   /**
@@ -39,11 +40,11 @@ export type NarrationContext = {
 };
 
 export function narrate(step: SagaStepName, ctx: NarrationContext): string {
-  const { flight, task, booking, cap } = ctx;
+  const { flight, task, booking, displayCurrency } = ctx;
   const alt = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
   const hotel = flight.candidates.hotels.find((h) => h.id === task.chosenHotelId);
   const cab = flight.candidates.cabs.find((c) => c.id === task.chosenCabId);
-  const cost = costFor(flight, task, task.partySize, cap);
+  const cost = costFor(flight, task, task.partySize, displayCurrency);
   const n = task.partySize;
 
   switch (step) {
@@ -56,7 +57,7 @@ export function narrate(step: SagaStepName, ctx: NarrationContext): string {
       if (n <= 1) {
         return `A single-use card locked to ${cost.total ? money(cost.total) : '₹0'} and today's date — exactly the plan you were shown, and it cannot be reused or overspent.`;
       }
-      // One card per ticket rather than one aggregate charge. The cap was
+      // One card per ticket rather than one aggregate charge. Spend was
       // already checked against the party total before this step ran, so
       // splitting the charge here does not touch the cap decision.
       const per = cost.total ? money(Math.round(cost.total / n)) : '₹0';
