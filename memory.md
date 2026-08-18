@@ -406,3 +406,20 @@
   before debugging further (chased a phantom "reverify is broken" this session before finding this).
 - `ZKD Website/serve.js` serves the three demo sites on 5173/5174/5175; binds `0.0.0.0` (demo),
   don't run on public Wi-Fi.
+## 2026-08-18 - Money-flow policy + member-scenario audit (checklist workbook)
+
+- New sheet "Member scenarios" in `ZKD-Feature-Checklist.xlsx` (generator: `tools/add_member_scenarios.py`, rerunnable):
+  22 real-life disruption scenarios as an Amex customer, mapped to code, status colour-coded: 9 Covered,
+  8 Partial, 5 Not covered (denied boarding, diversion, baggage, medical, original-ticket refund).
+- New policy: **all spend on the member's Amex card, all refunds to that same card - the balance can never
+  go negative from this flow.** Documented as §10 in `documentation/design/03-action-policy.md`; enforced by
+  the existing per-transaction cap on every spend path (approve / autopilot / silent timeout). Also captured
+  as rows 44-47 ("8. Money flow") in the Feature checklist sheet.
+- Live findings recorded in the sheet:
+  1. `zkd-app/server/.state/*.jsonl` decision ledger files do NOT exist in the running instance despite
+     live forecasts - likely the dev server's cwd differs from repo root; logPrediction claims are currently
+     UNVERIFIED at runtime (flagged on scenario 21).
+  2. Duffel offers priced in EUR are all excluded by the currency guard (needsConversion) - today the only
+     bookable recovery rows are the carrier-protected Duffel alt + mock:travelport rows. Correct behaviour,
+     thin real data.
+- Local main is 30 commits ahead of origin/main (8a5cd64). Push pending.

@@ -303,3 +303,42 @@ figure only, because it tracks the `p_intrinsically_complex` assumption almost 1
 therefore an input restated rather than a finding.
 
 Source: `iropssim.py`, fixed seed, reproducible — `python3 iropssim.py | diff - iropssim-output.json`.
+
+---
+
+## 10. Money flows only on the member's Amex card
+
+**Every payment goes out on the member's Amex card, and every refund comes back to that same
+card.** This is the routing invariant, stated once here so every other document can refer to it.
+
+| Direction | Instrument | Rule |
+|---|---|---|
+| Any spend — rebooked flight, hotel, ground transfer, or any supplier charge | The member's Amex card (the same card the original trip was booked on) | Never any other instrument: no cash, no bank transfer, no vouchers, no third-party pay-out |
+| Any refund — cancelled original ticket, carrier duty-of-care reimbursement, hotel/cab credit | Credited back to that same Amex card | A refund first offsets what the card was charged; the system never routes it anywhere else |
+
+**Consequence: the member's Amex balance can never go negative because of this system.**
+
+Two mechanisms enforce it, both already in the engine:
+
+1. **Spend is capped at the card's authorisation limit.** The per-transaction cap
+   (`fare_delta_cap` in §5; `DEFAULT_PER_TRANSACTION_CAP` in `server/myca.ts`) is checked on
+   *every* spend path — explicit approve, autopilot, and the silent-timeout path. If the plan
+   exceeds the cap, the engine stops before anything is charged, explains, and hands over to the
+   member. The cap is the card's real limit, not a preference, so even an explicit approval
+   cannot pass it (`server/engine/simulation.ts`).
+2. **Money returns to where it was drawn from.** A duty-of-care reimbursement or a cancelled
+   ticket's refund lands on the same card the recovery was charged to, so spend and credit are
+   always the same instrument and net out on one statement.
+
+Ordering note (this is why the invariant matters during recovery): the replacement is booked and
+confirmed **before** the original is disposed (§6 — disposal is last, outside the rollback
+chain). The refund of the original is therefore always an event that follows a *completed*
+recovery, never one the pipeline depends on to fund the next step — the card must be able to
+carry the recovery charge on its own. If it cannot, the cap check in (1) stops the flow rather
+than starting a chain that needs a not-yet-arrived refund to clear.
+
+Member-facing copy wherever a price is shown should say the same thing: *"Charged to your Amex;
+anything refunded comes back to the same card."*
+
+---
+
