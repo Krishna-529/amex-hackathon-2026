@@ -342,3 +342,73 @@ anything refunded comes back to the same card."*
 
 ---
 
+
+## 11. Who notices — the procedure today versus the procedure we are building
+
+Raised in mentor meeting 2. Everything above §11 describes the system **from detection onward**.
+This section is about the step before that, which is the one the member actually experiences first.
+
+### Today: reactive. The member is the detector.
+
+```
+flight is cancelled
+      ↓
+member finds out (airline SMS, gate announcement, app)
+      ↓
+member contacts Amex
+      ↓
+Amex begins to rebook
+```
+
+That is not a description of a demo shortcut, it is the production shape. In the code,
+`detectDisruption` — the single entry point for "we caught a disruption signal" — has exactly one
+production caller, `POST /api/disruptions`, and the only thing that reaches it is a human pressing
+a button in the `/ops` console. There is no poller, cron, webhook or worker anywhere in
+`zkd-app/server/`.
+
+The consequence is that **the whole latency budget in §4 starts from the wrong moment.** The
+system's measured clock begins when somebody tells us, and the member has already spent the
+expensive minutes — noticing, queueing, explaining — before any of it starts. Optimising the
+seconds after that point, while the minutes before it are unmeasured, is optimising the cheap half.
+
+Note what this does *not* say: the risk model is real and runs ahead of time (§2, and
+`05-cancellation-risk-model.md`). Prediction and detection are different capabilities. We have a
+forecast that a flight is *likely* to be cancelled; we do not have a signal that it *has been*.
+
+### Target: proactive. We notice, we act, then we tell them.
+
+```
+flight is cancelled
+      ↓
+status feed tells us within seconds
+      ↓
+pipeline is already warm - options ranked against their preferences
+      ↓
+member's phone tells them, with a plan already attached
+```
+
+The warm path that makes this credible already exists: risk crosses a threshold, alternatives are
+pre-cached, the plan is composed and parked at the consent gate with nothing spent. What is missing
+is the trigger — one supplier feed, not an architecture change.
+
+Which feed, and what it costs, is the open decision in §1 of
+[`02-data-sources-and-apis.md`](02-data-sources-and-apis.md). OAG can express a cancellation and is
+already integrated, but our trial key allows 100 calls per 14 days, which cannot support continuous
+watching.
+
+### What does not change
+
+The authority boundary is unaffected. Detecting sooner means the member is told sooner and the
+options are better prepared — it does **not** mean anything irreversible happens earlier. The
+consent gate in §3, the halt conditions in §7 and the money-flow invariant in §10 all sit
+downstream of detection and are untouched by moving it earlier. A faster trigger buys the member
+more time to decide, not less.
+
+### How we will know it worked
+
+The measure is `A1` (detection lead time) in
+[`06-experience-kpis.md`](06-experience-kpis.md) — minutes between the cancellation becoming
+knowable and us knowing it, negative when we knew before the member did. It is undefined today,
+which is precisely the point.
+
+---

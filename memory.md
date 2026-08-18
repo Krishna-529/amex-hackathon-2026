@@ -423,3 +423,42 @@
      bookable recovery rows are the carrier-protected Duffel alt + mock:travelport rows. Correct behaviour,
      thin real data.
 - Local main is 30 commits ahead of origin/main (8a5cd64). Push pending.
+
+## 2026-08-18 - Mentor meeting 2 recorded; experience KPIs and a doc map added
+
+Branch `docs/meeting-2-kpis`, docs only, cut from `origin/main` at f1346ba.
+
+Meeting 2 gave four steers, all now written down:
+
+1. **Family members' travel preferences exist at Amex** - design against the data existing. The gap
+   it exposes is ours: `Traveller` (server/domain/types.ts) has identity, passport and per-person
+   loyalty but NO preferences, and `unionHotelRulesAcrossParty` unions exactly one field across a
+   party (accessibility). Recorded in design/02 with the ordering constraint that a per-preference
+   merge rule must be decided BEFORE adding a preference field, or the merge looks principled and
+   is not.
+2. **Customer experience is the only objective; revenue is out of scope.** Nothing to remove - a
+   sweep of documentation/ for revenue/monetisation vocabulary found only `network_margin` in a
+   timing formula and the ML `margin output`. So this is a stance now stated in CLAUDE.md and
+   design/06, not a cleanup.
+3. **Detection is a real gap, and OAG can close it.** OAG Flight Instances v2 carries a live status
+   whose values include "Cancelled" plus a `scheduleChanged` flag (server/oag.ts) - capability is
+   NOT the constraint. Budget is: OAG_FLIGHT_INFO_TRIAL is 100 calls per 14 days TOTAL, which
+   cannot support continuous watching, and OAG is currently imported in only two places, neither a
+   status watcher. Written into design/02 §1 as a supplier decision with a costed option table.
+4. **Granular KPIs laddering to satisfaction** - new design/06-experience-kpis.md.
+
+New: `documentation/project/mentor-meetings.md` (meeting 2 in full; meeting 1 is a stub - its
+takeaways were never committed and are not on this machine), `documentation/design/06-experience-kpis.md`,
+root `CLAUDE.md` (question -> doc map; defers to AGENTS.md for house rules so the two do not drift).
+Edited: design/02, design/03 (new §11 reactive-today vs proactive-target), documentation/README.md.
+
+Findings worth keeping:
+- **`logOutcome()` in server/decisionLedger.ts has ZERO callers.** `logPrediction()` runs on every
+  forecast, so predictions accumulate and outcomes never do. Prediction accuracy is therefore not
+  computable today - one call site would unblock it. No accuracy claim about the live model should
+  be made until then.
+- **Detection today is a human pressing a button.** `detectDisruption` has one production caller
+  (POST /api/disruptions from /ops) and there is no setInterval, cron, webhook or worker anywhere
+  in zkd-app/server/. The §4 latency budget therefore starts from the wrong moment.
+- design/06 deliberately sets NO target values and NO composite score - no baseline exists for a
+  single KPI, and a composite would hide the granularity the meeting asked for.

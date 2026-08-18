@@ -20,6 +20,7 @@ The most important feed in the system. Everything else is secondary.
 | **Cirium (FlightStats)** | Schedules, status, cancellations, tail linkage. The industry reference. | Push webhook, seconds | Enterprise, quote-only | `identified` |
 | **FlightAware AeroAPI** | Status, position, tail-number linkage, alerts | Push alerts, ~seconds | ~$0.002–0.02/query; tiered | `identified` |
 | **AviationStack** | Status + schedules incl. **scheduled/estimated departure times** | Poll, ~1 min | Free 100/mo; ~$50/mo for 10k | `wired` |
+| **OAG Flight Instances v2** | Schedules **and** live status — its status text includes `Cancelled`, plus a `scheduleChanged` flag | Poll | Trial key: **100 calls per 14 days, total** | `wired` (search only) |
 | **Lumo Subscription API** | Webhook push on **schedule change** and cancellation | Push | Commercial | `sandbox` (mocked) |
 | **Airline NDC / direct** | Authoritative cancellation the moment it is filed | Push | Commercial | `commercial` |
 
@@ -42,6 +43,50 @@ primary, poll as reconciliation**:
 
 **Tail-number linkage** used to be our hard problem, because rotation was our second-heaviest
 feature. It is now the *forecaster's* problem — see §2.
+
+### Detection versus prediction — and does OAG answer it?
+
+Raised in mentor meeting 2. These are two different capabilities and the project currently has
+only one of them.
+
+**Prediction** is §2 and `05-cancellation-risk-model.md`: a probability that a flight *will* be
+cancelled, produced hours ahead. We have this, self-trained, running.
+
+**Detection** is knowing that a flight *has been* cancelled. We do not have this. The procedure
+today is reactive and the code says so plainly: `detectDisruption` in
+`zkd-app/server/engine/simulation.ts` has exactly one production caller — `POST /api/disruptions`,
+reached by a human pressing a button in the `/ops` console. There is no poller, cron, webhook or
+worker anywhere in `zkd-app/server/`. In production terms, the member is the detector: they notice,
+they tell Amex, and only then does the pipeline start.
+
+**Does OAG provide the data? Yes.** OAG's Flight Instances v2 response carries a live status field
+whose values include `"Cancelled"`, alongside a `scheduleChanged` flag — both already modelled in
+`zkd-app/server/oag.ts`, and the endpoint is verified working against our trial key. The status is
+present on status-bearing queries and null on a pure schedules query, which is an honest
+distinction the client already preserves.
+
+**So capability is not the constraint. Budget is.** `OAG_FLIGHT_INFO_TRIAL` is capped at **100
+calls in total across a 14-day window** — not per day, not per month. Detection means watching a
+book of flights continuously; 100 calls does not cover one day of that for a single route, let
+alone a portfolio. The trial key is correctly spent where it is spent today: OAG is imported in
+exactly two places in the app, and neither is a status watcher.
+
+**The decision this leaves open** — a supplier decision before it is an engineering one:
+
+| Option | What it buys | What it costs |
+|---|---|---|
+| Paid OAG tier | Status we have already integrated and proven against | Commercial quote; unknown |
+| AviationStack, already `wired` | ~1-minute poll, free tier exists, independent of the forecaster | 60s of the recovery budget lost to poll latency |
+| Cirium / FlightAware push | Seconds, webhook, the industry reference | Enterprise pricing, quote-only |
+| Airline NDC direct | Authoritative the moment the cancellation is filed | Commercial agreement per carrier |
+
+The design position above still holds: **push primary, poll as reconciliation.** Whichever
+provider is chosen, the poll sweep stays, because a change-feed cannot recover a dropped message
+and a missed cancellation fails silently.
+
+Until one of these is bought, the detection lead-time KPI (`A1` in
+[`06-experience-kpis.md`](06-experience-kpis.md)) is undefined and every other speed metric is
+measured from an arbitrary clock.
 
 ---
 
@@ -156,6 +201,38 @@ rather than hardcoded rules, and anything outside it is surfaced and marked rath
 the card member while the passport and preferences belong to the traveller. `server/myca.ts` keeps
 `cardMember` and `traveller` as separate fields so the answer can be dropped in; the consent rules
 for that case are not guessed at.
+
+### Family members' preferences — resolved, and the gap it exposes
+
+Mentor meeting 2 answered half of the question above: **Amex holds travel preference data for
+family members**, not only for the card member. We may design against that data existing rather
+than working around its absence.
+
+Consent is still open — whose preference wins, and who may authorise spend on whose behalf, is
+unchanged from the note above and still needs Amex input.
+
+What the resolution exposes is that **our model has nowhere to put it**. Today:
+
+- `Traveller` (`zkd-app/server/domain/types.ts`) carries identity, date of birth, passport,
+  contact, traveller type and per-person loyalty — but no seat, meal, cabin or optimisation
+  preference. Loyalty is already per-person; preferences are not.
+- The only party-level merge in the system, `unionHotelRulesAcrossParty`
+  (`zkd-app/server/preferences/adapt.ts`), unions exactly **one** field across the party:
+  accessibility. Its reasoning is sound and worth keeping — accessibility is a fact about a human
+  being rather than a taste, so the strictest requirement across the party wins.
+- Everything else applies the **card member's** preference to everyone on the ticket. A child who
+  needs a specific meal, or a companion who cannot take a red-eye, is invisible to ranking.
+
+Two things follow, and they are ordered:
+
+1. **A merge rule per preference, decided deliberately.** Accessibility unions because it is a
+   need. A cabin preference cannot union the same way — the strictest reading would silently
+   upgrade the whole party against the card's entitlement. Each preference needs its own rule
+   (union / strictest / card-member-wins) written down before any of them is implemented.
+2. **A place to hold it** — a preference field on `Traveller`, fed from MyCa.
+
+Doing (2) before (1) would produce a party merge that looks principled and is not. Tracked as an
+open action in [`../project/mentor-meetings.md`](../project/mentor-meetings.md).
 
 ---
 
