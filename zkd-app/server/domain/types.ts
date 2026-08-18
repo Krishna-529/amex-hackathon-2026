@@ -151,6 +151,59 @@ export type CabOpt = {
 
 export type CabLeg = { id: string; from: string; to: string; pickup: string; note: string };
 
+/**
+ * A hotel booking the member made themselves.
+ *
+ * Distinct from `HotelOpt` above, which is a hotel we are OFFERING during a
+ * recovery. This is one they have committed to — it has a confirmation, an
+ * owner and a price they accepted.
+ *
+ * `flightId` is null for a stay booked on its own, and set when the stay was
+ * arranged because a specific flight broke. That is the only difference between
+ * origination and re-accommodation at the storage level.
+ */
+export type Stay = {
+  id: string;
+  passengerId: string;
+  flightId: string | null;
+  /** airport code the city was resolved from — how the search is keyed */
+  city: string;
+  cityName: string;
+  name: string;
+  area: string;
+  checkin: string;
+  checkout: string;
+  rooms: number;
+  /** total for the stay, in the currency the supplier quoted. Never converted. */
+  total: number;
+  currency: string;
+  refundable: boolean;
+  /** epoch ms free cancellation closes; null when the source did not say */
+  cancelDeadline: number | null;
+  supplier: string;
+  /** locally generated — no supplier issues this, same as a flight PNR here */
+  reference: string;
+  bookedAt: number;
+};
+
+/** A ground transfer the member booked. Same shape of decision as a Stay. */
+export type Ride = {
+  id: string;
+  passengerId: string;
+  flightId: string | null;
+  from: string;
+  to: string;
+  /** the vehicle class, as the supplier names it */
+  kind: string;
+  seats: number;
+  pickupISO: string;
+  total: number;
+  currency: string;
+  supplier: string;
+  reference: string;
+  bookedAt: number;
+};
+
 export type Flight = {
   id: string;
   code: string;

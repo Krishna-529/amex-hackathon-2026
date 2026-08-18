@@ -209,3 +209,40 @@ export function localDateParts(iata: string, at: number): { hour: number; dayOfW
     return { hour: date.getUTCHours(), dayOfWeek: date.getUTCDay() === 0 ? 7 : date.getUTCDay(), month: date.getUTCMonth() + 1 };
   }
 }
+
+/**
+ * ISO 3166-1 alpha-2 country code for an airport.
+ *
+ * The dataset carries full country NAMES ("United Kingdom"), not codes, and the
+ * one existing caller derived a code with `country.slice(0, 2).toUpperCase()`.
+ * That is right for "India" -> IN only by coincidence, and wrong wherever the
+ * code is not the first two letters: "United Kingdom" -> UN (should be GB),
+ * "Germany" -> GE (should be DE — and GE is Georgia), "Spain" -> SP (ES),
+ * "Netherlands" -> NE (NL — and NE is Niger).
+ *
+ * It matters because LiteAPI keys its hotel search on this field
+ * (server/hotels/providers.ts), so a wrong code silently searches the wrong
+ * country or returns nothing at all — a failure mode with no error attached,
+ * which is exactly why it went unnoticed.
+ *
+ * Mapped explicitly for the countries this app actually routes through, with
+ * the old slice kept as the fallback so an unmapped country behaves no worse
+ * than it did before rather than throwing. Add entries as routes expand.
+ */
+const COUNTRY_CODES: Record<string, string> = {
+  India: 'IN', 'United Kingdom': 'GB', 'United States': 'US', Germany: 'DE',
+  Spain: 'ES', Netherlands: 'NL', Switzerland: 'CH', Sweden: 'SE',
+  Denmark: 'DK', Ireland: 'IE', Portugal: 'PT', Austria: 'AT',
+  Belgium: 'BE', Greece: 'GR', 'Czech Republic': 'CZ', Poland: 'PL',
+  'United Arab Emirates': 'AE', Singapore: 'SG', Thailand: 'TH',
+  Malaysia: 'MY', Japan: 'JP', 'South Korea': 'KR', China: 'CN',
+  Australia: 'AU', 'New Zealand': 'NZ', Canada: 'CA', Brazil: 'BR',
+  'South Africa': 'ZA', Turkey: 'TR', Qatar: 'QA', 'Saudi Arabia': 'SA',
+  France: 'FR', Italy: 'IT', Norway: 'NO', Finland: 'FI', Iceland: 'IS',
+};
+
+export function countryCodeOf(iata: string): string {
+  const ap = airport(iata);
+  if (!ap) return '';
+  return COUNTRY_CODES[ap.country] ?? ap.country.slice(0, 2).toUpperCase();
+}

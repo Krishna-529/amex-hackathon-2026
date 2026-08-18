@@ -67,9 +67,44 @@ type SearchResponse = {
  */
 const todayPlus = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
+type HotelResult = {
+  id: string;
+  supplier: string;
+  name: string;
+  area: string;
+  checkin: string;
+  checkout: string;
+  roomsAvailable: number | null;
+  total: { amount: number; currency: string };
+  refundable: boolean;
+  cancelDeadline: number | null;
+  minutesFromAirport: number | null;
+  live: boolean;
+};
+
+type HotelSearchResponse = {
+  cityName: string;
+  checkin: string;
+  checkout: string;
+  sources: Record<string, string>;
+  hotels: HotelResult[];
+};
+
 export default function Home() {
   const router = useRouter();
   const { status } = useWorld();
+
+  const [tab, setTab] = useState<'flights' | 'hotels'>('flights');
+
+  // Hotel search is a separate little state machine from the flight one — same
+  // shape, different fields — rather than one union that has to be narrowed at
+  // every use.
+  const [hotelCity, setHotelCity] = useState('BOM - Mumbai');
+  const [checkin, setCheckin] = useState('');
+  const [checkout, setCheckout] = useState('');
+  const [hotelRooms, setHotelRooms] = useState(1);
+  const [hotelResults, setHotelResults] = useState<HotelSearchResponse | null>(null);
+  const [bookedStay, setBookedStay] = useState<string | null>(null);
 
   const [tripType, setTripType] = useState<'round' | 'oneway' | 'multi'>('oneway');
   const [cabinClass, setCabinClass] = useState('Economy');
@@ -83,6 +118,8 @@ export default function Home() {
   useEffect(() => {
     setDepartDate((d) => d || todayPlus(7));
     setReturnDate((d) => d || todayPlus(12));
+    setCheckin((d) => d || todayPlus(7));
+    setCheckout((d) => d || todayPlus(8));
   }, []);
 
   const [searching, setSearching] = useState(false);
@@ -162,6 +199,68 @@ export default function Home() {
   // it, so it is shown but not selectable.
   const bookable = (f: SearchFlight) => !!f.departsUtc && !!f.durationMin;
 
+  const searchHotels = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSearching(true);
+    setError(null);
+    setHotelResults(null);
+    setBookedStay(null);
+    try {
+      const qs = new URLSearchParams({
+        city: hotelCity,
+        checkin,
+        checkout,
+        rooms: String(hotelRooms),
+        adults: String(hotelRooms),
+      });
+      const res = await fetch(`/api/search/hotels?${qs}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? `search failed (${res.status})`);
+      setHotelResults(json as HotelSearchResponse);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const bookHotel = async (h: HotelResult) => {
+    if (status !== 'authenticated') {
+      router.push('/login');
+      return;
+    }
+    setBooking(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/bookings/hotel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          city: hotelCity,
+          name: h.name,
+          area: h.area,
+          checkin: h.checkin,
+          checkout: h.checkout,
+          rooms: hotelRooms,
+          total: h.total.amount,
+          currency: h.total.currency,
+          refundable: h.refundable,
+          cancelDeadline: h.cancelDeadline,
+          supplier: h.supplier,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? `booking failed (${res.status})`);
+      // No redirect: a stay does not appear on /flights, so sending them there
+      // would look like the booking vanished. Confirm in place instead.
+      setBookedStay(json.reference as string);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBooking(false);
+    }
+  };
+
   return (
     <div className="amex-page">
       <div className="amex-container">
@@ -170,13 +269,67 @@ export default function Home() {
             <h1>Book a Flight for your next adventure!</h1>
 
             <div className="amex-service-tabs">
-              <button type="button" className="amex-tab-pill active">✈ Flights</button>
-              <button type="button" className="amex-tab-pill disabled" disabled>🏨 Hotels</button>
+              {/*
+                Flights and Hotels are real: both search live supplier
+                registries and create a real booking. The rest stay disabled on
+                purpose rather than being wired to something that goes nowhere —
+                there is no vacation-rental or cruise model anywhere in the
+                codebase, and ground/Cars needs an Uber credential that is not
+                self-serve, so it would fall back to a mock. A tab that looks
+                live and is not is worse than one that is honestly off.
+              */}
+              <button
+                type="button"
+                className={`amex-tab-pill ${tab === 'flights' ? 'active' : ''}`}
+                onClick={() => setTab('flights')}
+              >
+                ✈ Flights
+              </button>
+              <button
+                type="button"
+                className={`amex-tab-pill ${tab === 'hotels' ? 'active' : ''}`}
+                onClick={() => setTab('hotels')}
+              >
+                🏨 Hotels
+              </button>
               <button type="button" className="amex-tab-pill disabled" disabled>🏡 Vacation Rentals</button>
               <button type="button" className="amex-tab-pill disabled" disabled>🚗 Cars</button>
               <button type="button" className="amex-tab-pill disabled" disabled>🚢 Cruises</button>
             </div>
 
+            {tab === 'hotels' ? (
+              <form onSubmit={searchHotels}>
+                <div className="amex-field-group">
+                  <div className="amex-field">
+                    <label>City</label>
+                    <input
+                      type="text"
+                      value={hotelCity}
+                      onChange={(e) => setHotelCity(e.target.value)}
+                      placeholder="e.g. BOM"
+                    />
+                    <small>Searched by airport code — that is how the accommodation registry is keyed.</small>
+                  </div>
+                  <div className="amex-field">
+                    <label>Check in</label>
+                    <input type="date" value={checkin} onChange={(e) => setCheckin(e.target.value)} />
+                  </div>
+                  <div className="amex-field">
+                    <label>Check out</label>
+                    <input type="date" value={checkout} min={checkin || undefined} onChange={(e) => setCheckout(e.target.value)} />
+                  </div>
+                  <div className="amex-field" style={{ width: 120 }}>
+                    <label>Rooms</label>
+                    <select value={hotelRooms} onChange={(e) => setHotelRooms(Number(e.target.value))}>
+                      {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+                  <button type="submit" className="amex-btn-search" disabled={searching}>
+                    {searching ? 'Searching…' : 'Search'}
+                  </button>
+                </div>
+              </form>
+            ) : (
             <form onSubmit={handleSearch}>
               <div className="amex-form-row">
                 <div className="amex-seg">
@@ -244,6 +397,7 @@ export default function Home() {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
 
@@ -268,6 +422,66 @@ export default function Home() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {bookedStay && (
+          <div className="amex-notice">
+            <strong>Booked.</strong> Your confirmation is <strong>{bookedStay}</strong>. The rate and
+            cancellation terms are exactly as shown — nothing was converted or rounded.
+          </div>
+        )}
+
+        {hotelResults && (
+          <div className="amex-results">
+            <h2>
+              {hotelResults.hotels.length} propert{hotelResults.hotels.length === 1 ? 'y' : 'ies'} in{' '}
+              {hotelResults.cityName}, {hotelResults.checkin} to {hotelResults.checkout}
+            </h2>
+            <p className="amex-results-note">
+              Live rates from the same accommodation registry the recovery flow uses. Prices are the
+              total for the stay in the currency the supplier quoted — nothing here is converted.
+            </p>
+
+            {hotelResults.hotels.length === 0 && (
+              <div className="amex-notice">
+                No availability came back for those dates.{' '}
+                {Object.entries(hotelResults.sources)
+                  .filter(([, s]) => s !== 'ok')
+                  .map(([k, s]) => `${k}: ${s}`)
+                  .join(' · ') || 'Every source answered, none had rooms.'}
+              </div>
+            )}
+
+            <div className="amex-flight-list">
+              {hotelResults.hotels.map((h) => (
+                <div key={h.id} className="amex-flight-row" style={{ cursor: 'default' }}>
+                  <span className="amex-flight-code" style={{ gridColumn: 'span 2' }}>{h.name}</span>
+                  <span className="amex-flight-meta">
+                    {h.area}
+                    {h.minutesFromAirport !== null ? ` · ${h.minutesFromAirport} min from the airport` : ''}
+                    {h.refundable ? ' · free cancellation' : ' · non-refundable'}
+                    {/* live:false means the source can price it but cannot be
+                        committed against — the same honesty flag flights use. */}
+                    {h.live ? '' : ' · indicative only'}
+                  </span>
+                  <span className="amex-flight-pick" style={{ textAlign: 'right' }}>
+                    <span style={{ display: 'block', fontVariantNumeric: 'tabular-nums' }}>
+                      {h.total.currency} {h.total.amount.toLocaleString()}
+                    </span>
+                    <button
+                      type="button"
+                      className="amex-btn-search"
+                      style={{ marginTop: 6, padding: '6px 14px', fontSize: 13 }}
+                      disabled={booking || !h.live}
+                      onClick={() => bookHotel(h)}
+                    >
+                      {status === 'authenticated' ? 'Book' : 'Sign in'}
+                    </button>
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         )}

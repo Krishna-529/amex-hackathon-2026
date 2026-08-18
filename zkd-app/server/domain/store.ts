@@ -31,6 +31,7 @@ import { sql, ensureReady } from './db';
 import type {
   Passenger, Flight, Booking, Itinerary, PreAuthRecord, PastFlight,
   DisruptionEvent, RecoveryTask, Credential, Traveller, SeatAssignment,
+  Stay, Ride,
 } from './types';
 import type { PipelineRun } from '../pipeline/types';
 
@@ -395,4 +396,61 @@ export function getPipelineRunsForFlight(flightId: string): PipelineRun[] {
 
 export function listPipelineRuns(): PipelineRun[] {
   return [...pipelineRuns.values()].sort((a, b) => b.startedAt - a.startedAt);
+}
+
+/* ── Stays and rides ───────────────────────────────────────────────────────
+   Same storage shape as bookings — id, owner, entity as JSON — so nothing here
+   introduces a new pattern to learn. See migrations/0002 for why they are not
+   columns on `bookings`. */
+
+export async function createStay(s: Omit<Stay, 'id'>): Promise<Stay> {
+  const q = await db();
+  const [{ nextval }] = await q<{ nextval: string }[]>`select nextval('stay_seq') as nextval`;
+  const stay: Stay = { ...s, id: `st${nextval}` };
+  await q`
+    insert into stays (id, passenger_id, flight_id, data)
+    values (${stay.id}, ${stay.passengerId}, ${stay.flightId}, ${q.json(stay)})
+  `;
+  return stay;
+}
+
+export async function getStaysForPassenger(passengerId: string): Promise<Stay[]> {
+  const q = await db();
+  const rows = await q<{ data: Stay }[]>`
+    select data from stays where passenger_id = ${passengerId}
+  `;
+  // Soonest check-in first — a member looking at their trips cares about the
+  // next night away, not the order they happened to book in.
+  return rows.map((r) => r.data).sort((a, b) => a.checkin.localeCompare(b.checkin));
+}
+
+/** Used to keep a repeat confirmation from creating a second reservation for
+ *  the same room on the same nights. */
+export async function findStay(
+  passengerId: string,
+  city: string,
+  checkin: string,
+  name: string,
+): Promise<Stay | undefined> {
+  const stays = await getStaysForPassenger(passengerId);
+  return stays.find((s) => s.city === city && s.checkin === checkin && s.name === name);
+}
+
+export async function createRide(r: Omit<Ride, 'id'>): Promise<Ride> {
+  const q = await db();
+  const [{ nextval }] = await q<{ nextval: string }[]>`select nextval('ride_seq') as nextval`;
+  const ride: Ride = { ...r, id: `rd${nextval}` };
+  await q`
+    insert into rides (id, passenger_id, flight_id, data)
+    values (${ride.id}, ${ride.passengerId}, ${ride.flightId}, ${q.json(ride)})
+  `;
+  return ride;
+}
+
+export async function getRidesForPassenger(passengerId: string): Promise<Ride[]> {
+  const q = await db();
+  const rows = await q<{ data: Ride }[]>`
+    select data from rides where passenger_id = ${passengerId}
+  `;
+  return rows.map((r) => r.data).sort((a, b) => a.pickupISO.localeCompare(b.pickupISO));
 }

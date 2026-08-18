@@ -17,6 +17,7 @@ export default function FlightsPage() {
 
   const upcoming = schedule?.upcoming ?? [];
   const past = schedule?.past ?? [];
+  const stays = schedule?.stays ?? [];
   const next = upcoming[0];
   const activeId = hoveredId ?? next?.id;
   const active = upcoming.find((f) => f.id === activeId) ?? next;
@@ -212,6 +213,41 @@ export default function FlightsPage() {
               </div>
             </div>
           </div>
+
+          {/* Hotels the member booked themselves. Shown here rather than on a
+              separate page because this IS "my trips" — a stay that lives
+              nowhere in the UI is a booking they have no reason to believe
+              happened. Flights keep the prediction panel above; a stay has no
+              cancellation model behind it, so it is presented as a plain
+              record rather than dressed up as something we are watching. */}
+          {stays.length > 0 && (
+            <>
+              <div className="sect">Your stays</div>
+              <div className="g up" style={{ marginBottom: 8 }}>
+                <div className="up-list" style={{ gridColumn: '1 / -1' }}>
+                  {stays.map((s) => (
+                    <div key={s.id} className="uprow" style={{ cursor: 'default' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="meta">
+                          <span className="code">{s.reference}</span>
+                          <span className="tag">{s.rooms} room{s.rooms === 1 ? '' : 's'}</span>
+                          {s.refundable && <span className="tag">Free cancellation</span>}
+                          <span className="when">{s.checkin} → {s.checkout}</span>
+                        </div>
+                        <div style={{ marginTop: 6, fontSize: 15, fontWeight: 600 }}>{s.name}</div>
+                        <div style={{ fontSize: 13, color: 'var(--mist)' }}>
+                          {s.area ? `${s.area} · ` : ''}{s.cityName}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {s.currency} {s.total.toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="sect">Recent history</div>
           <HistoryTable rows={past.slice(0, 4)} />

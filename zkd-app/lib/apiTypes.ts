@@ -1,6 +1,6 @@
 import type {
   Alt, HotelOpt, CabOpt, CabLeg, Consent, PastFlight, DisruptionResolution, RecoveryTaskPhase,
-  FlightForecast, FlightForecastSnapshot, TravellerType,
+  FlightForecast, FlightForecastSnapshot, TravellerType, Stay,
 } from '@/server/domain/types';
 import type { PartyAlt } from '@/server/domain/altsForParty';
 import type { PartyCost } from '@/server/domain/pricing';
@@ -114,6 +114,10 @@ export type PassengerScheduleResponse = {
   passenger: { id: string; displayName: string; consent: Consent };
   upcoming: FlightSummary[];
   past: PastFlight[];
+  /** Hotels the member booked themselves. Carried on the schedule rather than
+   *  a separate endpoint so "my trips" is one request — and because a stay the
+   *  member cannot see is a booking they have no reason to believe happened. */
+  stays: Stay[];
 };
 
 /** passengerId comes from the session, never the body — see server/auth/guard.ts */

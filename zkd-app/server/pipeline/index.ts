@@ -34,7 +34,7 @@ import { altsForParty } from '../domain/altsForParty';
 import { refreshAltsNow } from '../engine/altsCache';
 import { searchAccommodation, applyHotelRules, toHotelOpt, affordabilityVeto } from '../hotels';
 import { searchGround, withinGroundCap, toCabOpt } from '../ground';
-import { airport } from '../airportDirectory';
+import { airport, countryCodeOf } from '../airportDirectory';
 import { adapt, type AdaptedPreferences } from '../preferences/adapt';
 import * as journal from './journal';
 import { applyHardRules, rankAlts, type ScoreContext } from './score';
@@ -277,7 +277,7 @@ async function arrangeOvernight(
     searchAccommodation({
       iata: ap.iata,
       cityName: ap.city,
-      countryCode: ap.country.slice(0, 2).toUpperCase(),
+      countryCode: countryCodeOf(ap.iata),
       checkin,
       checkout,
       rooms,

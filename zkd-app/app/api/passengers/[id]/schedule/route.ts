@@ -9,11 +9,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const g = await requireSelf(req, id);
   if ('response' in g) return g.response;
 
-  const schedule = await store.getScheduleForPassenger(id);
+  // Independent reads — a member's flights, their past record and their hotel
+  // bookings have no ordering dependency on each other.
+  const [schedule, past, stays] = await Promise.all([
+    store.getScheduleForPassenger(id),
+    store.getPastFlights(id),
+    store.getStaysForPassenger(id),
+  ]);
   const body: PassengerScheduleResponse = {
     passenger: { id: g.passenger.id, displayName: g.passenger.displayName, consent: g.passenger.consent },
     upcoming: await Promise.all(schedule.map(({ flight }) => toFlightSummary(flight, id))),
-    past: await store.getPastFlights(id),
+    past,
+    // Hotels the member booked themselves. Carried here rather than on their
+    // own endpoint so "my trips" is one request — a stay you cannot see is a
+    // booking the member has no reason to believe happened.
+    stays,
   };
   return NextResponse.json(body);
 }
