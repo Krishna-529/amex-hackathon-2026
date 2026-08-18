@@ -28,6 +28,12 @@ export async function register() {
     const { startBatchScorer } = await import('./server/engine/batchScorer');
     startBatchScorer();
 
+    // The neighbor-smoothing loop (server/engine/neighborSmoothing.ts) —
+    // independent of the batch scorer above, fills the gap between real
+    // model calls for standard/dormant-tier flights on its own cadence.
+    const { startNeighborSmoothing } = await import('./server/engine/neighborSmoothing');
+    startNeighborSmoothing();
+
     // Warms the AppConfig-backed threshold cache before the first real
     // request needs it (no-op when THRESHOLD_CONFIG_URL is unset, e.g.
     // local dev) — getThresholdConfig() also self-refreshes lazily on every

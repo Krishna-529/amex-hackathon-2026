@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import type { FlightForecast, FlightForecastSnapshot } from '@/lib/apiTypes';
 import type { FeatureDataSource } from '@/server/engine/riskModel';
+import { FEATURE_LABEL } from '@/lib/featureLabels';
 
 /**
  * The audit surface for a single flight's real prediction: the time-series
@@ -94,6 +95,12 @@ function HistoryChart({
   }
 
   const hovered = hover !== null ? points[hover] : null;
+  // Absent `source` means a point recorded before this field existed —
+  // treated as 'internal-ml' (real), same lazy-migration pattern
+  // `riskScore` above already uses on this exact type.
+  const isSmoothed = (h: FlightForecastSnapshot) => h.source === 'neighbor-smoothed';
+  const realCount = usable.filter((h) => !isSmoothed(h)).length;
+  const smoothedCount = usable.length - realCount;
 
   return (
     <div style={{ position: 'relative' }}>
@@ -113,16 +120,36 @@ function HistoryChart({
           </g>
         ))}
 
+        {/* Axis titles */}
+        <text
+          x={12} y={PAD.top + plotH / 2} fontSize={9} fill="var(--mist2)" textAnchor="middle"
+          transform={`rotate(-90 12 ${PAD.top + plotH / 2})`}
+        >
+          Risk score (0–100)
+        </text>
+        <text x={PAD.left + plotW / 2} y={H - 4} fontSize={9} fill="var(--mist2)" textAnchor="middle">
+          Time to departure
+        </text>
+
         <path d={path} fill="none" stroke="var(--iris)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
 
-        {points.map((p, i) => (
-          <circle
-            key={i} cx={p.x} cy={p.y} r={hover === i ? 5 : 3}
-            fill={hover === i ? 'var(--iris)' : 'var(--bg)'} stroke="var(--iris)" strokeWidth={2}
-            onMouseEnter={() => setHover(i)}
-            style={{ cursor: 'pointer' }}
-          />
-        ))}
+        {points.map((p, i) => {
+          const smoothed = isSmoothed(p.h);
+          return (
+            <circle
+              key={i} cx={p.x} cy={p.y} r={hover === i ? 5 : 3}
+              // Real points: solid fill on hover. Smoothed points: always
+              // hollow — a shape/pattern distinction rather than a new hue,
+              // so provenance never depends on color perception alone, and
+              // never implies "smoothed = bad" the way reusing --risk would.
+              fill={smoothed ? 'var(--bg)' : hover === i ? 'var(--iris)' : 'var(--bg)'}
+              stroke="var(--iris)" strokeWidth={2}
+              strokeDasharray={smoothed ? '2,2' : undefined}
+              onMouseEnter={() => setHover(i)}
+              style={{ cursor: 'pointer' }}
+            />
+          );
+        })}
 
         {/* Wide invisible hit targets — real markers are too small to hover precisely */}
         {points.map((p, i) => (
@@ -144,14 +171,27 @@ function HistoryChart({
           }}
         >
           <div style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>
-            {hovered.h.riskScore}/100 · {hovered.h.band} <span style={{ color: 'var(--mist2)', fontWeight: 400 }}>({hovered.h.pct}% real)</span>
+            {hovered.h.riskScore}/100 · {hovered.h.band}{' '}
+            <span style={{ color: 'var(--mist2)', fontWeight: 400 }}>
+              ({hovered.h.pct}% {isSmoothed(hovered.h) ? 'estimated' : 'real'})
+            </span>
           </div>
           <div style={{ color: 'var(--mist2)' }}>{fmtCountdown(depMs, hovered.h.asOf)}</div>
         </div>
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--mist2)', marginTop: 2 }}>
         <span>{fmtCountdown(depMs, usable[0].asOf)}</span>
-        <span>{usable.length} real score{usable.length === 1 ? '' : 's'}</span>
+        <span>
+          <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--iris)', marginRight: 4 }} />
+          {realCount} real
+          {smoothedCount > 0 && (
+            <>
+              {' '}·{' '}
+              <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', border: '1px dashed var(--iris)', marginRight: 4 }} />
+              {smoothedCount} estimated
+            </>
+          )}
+        </span>
         <span>{fmtCountdown(depMs, usable[usable.length - 1].asOf)}</span>
       </div>
     </div>
@@ -228,24 +268,6 @@ function ContributionChart({
     </div>
   );
 }
-
-const FEATURE_LABEL: Record<string, string> = {
-  carrier_hist_cancel_rate: "Carrier's cancellation history",
-  route_hist_cancel_rate: 'This route’s history',
-  origin_hist_cancel_rate: 'Origin airport history',
-  dest_hist_cancel_rate: 'Destination airport history',
-  origin_month_hist_cancel_rate: 'Seasonal (origin, this month)',
-  month: 'Month',
-  day_of_week: 'Day of week',
-  hour_of_day: 'Hour of day',
-  is_redeye: 'Red-eye departure',
-  is_weekend: 'Weekend departure',
-  distance_km: 'Route distance',
-  sched_duration_min: 'Scheduled flight time',
-  origin_hour_density: 'Origin schedule density',
-  prior_leg_cancelled: "Aircraft's previous leg cancelled",
-  international: 'International route',
-};
 
 export default function ForecastAudit({ forecast, history, depISO }: {
   forecast: FlightForecast;

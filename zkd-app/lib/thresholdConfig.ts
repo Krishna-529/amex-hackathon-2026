@@ -45,6 +45,22 @@ export type ThresholdConfig = {
     dormantWindowMinutes: number;
     eventRescoreDebounceMs: number;
   };
+  /** Spatial-temporal score smoothing between real model calls — see
+   *  server/engine/neighborSmoothing.ts and this block's own `_comment` in
+   *  risk-thresholds.json. Not the same feature as `bands`/`scarcity`/
+   *  `urgency` above. */
+  neighborSmoothing: {
+    enabled: boolean;
+    tickIntervalMs: number;
+    windowMinutes: number;
+    maxNeighborScoreAgeMs: number;
+    recencyHalfLifeMs: number;
+    ownScorePseudoCount: number;
+    maxRiskScoreDeltaPerPass: number;
+    maxCancelProbabilityDeltaPerPass: number;
+    maxSmoothedAgeMs: number;
+    confidenceDiscount: number;
+  };
 };
 
 const LOCAL_PATH = join(process.cwd(), 'config', 'risk-thresholds.json');

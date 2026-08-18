@@ -31,6 +31,7 @@ vi.mock('../domain/store', () => ({
   getFlight: vi.fn(async () => realFlight()),
   getBookingsForFlight: vi.fn(async () => []),
   createFlight: vi.fn(async () => {}),
+  insertForecastSnapshot: vi.fn(async () => {}),
   partySize: () => 1,
 }));
 vi.mock('../decisionLedger', () => ({ logPrediction: vi.fn(), logThresholdEvaluation: vi.fn() }));

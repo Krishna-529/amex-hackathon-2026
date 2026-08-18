@@ -8,12 +8,19 @@ import RouteLine from '@/components/Route';
 import { usePoll } from '@/lib/usePoll';
 import { BAND_LABEL, BAND_SAY } from '@/lib/thresholds';
 import { OUTCOME } from '@/lib/outcome';
-import { hhmm, mins, dayLabel, money } from '@/lib/time';
-import type { FlightDetail, FlightForecast, ReverifyResult } from '@/lib/apiTypes';
+import { hhmm, mins, dayLabel, money, agoLabel } from '@/lib/time';
+import type { FlightDetail, FlightForecast, ReverifyResult, ExplainRequest, ExplainResponse } from '@/lib/apiTypes';
 import type { PastFlight } from '@/server/domain/types';
+import { FEATURE_LABEL } from '@/lib/featureLabels';
 import ForecastAudit from '@/components/ForecastAudit';
 
 const RING = 2 * Math.PI * 92;
+
+// Module-scope, not component state: several viewers of the same flight (or
+// this same component remounting) shouldn't each re-fire a Gemini call for
+// a key already resolved this session. Keyed on the exact factor+pct tuple
+// that produced it, so a real change in either naturally misses the cache.
+const geminiReasonCache = new Map<string, string>();
 
 function routeRecord(past: PastFlight[], from: string, to: string) {
   const rows = past.filter((p) => p.from === from && p.to === to);
@@ -40,6 +47,11 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
   const [reverifyBusy, setReverifyBusy] = useState(false);
   const [reverifyError, setReverifyError] = useState<string | null>(null);
   const [liveForecast, setLiveForecast] = useState<FlightForecast | null>(null);
+  // Set when the server 429s a reverify — an epoch ms after which the
+  // button becomes usable again. Rendered as a ticking countdown so the
+  // member understands WHY the button is disabled, not just that it is.
+  const [reverifyRetryAt, setReverifyRetryAt] = useState<number | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   useEffect(() => {
     if (liveForecast && detail?.forecast && detail.forecast.asOf >= liveForecast.asOf) {
@@ -47,11 +59,80 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
     }
   }, [detail?.forecast, liveForecast]);
 
+  // Only ticking while a retry countdown is actually showing — no wasted
+  // re-renders once it clears.
+  useEffect(() => {
+    if (reverifyRetryAt === null) return;
+    const t = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [reverifyRetryAt]);
+
+  useEffect(() => {
+    if (reverifyRetryAt !== null && nowTick >= reverifyRetryAt) setReverifyRetryAt(null);
+  }, [nowTick, reverifyRetryAt]);
+
+  // The deterministic topReason (server/engine/topReason.ts) is always shown
+  // immediately — it's already in the poll/reverify response, no loading
+  // state needed. This effect only ever REPLACES it with a nicer-phrased
+  // Gemini sentence on success; the deterministic text never disappears if
+  // Gemini is slow, down, or unconfigured (server/gemini.ts returns null in
+  // every one of those cases by design).
+  const forecastForGemini = liveForecast ?? detail?.forecast;
+  const geminiTopReason = forecastForGemini?.topReason;
+  const geminiFeatureKey = geminiTopReason?.kind === 'model-shap' ? geminiTopReason.featureKey : undefined;
+  const geminiPct = forecastForGemini?.pct;
+  const [geminiPhrasedReason, setGeminiPhrasedReason] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!upcoming || !geminiFeatureKey || geminiPct === undefined) {
+      setGeminiPhrasedReason(null);
+      return;
+    }
+    const cacheKey = `${upcoming.code}:${geminiFeatureKey}:${geminiPct}`;
+    const cached = geminiReasonCache.get(cacheKey);
+    if (cached) {
+      setGeminiPhrasedReason(cached);
+      return;
+    }
+    setGeminiPhrasedReason(null);
+    let cancelled = false;
+    const body: ExplainRequest = {
+      kind: 'risk',
+      flightCode: upcoming.code,
+      from: upcoming.from,
+      to: upcoming.to,
+      pct: geminiPct,
+      topFactor: FEATURE_LABEL[geminiFeatureKey] ?? geminiFeatureKey,
+    };
+    void fetch('/api/explain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then((r) => (r.ok ? (r.json() as Promise<ExplainResponse>) : null))
+      .then((json) => {
+        if (cancelled || !json?.text) return;
+        geminiReasonCache.set(cacheKey, json.text);
+        setGeminiPhrasedReason(json.text);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // upcoming.id is a stable stand-in for upcoming.code/from/to, which
+    // never change for a given flight id — depending on the whole object
+    // would re-fire this on every 5s poll tick regardless of whether
+    // anything relevant actually changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upcoming?.id, geminiFeatureKey, geminiPct]);
+
   async function onReverify() {
     setReverifyBusy(true);
     setReverifyError(null);
     try {
       const res = await fetch(`/api/flights/${id}/reverify`, { method: 'POST' });
+      if (res.status === 429) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string; retryAfterMs?: number };
+        setReverifyError(body.error ?? 'Too many reverify requests.');
+        if (typeof body.retryAfterMs === 'number') setReverifyRetryAt(Date.now() + body.retryAfterMs);
+        return;
+      }
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         setReverifyError(body.error ?? `reverify failed (${res.status})`);
@@ -65,6 +146,9 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
       setReverifyBusy(false);
     }
   }
+
+  const reverifyCoolingDown = reverifyRetryAt !== null && nowTick < reverifyRetryAt;
+  const reverifyRetrySecs = reverifyCoolingDown ? Math.ceil((reverifyRetryAt! - nowTick) / 1000) : 0;
 
   if (!schedule) return <div className="page-h"><h1>Loading your flight</h1></div>;
   if (!upcoming && !past) notFound();
@@ -177,12 +261,13 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
                     <button
                       type="button"
                       onClick={onReverify}
-                      disabled={reverifyBusy}
-                      title="Reverify — force a fresh real score right now"
+                      disabled={reverifyBusy || reverifyCoolingDown}
+                      title={reverifyCoolingDown ? `Too many reverify requests — try again in ${reverifyRetrySecs}s` : 'Reverify — force a fresh real score right now'}
                       aria-label="Reverify this prediction"
                       style={{
-                        marginLeft: 6, border: 0, background: 'none', color: 'inherit', cursor: 'pointer',
-                        fontSize: 12, opacity: reverifyBusy ? 0.5 : 0.8, verticalAlign: -1,
+                        marginLeft: 6, border: 0, background: 'none', color: 'inherit',
+                        cursor: reverifyCoolingDown ? 'not-allowed' : 'pointer',
+                        fontSize: 12, opacity: reverifyBusy || reverifyCoolingDown ? 0.5 : 0.8, verticalAlign: -1,
                         display: 'inline-block', animation: reverifyBusy ? 'spin 0.8s linear infinite' : 'none',
                       }}
                     >
@@ -190,9 +275,13 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
                     </button>
                   )}
                 </div>
-                {reverifyError && (
+                {reverifyCoolingDown ? (
+                  <div style={{ fontSize: 10.5, color: 'var(--mist2)', marginTop: 4 }}>
+                    Try again in {reverifyRetrySecs}s
+                  </div>
+                ) : reverifyError ? (
                   <div style={{ fontSize: 10.5, color: 'var(--risk)', marginTop: 4 }}>{reverifyError}</div>
-                )}
+                ) : null}
               </div>
             </div>
             {fc && <div className={`band ${tone}`}>{BAND_LABEL[fc.band]}</div>}
@@ -206,7 +295,17 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
               <h3>Where this number comes from</h3>
               <div className="kv">
                 <span className="k">Forecast source</span>
-                <span className="v ok">In-house model — live</span>
+                {/* 'neighbor-smoothed' is deliberately not styled `.ok` (green) —
+                    it's a real, bounded estimate, but it is not a fresh model
+                    run, and this label must never imply otherwise. See
+                    server/engine/neighborSmoothing.ts. */}
+                <span className={fc.source === 'neighbor-smoothed' ? 'v' : 'v ok'}>
+                  {fc.source === 'neighbor-smoothed' ? 'In-house model — estimated from nearby flights' : 'In-house model — live'}
+                </span>
+              </div>
+              <div className="kv">
+                <span className="k">Last updated</span>
+                <span className="v">{agoLabel(new Date(fc.asOf), new Date())}</span>
               </div>
               <div className="kv">
                 <span className="k">Model version</span>
@@ -239,6 +338,13 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
                     stays small even for a flight worth watching.
                   </>
                 )}
+              </p>
+              {/* Always present — server/engine/topReason.ts guarantees a
+                  non-empty deterministic sentence even if Gemini never
+                  resolves; geminiPhrasedReason only ever REPLACES it with a
+                  nicer phrasing, never removes it while pending/failed. */}
+              <p className="why" style={{ marginTop: 10, fontWeight: 500 }}>
+                {geminiPhrasedReason ?? fc.topReason.text}
               </p>
             </div>
           )}

@@ -20,6 +20,7 @@ import type { Flight, FlightForecast } from '../domain/types';
 import { refreshAltsIfStale } from './altsCache';
 import { refreshGroundIfStale } from './groundCache';
 import { logPrediction, logThresholdEvaluation } from '../decisionLedger';
+import { deriveTopReason } from './topReason';
 
 /**
  * The forecast is cached once per Flight and shared by every viewer, so
@@ -79,29 +80,51 @@ async function compute(flightId: string): Promise<FlightForecast | null> {
 }
 
 /**
- * Turns a real ModelScore into a real FlightForecast: real seat scarcity
- * from a live supplier search, real adaptive thresholds off that scarcity,
- * the band the real probability falls into. Shared by the on-demand path
- * (compute(), above) and the interval batch path (batchScorer.ts) so there
- * is exactly one place that knows how a score becomes a forecast.
+ * Turns a real (or neighbor-smoothed) ModelScore into a FlightForecast: real
+ * seat scarcity from a live supplier search, real adaptive thresholds off
+ * that scarcity, the band the probability falls into. Shared by the
+ * on-demand path (compute(), above), the interval batch path
+ * (batchScorer.ts), AND the neighbor-smoothing path
+ * (server/engine/neighborSmoothing.ts) so there is exactly one place that
+ * knows how a score becomes a forecast.
  */
-export async function applyScore(flight: Flight, score: ModelScore): Promise<FlightForecast> {
+export async function applyScore(
+  flight: Flight,
+  score: ModelScore,
+  opts?: { seatsAvailableOverride?: number },
+): Promise<FlightForecast> {
   const departsAt = new Date(flight.depISO).getTime();
   const date = flight.depISO.slice(0, 10);
 
-  const inventory = await searchInventory({ origin: flight.from, destination: flight.to, departureDate: date });
-
-  // Seats we can actually see across every supplier, filtered to offers that
-  // can seat the largest party on this flight — a 3-seat option is not
-  // "available" to a party of 6. Falls back to the seeded candidates when no
-  // supplier returned anything, so the threshold never treats a dead sandbox
-  // as a sold-out route.
   const partySize = await maxPartyOnFlight(flight.id);
-  const seatsAvailable = inventory.offers.length
-    ? seatsAcross(inventory.offers.filter((o) => o.seatsRemaining >= partySize))
-    : flight.candidates.alts
-        .filter((a) => a.ok && (a.kind === 'carrier-protected' || a.seats >= partySize))
-        .reduce((n, a) => n + a.seats, 0);
+
+  let seatsAvailable: number;
+  if (opts?.seatsAvailableOverride !== undefined) {
+    // Neighbor-smoothing passes run every few minutes across every
+    // standard/dormant flight — calling searchInventory() (a real supplier
+    // fan-out) on every one of those ticks would multiply live supplier-call
+    // volume by that same factor, directly against the reason this feature
+    // exists (see neighborSmoothing.ts). A flight only reaches smoothing
+    // after having had at least one real score, so its seat count is always
+    // available to reuse here; the resulting staleness is bounded by
+    // config/risk-thresholds.json's neighborSmoothing.maxSmoothedAgeMs (a
+    // deliberate, bounded trade-off — seat counts don't swing wildly
+    // minute-to-minute at that granularity for a scheduled flight — not an
+    // oversight).
+    seatsAvailable = opts.seatsAvailableOverride;
+  } else {
+    const inventory = await searchInventory({ origin: flight.from, destination: flight.to, departureDate: date });
+    // Seats we can actually see across every supplier, filtered to offers
+    // that can seat the largest party on this flight — a 3-seat option is
+    // not "available" to a party of 6. Falls back to the seeded candidates
+    // when no supplier returned anything, so the threshold never treats a
+    // dead sandbox as a sold-out route.
+    seatsAvailable = inventory.offers.length
+      ? seatsAcross(inventory.offers.filter((o) => o.seatsRemaining >= partySize))
+      : flight.candidates.alts
+          .filter((a) => a.ok && (a.kind === 'carrier-protected' || a.seats >= partySize))
+          .reduce((n, a) => n + a.seats, 0);
+  }
 
   const thresholds = thresholdsFor({
     seatsAvailable,
@@ -123,10 +146,17 @@ export async function applyScore(flight: Flight, score: ModelScore): Promise<Fli
     source: score.source,
     modelVersion: score.modelVersion,
     riskScore: score.riskScore,
-    explanation: score.explanation,
-    dataSource: score.dataSource,
+    // Carried forward from the previous forecast when this score doesn't
+    // supply its own — true for every batch-tier AND neighbor-smoothed
+    // score (only the on-demand/reverify path ever produces a fresh SHAP
+    // pass), so most of a flight's lifecycle still has real explanation
+    // material behind topReason below, not just the moment right after a
+    // manual reverify.
+    explanation: score.explanation ?? flight.forecast?.explanation,
+    dataSource: score.dataSource ?? flight.forecast?.dataSource,
     thresholds,
     asOf: Date.now(),
+    topReason: deriveTopReason(score, flight.from, flight.forecast?.explanation),
   };
 
   flight.forecast = out;
@@ -137,6 +167,30 @@ export async function applyScore(flight: Flight, score: ModelScore): Promise<Fli
   // it's written back. createFlight() upserts on `id`, so this is the same
   // write path a brand-new flight would use — see store.ts's header comment.
   await store.createFlight(flight);
+  try {
+    // Real, DB-level (not JSONB-blob) storage of this prediction — feeds
+    // neighbor smoothing's neighbor queries and gives every real/smoothed
+    // prediction a durable, independently queryable row. Best-effort: this
+    // table is additive audit/smoothing infrastructure, not what the
+    // member-facing forecast itself depends on, so a write failure here
+    // must never break the forecast already computed above (same principle
+    // as decisionLedger.ts's own try/catch around ledger writes).
+    await store.insertForecastSnapshot({
+      flightId: flight.id,
+      origin: flight.from,
+      depEpochMs: departsAt,
+      cancelProbability: score.cancelProbability,
+      pct,
+      riskScore: score.riskScore,
+      band,
+      confidence: score.confidence,
+      modelVersion: score.modelVersion,
+      source: score.source,
+      asOfMs: out.asOf,
+    });
+  } catch (e) {
+    console.error('[forecast] failed to write forecast_snapshots row:', e);
+  }
   logPrediction(flight.id, score);
   // Every threshold evaluation, with its inputs — 03-action-policy.md §2:
   // "An adaptive threshold that cannot be reconstructed after the fact is
@@ -152,9 +206,11 @@ export async function applyScore(flight: Flight, score: ModelScore): Promise<Fli
   return out;
 }
 
-/** Real history point on every real compute() — never backfilled or
- *  interpolated. A gap in the graph means no score ran in that window, and
- *  stays a gap. */
+/** A point on every compute() — real or neighbor-smoothed — never
+ *  backfilled or interpolated beyond what applyScore() itself already
+ *  computed. A gap in the graph means no score ran in that window, and
+ *  stays a gap. `source` drives the real-vs-estimated marker in
+ *  ForecastAudit.tsx's HistoryChart. */
 function appendHistory(flight: Flight, forecast: FlightForecast): void {
   const history = flight.forecastHistory ?? (flight.forecastHistory = []);
   history.push({
@@ -163,6 +219,7 @@ function appendHistory(flight: Flight, forecast: FlightForecast): void {
     band: forecast.band,
     confidence: forecast.confidence,
     modelVersion: forecast.modelVersion,
+    source: forecast.source,
     asOf: forecast.asOf,
   });
   if (history.length > FORECAST_HISTORY_CAP) history.splice(0, history.length - FORECAST_HISTORY_CAP);

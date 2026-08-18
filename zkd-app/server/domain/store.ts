@@ -70,6 +70,103 @@ export async function getFlight(id: string): Promise<Flight | undefined> {
   return rows[0]?.data;
 }
 
+// ---------------------------------------------------------- forecast snapshots --
+// Real, DB-level (not JSONB-blob) storage of every prediction — real and
+// neighbor-smoothed — server/engine/forecast.ts's applyScore() computes. See
+// server/domain/migrations/0002_forecast_snapshots.sql and
+// server/engine/neighborSmoothing.ts. Explicit camelCase column aliases below
+// because, unlike every other table in this file, callers here read real
+// columns rather than a single opaque `data` JSONB blob.
+
+export type NeighborSnapshotRow = {
+  flightId: string;
+  pct: number;
+  cancelProbability: number;
+  riskScore: number | null;
+  depEpochMs: number;
+  asOfMs: number;
+};
+
+export type RealSnapshot = {
+  cancelProbability: number;
+  riskScore?: number;
+  confidence: number;
+  modelVersion: string;
+  asOfMs: number;
+};
+
+export async function insertForecastSnapshot(row: {
+  flightId: string;
+  origin: string;
+  depEpochMs: number;
+  cancelProbability: number;
+  pct: number;
+  riskScore?: number;
+  band: string;
+  confidence: number;
+  modelVersion: string;
+  source: 'internal-ml' | 'neighbor-smoothed';
+  asOfMs: number;
+}): Promise<void> {
+  const q = await db();
+  await q`
+    insert into forecast_snapshots
+      (flight_id, origin, dep_epoch_ms, cancel_probability, pct, risk_score, band, confidence, model_version, source, as_of_ms)
+    values
+      (${row.flightId}, ${row.origin}, ${row.depEpochMs}, ${row.cancelProbability}, ${row.pct}, ${row.riskScore ?? null}, ${row.band}, ${row.confidence}, ${row.modelVersion}, ${row.source}, ${row.asOfMs})
+  `;
+}
+
+/**
+ * The most recent REAL (never neighbor-smoothed) score this flight has ever
+ * received — the "own grounding" every neighbor-smoothing pass blends
+ * against (server/engine/neighborSmoothing.ts) and the wall-clock backstop
+ * checks the age of. Filtering `source = 'internal-ml'` at the SQL layer,
+ * not in application code, is what makes "never smooth from smoothed"
+ * structurally true rather than a runtime check someone could forget.
+ */
+export async function getLastRealSnapshot(flightId: string): Promise<RealSnapshot | null> {
+  const q = await db();
+  const rows = await q<RealSnapshot[]>`
+    select cancel_probability as "cancelProbability", risk_score as "riskScore",
+           confidence, model_version as "modelVersion", as_of_ms as "asOfMs"
+    from forecast_snapshots
+    where flight_id = ${flightId} and source = 'internal-ml'
+    order by as_of_ms desc
+    limit 1
+  `;
+  return rows[0] ?? null;
+}
+
+/**
+ * Other flights at the same origin airport, departing within `windowMs` of
+ * `depEpochMs`, using only their latest REAL score no older than
+ * `minAsOfMs` — the neighbor pool for server/engine/neighborSmoothing.ts's
+ * blendNeighborScore(). `distinct on (flight_id)` + `order by ... as_of_ms
+ * desc` returns exactly one (the freshest real) row per neighbor flight.
+ */
+export async function getNeighborRealSnapshots(
+  origin: string,
+  depEpochMs: number,
+  windowMs: number,
+  excludeFlightId: string,
+  minAsOfMs: number,
+): Promise<NeighborSnapshotRow[]> {
+  const q = await db();
+  return q<NeighborSnapshotRow[]>`
+    select distinct on (flight_id)
+      flight_id as "flightId", pct, cancel_probability as "cancelProbability",
+      risk_score as "riskScore", dep_epoch_ms as "depEpochMs", as_of_ms as "asOfMs"
+    from forecast_snapshots
+    where origin = ${origin}
+      and source = 'internal-ml'
+      and flight_id != ${excludeFlightId}
+      and dep_epoch_ms between ${depEpochMs - windowMs} and ${depEpochMs + windowMs}
+      and as_of_ms >= ${minAsOfMs}
+    order by flight_id, as_of_ms desc
+  `;
+}
+
 // -------------------------------------------------------------- passengers --
 
 export async function createPassenger(p: Passenger): Promise<void> {

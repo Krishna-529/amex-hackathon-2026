@@ -63,10 +63,33 @@ function promptFor(req: ExplainRequest): string {
   );
 }
 
+// This route just started getting real traffic for the first time (it was
+// wired up but had zero callers before topReason/ForecastAudit.tsx started
+// calling it for the "top reason" re-phrasing) — a member polling their
+// flight every 5s, or several viewers of the same flight, would otherwise
+// re-hit Gemini for an unchanged (flightCode, from, to, pct, topFactor)
+// tuple. Cache SUCCESSFUL responses only, keyed on the exact request body:
+// a real change in pct/topFactor naturally busts the key, and a transient
+// Gemini failure is never cached — the next request gets a fresh attempt,
+// not a frozen `null` for the next 10 minutes. A local Map, not
+// server/cache.ts's getOrSet(), specifically to keep that null-vs-success
+// distinction — getOrSet would cache whatever the function returns,
+// including a failure.
+const EXPLAIN_CACHE_TTL_MS = 10 * 60_000;
+const explainCache = new Map<string, { text: string; expiresAt: number }>();
+
 export async function POST(req: NextRequest) {
   const parsed = await parseJsonBody(req, isExplainBody);
   if ('response' in parsed) return parsed.response;
+
+  const cacheKey = JSON.stringify(parsed.body);
+  const hit = explainCache.get(cacheKey);
+  if (hit && hit.expiresAt > Date.now()) {
+    return NextResponse.json({ text: hit.text } satisfies ExplainResponse);
+  }
+
   const text = await explain(promptFor(parsed.body));
+  if (text) explainCache.set(cacheKey, { text, expiresAt: Date.now() + EXPLAIN_CACHE_TTL_MS });
   const response: ExplainResponse = { text };
   return NextResponse.json(response);
 }

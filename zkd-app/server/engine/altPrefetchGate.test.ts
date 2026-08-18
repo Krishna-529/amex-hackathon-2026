@@ -24,6 +24,7 @@ vi.mock('../suppliers', () => ({
 vi.mock('../domain/store', () => ({
   getBookingsForFlight: vi.fn(async () => []),
   createFlight: vi.fn(async () => {}),
+  insertForecastSnapshot: vi.fn(async () => {}),
   partySize: () => 1,
 }));
 vi.mock('../decisionLedger', () => ({

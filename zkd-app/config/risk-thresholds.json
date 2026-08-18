@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "updatedAt": "2026-08-14T00:00:00Z",
+  "version": 2,
+  "updatedAt": "2026-08-18T00:00:00Z",
   "comment": "Adaptive-threshold parameters for lib/thresholds.ts. Edited here, not hardcoded in TS, so ops can retune band aggressiveness (and the risk band that gates pre-caching alternate flights, see altCache.prefetchAtOrAbove) without a redeploy. In production this file is the local fallback; the live source is AWS AppConfig (see zkd-risk-model/infra/appconfig.tf) and is hot-reloaded on a poll interval — see lib/thresholdConfig.ts.",
   "bands": {
     "_comment": "Recalibrated 2026-08-16 after the src/train.py retrain that masked prior_leg_cancelled to null (see documentation/design/05-cancellation-risk-model.md §1 for why), which shifted the real score distribution meaningfully higher (score_distribution.json: real range min 1.64%, p50 3.22%, p75 4.37%, p90 6.45%, p95 7.08%, p99 9.74%, max 10.33% — was 0.89%-4.06% before, not a small tweak) AND, separately, changed how much the 6 seeded flights (server/domain/seed.ts) differentiate from each other: u1 and f-multi (both hasHardConstraint) now compute a real 6% vs u4's 8% — close enough that a naive same-ratio rescale put u1/f-multi INTO hold-gate too, breaking the seeded walkthrough's own stated property that u4 alone should reach it. Empirically verified against all 6 seeded flights' real computed thresholds (not asserted): holdGate.floor is intentionally ABOVE holdGate.base (7 > 6) so hasHardConstraint/scarcity/urgency can only ever raise a flight up toward the floor, never pull it below — u1/f-multi land on floor=7 (pct 6 stays under), while u3/u4/f-depth's more favorable shift pushes past the floor on its own multiplier, landing u4 at 7 (pct 8 clears it) while u3/f-depth (pct 3) stay clear regardless. Verified live: u1/f-multi -> 'prepare', u2/u3/f-depth -> 'watch', u4 -> 'hold-gate' — exactly one flight, with real margin, not a coin-flip tie. Also verified against server/engine/thresholds.test.ts's property tests (ordering + monotonicity hold across the full real shift range). Re-run score_distribution.py after any retrain that could shift the distribution and revisit these.",
@@ -44,13 +44,26 @@
     "approachingTtlFactor": 0.75
   },
   "forecast": {
-    "_comment": "batchRescoreIntervalMs is the STANDARD tier's cadence, unchanged from before. server/engine/batchScorer.ts now runs three independent tiers off the same one-HTTP-call-per-tick batch scorer, partitioned by server/engine/rescoreTiming.ts's tierFor(): 'critical' (inside criticalWindowMinutes of departure, OR already at hold-gate/pre-authorise — the flights where a swing has the least runway to be caught before the carrier files) rescored every criticalRescoreIntervalMs; 'dormant' (more than dormantWindowMinutes out AND still at watch/unscored) rescored every dormantRescoreIntervalMs, since there is no reason to spend Lambda invocations on a flight days out showing no signal; everything else stays on the standard cadence. A flight migrates tiers automatically tick to tick as departure approaches or its band changes — no separate promotion state. eventRescoreDebounceMs gates triggerEventRescore() (forecast.ts), the out-of-cycle rescore fired when AviationStack reports a real status change (app/api/flight-status/route.ts) — debounced per flight so a flapping status feed cannot turn into a rescore storm.",
+    "_comment": "batchRescoreIntervalMs is the STANDARD tier's cadence. server/engine/batchScorer.ts runs three independent tiers off the same one-HTTP-call-per-tick batch scorer, partitioned by server/engine/rescoreTiming.ts's tierFor(): 'critical' (inside criticalWindowMinutes of departure, OR already at hold-gate/pre-authorise — the flights where a swing has the least runway to be caught before the carrier files) rescored every criticalRescoreIntervalMs, NEVER neighbor-smoothed (see neighborSmoothing below); 'dormant' (more than dormantWindowMinutes out AND still at watch/unscored) rescored every dormantRescoreIntervalMs; everything else stays on the standard cadence. A flight migrates tiers automatically tick to tick as departure approaches or its band changes — no separate promotion state. eventRescoreDebounceMs gates triggerEventRescore() (forecast.ts), the out-of-cycle rescore fired when AviationStack reports a real status change (app/api/flight-status/route.ts) — debounced per flight so a flapping status feed cannot turn into a rescore storm. 2026-08-18: batchRescoreIntervalMs widened 600000->900000 and dormantRescoreIntervalMs widened 1800000->3600000 now that neighborSmoothing.ts fills the gap between real model calls for standard/dormant-tier flights with a cheap, clearly-labeled interpolated estimate (see neighborSmoothing block) — real-call volume drops while neighborSmoothing's own maxSmoothedAgeMs backstop (45min) actually TIGHTENS the worst-case real-grounding gap for a dormant flight versus the old flat 30min-with-zero-interpolation behavior.",
     "ttlMs": 600000,
-    "batchRescoreIntervalMs": 600000,
+    "batchRescoreIntervalMs": 900000,
     "criticalRescoreIntervalMs": 90000,
     "criticalWindowMinutes": 180,
-    "dormantRescoreIntervalMs": 1800000,
+    "dormantRescoreIntervalMs": 3600000,
     "dormantWindowMinutes": 1440,
     "eventRescoreDebounceMs": 30000
+  },
+  "neighborSmoothing": {
+    "_comment": "NOT the same feature as the top-level 'adaptive threshold' bands above (prepare/holdGate/preAuthorise, scarcity/urgency/criticality) — this is a separate, newer mechanism: between real model calls, a standard/dormant-tier flight's cancellation estimate is nudged using OTHER flights currently departing the same origin airport around a similar time (server/engine/neighborSmoothing.ts). Goal: keep the displayed number responsive to ambient conditions (weather/ATC/ops at one airport) without paying for a real XGBoost call on every flight every few minutes. Every neighbor input is a REAL (source='internal-ml') score from server/domain/store.ts's forecast_snapshots table, never another smoothed value — smoothing never chains off smoothing, by construction of the query, not just a runtime check. windowMinutes/recencyHalfLifeMs/ownScorePseudoCount shape the blend (a Laplace-pseudocount formula mirroring zkd-risk-model/src/features.py's SMOOTH_N idiom); maxRiskScoreDeltaPerPass/maxCancelProbabilityDeltaPerPass cap how far a single pass can move a flight; maxSmoothedAgeMs is a wall-clock backstop forcing a real re-score once a flight's own last real grounding gets older than this, regardless of tier timing. Never applied to the critical tier (see forecast.criticalRescoreIntervalMs above) or to a flight that has never received a real score.",
+    "enabled": true,
+    "tickIntervalMs": 180000,
+    "windowMinutes": 90,
+    "maxNeighborScoreAgeMs": 3600000,
+    "recencyHalfLifeMs": 1200000,
+    "ownScorePseudoCount": 4,
+    "maxRiskScoreDeltaPerPass": 8,
+    "maxCancelProbabilityDeltaPerPass": 0.008,
+    "maxSmoothedAgeMs": 2700000,
+    "confidenceDiscount": 0.85
   }
 }

@@ -260,7 +260,13 @@ export type ModelScore = {
   riskScore?: number;
   confidence: number;
   modelVersion: string;
-  source: 'internal-ml';
+  /** 'neighbor-smoothed' scores are never produced by scoreFlight/
+   *  scoreFlightsBatch below (both always produce 'internal-ml') — they're
+   *  constructed directly by server/engine/neighborSmoothing.ts, which
+   *  never calls this Python service. The union exists so callers that
+   *  handle both a real and a smoothed ModelScore (forecast.ts's
+   *  applyScore) type-check against one shared shape. */
+  source: 'internal-ml' | 'neighbor-smoothed';
   /** absent on the batch-scoring path (server/engine/batchScorer.ts) — real
    *  explanation costs an extra tree pass per flight, not worth it when
    *  nobody is looking at it. Present on every on-demand/reverify score. */

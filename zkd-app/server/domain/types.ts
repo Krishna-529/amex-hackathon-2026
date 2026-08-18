@@ -38,7 +38,11 @@ export type FlightForecast = {
   tone: Band;
   connectionRisk: number | null;
   confidence: number;
-  source: 'internal-ml';
+  /** 'neighbor-smoothed' means this number was interpolated from nearby
+   *  flights between real model calls, not freshly scored — see
+   *  server/engine/neighborSmoothing.ts. Always shown distinctly in the UI
+   *  (ForecastAudit.tsx), never presented as equivalent to a real score. */
+  source: 'internal-ml' | 'neighbor-smoothed';
   modelVersion: string;
   /** Percentile rank (0-100) of pct against the real live-realistic score
    *  distribution — see server/engine/riskModel.ts's ModelScore.riskScore
@@ -48,24 +52,45 @@ export type FlightForecast = {
    *  every member-facing banner, unchanged. */
   riskScore?: number;
   /** Real per-feature tree-SHAP contributions from this exact prediction —
-   *  see server/engine/riskModel.ts's ModelExplanation. Undefined on
-   *  forecasts computed by the batch/interval scorer (no explanation pass
-   *  there, see riskModel.ts); present on every on-demand/reverify score,
-   *  which is what the audit panel reads. */
+   *  see server/engine/riskModel.ts's ModelExplanation. Only ever produced
+   *  by an on-demand/reverify score (no explanation pass on the batch/
+   *  smoothing paths); applyScore() carries the last real explanation
+   *  forward onto every forecast that doesn't have its own, so most of a
+   *  flight's lifecycle still has real SHAP material behind `topReason`
+   *  below, not just the moment right after a reverify. */
   explanation?: import('../engine/riskModel').ModelExplanation;
   /** Which of `explanation`'s historical-rate features are this entity's
    *  own real history vs a population-average cold-start fallback — see
-   *  server/engine/riskModel.ts's DataSourceMap. Same on-demand-only
-   *  availability as `explanation`. */
+   *  server/engine/riskModel.ts's DataSourceMap. Carried forward the same
+   *  way as `explanation` above. */
   dataSource?: import('../engine/riskModel').DataSourceMap;
   thresholds: import('@/lib/thresholds').Thresholds;
   asOf: number;
+  /** Always present — a plain-language top reason for this prediction, for
+   *  every forecast (real or smoothed), computed synchronously and
+   *  deterministically (server/engine/topReason.ts) so a member never sees
+   *  a blank "why," regardless of whether the optional Gemini re-phrasing
+   *  (app/api/explain) is reachable. */
+  topReason: TopReason;
+};
+
+export type TopReasonKind = 'model-shap' | 'neighbor-context' | 'generic';
+
+/** See server/engine/topReason.ts's deriveTopReason(). */
+export type TopReason = {
+  kind: TopReasonKind;
+  /** Always non-empty. Never depends on an external LLM call succeeding. */
+  text: string;
+  /** Raw SHAP feature name, present only when kind === 'model-shap' — lets
+   *  the client optionally ask /api/explain to re-phrase this exact factor. */
+  featureKey?: string;
 };
 
 /**
  * A lightweight point in a flight's prediction history — enough to draw the
  * time-series graph without carrying a full explanation payload on every
- * point (server/engine/forecast.ts appends one on every real compute()).
+ * point (server/engine/forecast.ts appends one on every real or smoothed
+ * compute()).
  */
 export type FlightForecastSnapshot = {
   pct: number;
@@ -77,6 +102,11 @@ export type FlightForecastSnapshot = {
   band: import('@/lib/thresholds').Band;
   confidence: number;
   modelVersion: string;
+  /** 'internal-ml' | 'neighbor-smoothed' — absent on points recorded before
+   *  this field existed; the chart treats a missing value as 'internal-ml',
+   *  same lazy-migration pattern `riskScore` above already uses. Drives the
+   *  real-vs-estimated marker distinction in ForecastAudit.tsx. */
+  source?: 'internal-ml' | 'neighbor-smoothed';
   asOf: number;
 };
 
@@ -110,6 +140,15 @@ export type Alt = {
   code: string;
   dep: string;
   arr: string;
+  /** The same two instants as epoch ms. `dep`/`arr` are rendered in the
+   *  airport's own zone and cannot be compared or sorted — "18:40" in Delhi
+   *  and "18:40" in London are not the same moment, and a scorer ranking on
+   *  arrival needs the moment, not the clock face (server/pipeline/score.ts).
+   *  Optional because seeded fixtures predate these fields — anything
+   *  scoring on time must treat a missing value as unknown, never as 0
+   *  (0 would rank as "arrives at the epoch," i.e. best possible). */
+  departsAt?: number;
+  arrivesAt?: number;
   cabin: string;
   seats: number;
   fare: number;

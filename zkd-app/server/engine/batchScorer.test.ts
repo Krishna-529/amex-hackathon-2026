@@ -34,6 +34,12 @@ const cfg: ThresholdConfig = {
     dormantRescoreIntervalMs: 1_800_000, dormantWindowMinutes: 1_440,
     eventRescoreDebounceMs: 30_000,
   },
+  neighborSmoothing: {
+    enabled: true, tickIntervalMs: 180_000, windowMinutes: 90,
+    maxNeighborScoreAgeMs: 3_600_000, recencyHalfLifeMs: 1_200_000, ownScorePseudoCount: 4,
+    maxRiskScoreDeltaPerPass: 8, maxCancelProbabilityDeltaPerPass: 0.008,
+    maxSmoothedAgeMs: 2_700_000, confidenceDiscount: 0.85,
+  },
 };
 
 const NOW = Date.parse('2026-08-16T12:00:00Z');
