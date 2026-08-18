@@ -28,9 +28,21 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
   const upcoming = schedule?.upcoming.find((x) => x.id === id);
   const past = schedule?.past.find((x) => x.id === id);
 
-  // Only upcoming flights have live candidates/signals — past flights are a
-  // frozen record, no point polling detail for them.
-  const { data: detail } = usePoll<FlightDetail>(upcoming ? `/api/flights/${id}` : null, 5000);
+  // Gated on `past`, NOT on `upcoming` — the two are not equivalent before the
+  // schedule arrives, and the difference is a whole round trip.
+  //
+  // `upcoming` is derived from `schedule`, so gating on it meant this request
+  // could not start until the schedule had already landed — and WorldProvider
+  // fetches /api/auth/me before that. Three serial round trips before any real
+  // content, on a page whose own API answers in ~50ms.
+  //
+  // `past` is undefined while the schedule is still loading, so this fires
+  // immediately and races the schedule instead of queueing behind it. Once the
+  // schedule does arrive, a past flight flips this to null and polling stops —
+  // which is the only thing the original gate was actually for (past flights
+  // are a frozen record with no live candidates or signals). The route is
+  // session-guarded server-side, so starting early cannot leak anything.
+  const { data: detail } = usePoll<FlightDetail>(past ? null : `/api/flights/${id}`, 5000);
 
   // Reverify lives here (not inside ForecastAudit) because its trigger sits
   // next to the headline score, not in the audit panel below. liveForecast
@@ -296,9 +308,20 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
           <div className="g panel">
             <h3>If this one goes</h3>
             <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
-              We&apos;re already holding {usableAlts.length} alternative{usableAlts.length === 1 ? '' : 's'} that
+              {/*
+                NOT "holding". Nothing is reserved and nothing can be: a
+                passenger cannot hold two tickets, and a carrier's auditors
+                cancel duplicates — sometimes cancelling the original. That is
+                why speculative holds were removed from the design entirely
+                (memory.md, 2026-08-17); the refresh loop keeps these options
+                current instead. server/notify/templates.ts has a test asserting
+                its copy never claims a hold, and this line was quietly saying
+                the opposite on the screen a member actually reads.
+              */}
+              We&apos;ve lined up {usableAlts.length} alternative{usableAlts.length === 1 ? '' : 's'} that
               {f.booking && f.booking.partySize > 1 ? ` seat all ${f.booking.partySize} of you and` : ''} fit your
-              policy and protect your onward connection.
+              policy and protect your onward connection — re-checked continuously, so they&apos;re
+              still valid the moment we need them.
             </p>
             {usableAlts.map((a) => (
               <div className="kv" key={a.id}>

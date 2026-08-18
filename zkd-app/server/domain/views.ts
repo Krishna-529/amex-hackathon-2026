@@ -17,7 +17,14 @@ async function travellerSummary(b: Booking) {
   }));
 }
 
-export async function toFlightSummary(flight: Flight, passengerId?: string): Promise<FlightSummary> {
+export async function toFlightSummary(
+  flight: Flight,
+  passengerId?: string,
+  /** Already-fetched bookings for this flight. toFlightDetail needs them before
+   *  it calls this, so passing them through avoids querying the same rows
+   *  twice per detail request. Omit and they are fetched here as before. */
+  knownBookings?: Booking[],
+): Promise<FlightSummary> {
   // Kick a forecast refresh if it has aged out. Deliberately not awaited: a
   // device asking for a flight gets whatever we hold now, and the next poll
   // picks up the fresh number. Alternative-flight search is NOT kicked from
@@ -25,8 +32,11 @@ export async function toFlightSummary(flight: Flight, passengerId?: string): Pro
   // refreshForecast/compute() (server/engine/forecast.ts), so a page view on
   // a low-risk flight never spends a supplier search it doesn't need.
   refreshIfStale(flight);
-  const event = await store.getDisruptionEvent(flight.id);
-  const bookings = await store.getBookingsForFlight(flight.id);
+  // Independent reads, so they go together rather than one after the other.
+  const [event, bookings] = await Promise.all([
+    store.getDisruptionEvent(flight.id),
+    knownBookings ? Promise.resolve(knownBookings) : store.getBookingsForFlight(flight.id),
+  ]);
   const summary: FlightSummary = {
     id: flight.id, code: flight.code, from: flight.from, to: flight.to,
     depISO: flight.depISO, durationMin: flight.durationMin,
@@ -60,7 +70,14 @@ export async function toFlightDetail(flight: Flight, viewerPassengerId: string):
   const bookings = await store.getBookingsForFlight(flight.id);
   const own = bookings.find((b) => b.passengerId === viewerPassengerId);
   const partySize = own ? store.partySize(own) : 1;
-  const summary = await toFlightSummary(flight, viewerPassengerId);
+
+  // The summary and the viewer's own name are independent of each other, and
+  // the bookings above are handed down so toFlightSummary does not re-query
+  // rows we are already holding.
+  const [summary, ownPassenger] = await Promise.all([
+    toFlightSummary(flight, viewerPassengerId, bookings),
+    own ? store.getPassenger(own.passengerId) : Promise.resolve(undefined),
+  ]);
 
   return {
     ...summary,
@@ -74,7 +91,7 @@ export async function toFlightDetail(flight: Flight, viewerPassengerId: string):
     rescheduledToISO: flight.rescheduledToISO,
     forecastHistory: flight.forecastHistory ?? [],
     bookings: own
-      ? [{ id: own.id, passengerId: own.passengerId, passengerName: (await store.getPassenger(own.passengerId))?.displayName ?? own.passengerId, seat: own.seat, pnr: own.pnr, partySize }]
+      ? [{ id: own.id, passengerId: own.passengerId, passengerName: ownPassenger?.displayName ?? own.passengerId, seat: own.seat, pnr: own.pnr, partySize }]
       : [],
   };
 }
