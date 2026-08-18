@@ -25,6 +25,7 @@ const OUTCOMES_PATH = join(STATE_DIR, 'outcomes.jsonl');
 const THRESHOLDS_PATH = join(STATE_DIR, 'threshold-evaluations.jsonl');
 const NOTIFICATIONS_PATH = join(STATE_DIR, 'notifications.jsonl');
 const INTENTS_PATH = join(STATE_DIR, 'member-intents.jsonl');
+const REPORTS_PATH = join(STATE_DIR, 'member-reports.jsonl');
 
 function appendLine(path: string, obj: unknown): void {
   if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
@@ -165,5 +166,35 @@ export function logMemberIntent(entry: Omit<MemberIntentLedgerEntry, 'loggedAt'>
     appendLine(INTENTS_PATH, { ...entry, loggedAt: Date.now() } satisfies MemberIntentLedgerEntry);
   } catch (e) {
     console.error('[decisionLedger] failed to log member intent:', e);
+  }
+}
+
+export type MemberReportLedgerEntry = {
+  flightId: string;
+  passengerId: string;
+  source: string;
+  /** whether this report was corroborated enough to act on for everyone */
+  confirmed: boolean;
+  /** how many distinct members had reported this flight at the time */
+  reports: number;
+  /** every signal weighed, in the order it was weighed */
+  evidence: string[];
+  loggedAt: number;
+};
+
+/**
+ * A member telling us their flight is cancelled, and what we did about it.
+ *
+ * The most attributable thing in the ledger, and it needs to be. A report can
+ * start a recovery for a whole aircraft, so both outcomes need a record: acting
+ * on a false report has to be traceable to whoever filed it, and *declining* to
+ * act on a true one has to be explainable to the member who was standing in the
+ * terminal telling us the truth. `evidence` carries the reasoning either way.
+ */
+export function logMemberReport(entry: Omit<MemberReportLedgerEntry, 'loggedAt'>): void {
+  try {
+    appendLine(REPORTS_PATH, { ...entry, loggedAt: Date.now() } satisfies MemberReportLedgerEntry);
+  } catch (e) {
+    console.error('[decisionLedger] failed to log member report:', e);
   }
 }

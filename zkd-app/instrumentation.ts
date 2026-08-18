@@ -28,6 +28,14 @@ export async function register() {
     const { startBatchScorer } = await import('./server/engine/batchScorer');
     startBatchScorer();
 
+    // Asking whether the thing we predicted actually happened. Until this
+    // existed, the only way a cancellation ever reached the system was a human
+    // pressing a button on /ops — the AviationStack lookup and the classifier
+    // were both built and had no callers. Self-disables and says so when
+    // AVIATIONSTACK_API_KEY is unset or its small monthly allowance is spent.
+    const { startStatusPoller } = await import('./server/engine/statusPoller');
+    startStatusPoller();
+
     // Warms the AppConfig-backed threshold cache before the first real
     // request needs it (no-op when THRESHOLD_CONFIG_URL is unset, e.g.
     // local dev) — getThresholdConfig() also self-refreshes lazily on every

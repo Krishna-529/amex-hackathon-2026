@@ -14,7 +14,13 @@ export type NotifyChannel = 'whatsapp' | 'push';
  * Why we are interrupting the member. `risk-threshold` is the only one that
  * fires BEFORE anything has actually happened — the rest report a fact.
  */
-export type AlertKind = 'risk-threshold' | 'cancelled' | 'booked' | 'handed-over';
+export type AlertKind =
+  | 'risk-threshold'
+  | 'cancelled'
+  | 'about-to-book'
+  | 'booked'
+  | 'handed-over'
+  | 'stood-down';
 
 export type NotifyEvent = {
   kind: AlertKind;

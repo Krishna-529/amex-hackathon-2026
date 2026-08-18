@@ -28,6 +28,9 @@ import { revalidateOffer, type Offer } from '../suppliers';
 import { altsForParty } from '../domain/altsForParty';
 import { costFor, type PartyCost } from '../domain/pricing';
 import { money } from '@/lib/time';
+import { dispatch } from '../notify';
+import { cancelledAlert, aboutToBookAlert } from '../notify/templates';
+import { estimateRefund } from '../domain/refund';
 import * as store from '../domain/store';
 import { ensureSeeded } from '../domain/seed';
 import * as pipeline from '../pipeline';
@@ -114,12 +117,31 @@ function costOf(flight: Flight, task: Pick<RecoveryTask, 'chosenAltId' | 'chosen
 }
 
 /**
+ * Who a detection is allowed to act for.
+ *
+ * Normally everybody on the flight — a carrier cancelling does not cancel it
+ * for one passenger. The exception is an UNCORROBORATED member report
+ * (server/engine/memberReports.ts): one person saying they are stranded is
+ * enough for us to start their own recovery and nowhere near enough to start
+ * spending on everyone else's card. Restricting the fan-out is how that
+ * asymmetry is enforced, rather than by trusting each call site to remember it.
+ *
+ * Kept in process memory next to the other simulation state, and read by
+ * `finishDecide` after its timer fires.
+ */
+const restrictedTo = new Map<string, string>();
+
+/**
  * The single entry point for "a disruption was detected on this flight."
  *
  * Async now that the store is Postgres-backed — every caller (the POST
- * /api/disruptions route, and the ops console behind it) awaits this.
+ * /api/disruptions route, the ops console behind it, the status poller, and a
+ * corroborated member report) awaits this.
  */
-export async function detectDisruption(flightId: string): Promise<DisruptionEvent | null> {
+export async function detectDisruption(
+  flightId: string,
+  opts: { onlyForPassengerId?: string } = {},
+): Promise<DisruptionEvent | null> {
   await ensureSeeded();
   const existing = await store.getDisruptionEvent(flightId);
   if (existing) return existing;
@@ -129,6 +151,9 @@ export async function detectDisruption(flightId: string): Promise<DisruptionEven
   // riskPct/riskBand are already computed and cached by store.createFlight() —
   // this is confirming a real disruption on a flight that was already being
   // watched, not the first time its risk is known.
+
+  if (opts.onlyForPassengerId) restrictedTo.set(flightId, opts.onlyForPassengerId);
+  else restrictedTo.delete(flightId);
 
   const event: DisruptionEvent = { id: `de-${flightId}`, flightId, detectedAt: Date.now(), phase: 'DECIDING' };
   await store.createDisruptionEvent(event);
@@ -152,8 +177,32 @@ async function finishDecide(flightId: string) {
   event.decidedAt = Date.now();
   await store.createDisruptionEvent(event);
 
-  const bookings = await store.getBookingsForFlight(flightId);
+  const only = restrictedTo.get(flightId);
+  const bookings = (await store.getBookingsForFlight(flightId))
+    .filter((b) => !only || b.passengerId === only);
   for (const booking of bookings) {
+    void createTaskForBooking(event, flight, booking);
+  }
+}
+
+/**
+ * Lift a restriction and run the recovery for everyone still waiting.
+ *
+ * Called when a member report that started as one person's word is later
+ * corroborated — by other passengers, by the carrier's own feed, or by an
+ * operator. The passengers already handled are skipped by
+ * `createTaskForBooking`'s own idempotence, so this is safe to call more than
+ * once for the same flight.
+ */
+export async function widenDetection(flightId: string): Promise<void> {
+  restrictedTo.delete(flightId);
+  const event = await store.getDisruptionEvent(flightId);
+  const flight = await store.getFlight(flightId);
+  if (!event || !flight) return;
+  if (event.phase === 'DECIDING') return; // finishDecide will fan out on its own
+
+  for (const booking of await store.getBookingsForFlight(flightId)) {
+    if (await store.getRecoveryTask(flightId, booking.passengerId)) continue;
     void createTaskForBooking(event, flight, booking);
   }
 }
@@ -161,6 +210,28 @@ async function finishDecide(flightId: string) {
 async function createTaskForBooking(event: DisruptionEvent, flight: Flight, booking: Booking) {
   const passenger = await store.getPassenger(booking.passengerId);
   if (!passenger) return;
+
+  // ── Rung 2 of the notification ladder ────────────────────────────────────
+  //
+  // Fired here rather than after the plan is chosen, and deliberately not
+  // awaited. The member finding out from us before they find out from a
+  // departure board is most of the product's felt value, and it must not wait
+  // on a supplier search — nor may a dead notification channel delay a
+  // recovery. `dispatch` cannot reject by construction (server/notify/index.ts).
+  const partyAltsNow = altsForParty(flight.candidates.alts, store.partySize(booking));
+  const leader = partyAltsNow.find((a) => a.ok);
+  void dispatch(
+    cancelledAlert({
+      flightId: flight.id,
+      passengerId: passenger.id,
+      code: flight.code,
+      from: flight.from,
+      to: flight.to,
+      optionCount: partyAltsNow.filter((a) => a.ok).length,
+      topOption: leader ? { code: leader.code, arr: leader.arr } : null,
+    }),
+  );
+
   const preAuth = await store.getPreAuth(flight.id, passenger.id);
   const planIntact = preAuth ? isPlanIntact(flight, preAuth) : false;
 
@@ -284,6 +355,36 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
   task.windowExpiresAt = win.expiresAt;
   task.note = windowRationale(win);
   await store.setRecoveryTask(task);
+
+  // ── Rung 3: the message that replaced the spend ceiling ──────────────────
+  //
+  // This is the last point at which a member can stop a charge, so it states
+  // the exact amount and the exact deadline. The figure quoted is the DELTA
+  // after the expected refund on their original ticket, not the gross fare —
+  // announcing ₹18,000 when ₹14,000 of it is coming straight back would be
+  // true and misleading, and this message only works if it is neither.
+  //
+  // Not awaited, for the same reason as rung 2: the window is already running
+  // and a slow provider must not eat into the member's thinking time.
+  const spend = costOf(flight, task);
+  const chosenAlt = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
+  const refund = estimateRefund({
+    flight, booking, cancelledBy: 'carrier', delayHours: 24,
+  });
+  const delta = spend.total - (refund.known && refund.currency === spend.currency ? refund.total : 0);
+  void dispatch(
+    aboutToBookAlert({
+      flightId: flight.id,
+      passengerId: passenger.id,
+      code: flight.code,
+      altCode: chosenAlt?.code ?? 'the best option we found',
+      altArrives: chosenAlt?.arr ?? '—',
+      deltaDisplay: money(Math.max(0, delta)),
+      free: delta <= 0,
+      minutes: Math.max(1, Math.round(win.seconds / 60)),
+    }),
+  );
+
   setTimeout(() => { void settleExpired(flight.id, passenger.id); }, win.seconds * 1000);
 }
 

@@ -75,3 +75,164 @@ export function thresholdAlert(i: ThresholdAlertInput): NotifyEvent {
     data: { screen: 'Prepare', flightId: i.flightId, band: i.band, pct: String(i.pct) },
   };
 }
+
+/* ── The rest of the ladder ─────────────────────────────────────────────────
+ *
+ * `thresholdAlert` above is the first rung and used to be the only one built,
+ * even though `AlertKind` had named the others since the beginning. That was
+ * survivable while silence meant STOP: a member who missed every message ended
+ * up with an unspent card and a handed-over recovery.
+ *
+ * It is not survivable now. The per-transaction cap was removed on 2026-08-19
+ * and silence proceeds to book (server/engine/simulation.ts). The only thing
+ * standing between a member and a charge they did not expect is that we told
+ * them, at each step, what was about to happen — so these three messages are
+ * not nice-to-have polish, they are the safety mechanism, and every one of
+ * them has to be worth reading on a lock screen.
+ *
+ * Two rules inherited from the top of this file still hold everywhere below:
+ * nothing is ever described as held or reserved, and money is stated as the
+ * DELTA the member actually pays rather than the gross fare — quoting ₹18,000
+ * when ₹14,000 of it is coming straight back is technically true and
+ * practically a lie.
+ */
+
+export type CancelledAlertInput = {
+  flightId: string;
+  passengerId?: string;
+  code: string;
+  from: string;
+  to: string;
+  /** how many alternatives we are already holding ranked, not reserved */
+  optionCount: number;
+  /** the current leader, when the search has finished */
+  topOption?: { code: string; arr: string } | null;
+};
+
+/**
+ * Rung 2 — it actually happened.
+ *
+ * Deliberately says what we have ALREADY done, not what we are about to do.
+ * The member is standing in an airport finding out their flight is dead; the
+ * useful information is that somebody is already several steps ahead of them.
+ */
+export function cancelledAlert(i: CancelledAlertInput): NotifyEvent {
+  const lead = `${i.code} ${i.from}→${i.to} has been cancelled.`;
+
+  const state = i.topOption
+    ? `We saw it before you did and have already ranked your alternatives against your preferences. Right now the best is ${i.topOption.code}, arriving ${i.topOption.arr}.`
+    : i.optionCount > 0
+      ? `We have already ranked ${i.optionCount} alternatives against your preferences.`
+      : 'We are searching alternatives for you now.';
+
+  return {
+    kind: 'cancelled',
+    flightId: i.flightId,
+    passengerId: i.passengerId,
+    title: `${i.code} is cancelled — we are on it`,
+    body: `${lead}
+
+${state}
+
+Nothing is booked yet. We will tell you before anything is charged.`,
+    path: `/recovery/${i.flightId}`,
+    actions: [
+      { id: 'choose', label: 'Choose my option' },
+      { id: 'view', label: 'See the plan' },
+    ],
+    data: { screen: 'Recovery', flightId: i.flightId },
+  };
+}
+
+export type AboutToBookInput = {
+  flightId: string;
+  passengerId?: string;
+  code: string;
+  /** the option we are about to buy */
+  altCode: string;
+  altArrives: string;
+  /** formatted, already in the member's own currency — the DELTA, not the fare */
+  deltaDisplay: string;
+  /** true when the delta is zero or negative: nothing to pay */
+  free: boolean;
+  /** whole minutes the member has to stop this */
+  minutes: number;
+};
+
+/**
+ * Rung 3 — the one that has to arrive.
+ *
+ * This is the message that replaced the spend ceiling. It states the exact
+ * amount, names the deadline, and says plainly what happens if the member does
+ * nothing — because "we will proceed unless you stop us" is only fair if it was
+ * actually said out loud beforehand.
+ *
+ * The stop action is listed FIRST. A member skimming a notification in a queue
+ * reads the leftmost button, and the destructive-to-them outcome is the one
+ * they should be able to reach fastest.
+ */
+export function aboutToBookAlert(i: AboutToBookInput): NotifyEvent {
+  const cost = i.free
+    ? 'It costs you nothing.'
+    : `It comes to ${i.deltaDisplay} after the refund on your original ticket, charged to your Amex.`;
+
+  const window = `You have about ${i.minutes} minute${i.minutes === 1 ? '' : 's'} to change or stop this. If we do not hear from you we will go ahead, because leaving you stranded is worse than spending without a reply.`;
+
+  return {
+    kind: 'about-to-book',
+    flightId: i.flightId,
+    passengerId: i.passengerId,
+    title: i.free ? `Booking ${i.altCode} for you` : `About to spend ${i.deltaDisplay}`,
+    body: `${i.code} was cancelled, so we are about to put you on ${i.altCode}, arriving ${i.altArrives}.
+
+${cost}
+
+${window}`,
+    path: `/recovery/${i.flightId}`,
+    actions: [
+      { id: 'stop', label: 'Stop — let me choose' },
+      { id: 'approve', label: 'Yes, go ahead' },
+    ],
+    data: { screen: 'Recovery', flightId: i.flightId, delta: i.deltaDisplay },
+  };
+}
+
+export type StoodDownInput = {
+  flightId: string;
+  passengerId?: string;
+  code: string;
+  from: string;
+  to: string;
+  departsDisplay: string;
+};
+
+/**
+ * The only good news this system is capable of sending.
+ *
+ * `bandCrossing.ts` alerts on escalation only, and for sound reasons — it stops
+ * a flight sitting in one band from re-announcing itself every scoring tick.
+ * But the consequence is that every message a member ever receives from us is
+ * bad news, and a service that only ever appears to deliver alarm is one people
+ * learn to dismiss.
+ *
+ * So a flight that climbed to hold-gate or beyond and then genuinely fell back
+ * gets exactly one stand-down. Not a de-escalation of noise into more noise:
+ * one message, only after a real alarm, saying the thing the member most wants
+ * to hear.
+ */
+export function stoodDownAlert(i: StoodDownInput): NotifyEvent {
+  return {
+    kind: 'stood-down',
+    flightId: i.flightId,
+    passengerId: i.passengerId,
+    title: `${i.code} is looking fine again`,
+    body:
+      `Good news — ${i.code} ${i.from}→${i.to}, departing ${i.departsDisplay}, has dropped back to a normal risk of cancellation.
+
+` +
+      'We are still watching it, and we will tell you if that changes again.',
+    path: `/flights/${i.flightId}`,
+    actions: [{ id: 'details', label: 'See the prediction' }],
+    data: { screen: 'FlightDetail', flightId: i.flightId },
+  };
+}

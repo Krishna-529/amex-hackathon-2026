@@ -22,6 +22,27 @@ import { join } from 'node:path';
 const MEMBER_PAGES = ['app/flights', 'app/prepare', 'app/recovery', 'app/profile', 'app/settings'];
 
 /**
+ * Member-facing copy that is written on the SERVER, not in a page.
+ *
+ * The first two versions of this guard both scanned pages only, and both were
+ * caught out the same way — by copy living somewhere they did not look. On
+ * 2026-08-19 it was `server/engine/simulation.ts`, which set four separate
+ * `task.note` strings ending "Your seats are still held." Those notes are
+ * rendered verbatim on /recovery, so the claim reached members for as long as
+ * the guard existed while passing it cleanly every time.
+ *
+ * The lesson is not "add simulation.ts". It is that the guard has to follow the
+ * copy rather than the file type, so these are the modules that write prose a
+ * member will read.
+ */
+const MEMBER_COPY_MODULES = [
+  'server/engine/simulation.ts',
+  'server/notify/templates.ts',
+  'server/pipeline/narrate.ts',
+  'server/pipeline/fallbackNote.ts',
+];
+
+/**
  * Claims of a reservation, in prose rather than in code.
  *
  * Widened after the first version missed "…check your policy, hold the seats…"
@@ -56,6 +77,25 @@ async function tsxFilesUnder(dir: string, out: string[] = []): Promise<string[]>
   return out;
 }
 
+async function offendersIn(file: string): Promise<string[]> {
+  const out: string[] = [];
+  let src: string;
+  try {
+    src = await readFile(file, 'utf-8');
+  } catch {
+    return out;
+  }
+  src.split('\n').forEach((line, i) => {
+    // Skip comments — several of these files explain the rule in prose, and
+    // quoting the forbidden phrase in an explanation of why it is forbidden
+    // must not fail the check that enforces it.
+    const trimmed = line.trim();
+    if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return;
+    if (FORBIDDEN.test(line)) out.push(`${file}:${i + 1}  ${trimmed.slice(0, 90)}`);
+  });
+  return out;
+}
+
 describe('member-facing copy never claims an option is held', () => {
   it('finds no reservation language on any member page', async () => {
     const offenders: string[] = [];
@@ -69,6 +109,14 @@ describe('member-facing copy never claims an option is held', () => {
           if (FORBIDDEN.test(line)) offenders.push(`${file}:${i + 1}  ${trimmed.slice(0, 90)}`);
         });
       }
+    }
+    expect(offenders, `Copy claiming a hold:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('finds no reservation language in server-authored member copy', async () => {
+    const offenders: string[] = [];
+    for (const file of MEMBER_COPY_MODULES) {
+      offenders.push(...(await offendersIn(file)));
     }
     expect(offenders, `Copy claiming a hold:\n${offenders.join('\n')}`).toEqual([]);
   });

@@ -21,8 +21,8 @@ import { refreshAltsIfStale } from './altsCache';
 import { refreshGroundIfStale } from './groundCache';
 import { logPrediction, logThresholdEvaluation } from '../decisionLedger';
 import { dispatch } from '../notify';
-import { thresholdAlert } from '../notify/templates';
-import { crossedUpward } from '../notify/bandCrossing';
+import { thresholdAlert, stoodDownAlert } from '../notify/templates';
+import { crossedUpward, BAND_RANK } from '../notify/bandCrossing';
 import { ddMon, hhmm } from '@/lib/time';
 import type { Band } from '@/lib/thresholds';
 
@@ -147,6 +147,7 @@ export async function applyScore(flight: Flight, score: ModelScore): Promise<Fli
   // Decided BEFORE the write below so the dedupe marker lands in the same
   // persist as the forecast itself — see maybeMarkForAlert.
   const alerting = maybeMarkForAlert(flight, band);
+  const standingDown = maybeMarkForStandDown(flight, band);
 
   flight.forecast = out;
   appendHistory(flight, out);
@@ -169,6 +170,7 @@ export async function applyScore(flight: Flight, score: ModelScore): Promise<Fli
   });
   triggerAltPrefetchIfWarranted(flight, score.riskScore);
   if (alerting) void alertMember(flight, out.pct, band).catch(() => {});
+  if (standingDown) void standDown(flight).catch(() => {});
   return out;
 }
 
@@ -193,6 +195,65 @@ function maybeMarkForAlert(flight: Flight, band: Band): boolean {
   if (!crossedUpward(flight.lastNotifiedBand, band)) return false;
   flight.lastNotifiedBand = band;
   return true;
+}
+
+/**
+ * The one piece of good news this system is capable of sending.
+ *
+ * `crossedUpward` alerts on escalation only, and its reasoning is sound: a
+ * flight sitting steadily in one band must not re-announce itself on every
+ * scoring tick. But the consequence is that every message a member ever gets
+ * from us is alarming, and a service that only ever appears bearing bad news is
+ * one people learn to swipe away — which matters more than it used to, now that
+ * ignoring a message can end in a charge.
+ *
+ * So: exactly one stand-down, and only after a real alarm. The conditions are
+ * deliberately strict, because a chatty de-escalation is just noise wearing a
+ * friendly face.
+ *
+ *   - the member must actually have been warned (`lastNotifiedBand` set);
+ *   - that warning must have been serious — hold-gate or above, not a mere
+ *     `prepare`, which is a heads-up rather than an alarm;
+ *   - the flight must now be all the way back to `watch`, not merely one rung
+ *     better.
+ *
+ * Marking clears `lastNotifiedBand`, which has a second effect worth being
+ * explicit about: a flight that later re-escalates will alert again, because as
+ * far as the notification state is concerned it is starting over. That is the
+ * correct reading — we told them it was fine, so we owe them a fresh warning if
+ * it stops being fine.
+ */
+function maybeMarkForStandDown(flight: Flight, band: Band): boolean {
+  const previous = flight.lastNotifiedBand;
+  if (!previous) return false;
+  if (BAND_RANK[previous] < BAND_RANK['hold-gate']) return false;
+  if (band !== 'watch') return false;
+  flight.lastNotifiedBand = undefined;
+  return true;
+}
+
+async function standDown(flight: Flight): Promise<void> {
+  const bookings = await store.getBookingsForFlight(flight.id);
+  const dep = new Date(flight.depISO);
+  const departsDisplay = `${ddMon(dep)}, ${hhmm(dep)}`;
+
+  // Same one-per-card-member rule as alertMember: a party shares one PNR and
+  // one person who decides.
+  const seen = new Set<string>();
+  for (const booking of bookings) {
+    if (seen.has(booking.passengerId)) continue;
+    seen.add(booking.passengerId);
+    await dispatch(
+      stoodDownAlert({
+        flightId: flight.id,
+        passengerId: booking.passengerId,
+        code: flight.code,
+        from: flight.from,
+        to: flight.to,
+        departsDisplay,
+      }),
+    );
+  }
 }
 
 /**

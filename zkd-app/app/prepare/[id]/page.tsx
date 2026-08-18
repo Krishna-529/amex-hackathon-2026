@@ -81,6 +81,30 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
     setText('');
   };
 
+  // The member as a detection source. Behind a confirm, because pressing it
+  // starts a real recovery — for them immediately, and for everyone else on
+  // the flight only once it is corroborated (server/engine/memberReports.ts).
+  const [reporting, setReporting] = useState(false);
+  const [reported, setReported] = useState<{ message: string; confirmed: boolean } | null>(null);
+
+  const reportCancelled = () => {
+    if (reporting) return;
+    const ok = window.confirm(
+      'Tell us this flight has been cancelled?\n\n' +
+        'We will start rebooking you straight away. We will check it against the airline before ' +
+        'moving anyone else on this flight, and nothing is charged without telling you first.',
+    );
+    if (!ok) return;
+    setReporting(true);
+    fetch(`/api/flights/${id}/report-cancellation`, { method: 'POST' })
+      .then((r) => r.json())
+      .then((r) => setReported({ message: r.message ?? r.error ?? 'Reported.', confirmed: !!r.confirmed }))
+      .catch(() =>
+        setReported({ message: 'We could not send that just now — please try again.', confirmed: false }),
+      )
+      .finally(() => setReporting(false));
+  };
+
   useEffect(() => {
     if (!detail) return;
     setAltId((v) => v ?? detail.candidates.alts.find((a) => a.ok)?.id ?? detail.candidates.alts[0]?.id ?? null);
@@ -502,6 +526,26 @@ export default function PreparePage({ params }: { params: Promise<{ id: string }
             <button className="cta ghost" onClick={askLater} style={{ width: '100%' }}>
               Ask me at the time instead
             </button>
+          </div>
+
+          {/* The backup detection lane. Deliberately quiet and deliberately
+              last: it should be findable by someone standing at a gate reading
+              a cancellation off a board, and ignorable by everyone else. */}
+          <div className="g panel" style={{ marginTop: 16 }}>
+            <h3>Already cancelled?</h3>
+            <p style={{ margin: '0 0 12px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
+              If the airline has told you this flight is cancelled and we have not caught it yet,
+              tell us and we will start straight away rather than wait for the feed.
+            </p>
+            {reported ? (
+              <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6, color: reported.confirmed ? 'var(--safe)' : 'var(--mist)' }}>
+                {reported.message}
+              </p>
+            ) : (
+              <button onClick={reportCancelled} disabled={reporting}>
+                {reporting ? 'Sending…' : 'This flight was cancelled'}
+              </button>
+            )}
           </div>
 
           {preAuth && (
