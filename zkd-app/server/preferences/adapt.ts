@@ -185,6 +185,12 @@ export function adapt(wire: TravelerPreferencesWire, billingCurrency: string): A
  * across a rate we do not hold.
  */
 function capOf(usd: number | undefined, billingCurrency: string): Money {
+  // Absent means zero, and zero means "nothing is pre-authorised" — the
+  // default-deny reading, matching `costFor`'s `overCap: total > cap.amount`.
+  // It deliberately does NOT mean "unlimited"; score.ts used to read it that
+  // way and the two contradicted each other. Callers that hold a real ceiling
+  // overlay it afterwards (see `preferencesFor` in pipeline/index.ts), which is
+  // how a preference document is stopped from raising its own limit.
   if (usd === undefined) return { amount: 0, currency: billingCurrency };
   return { amount: usd, currency: 'USD' };
 }

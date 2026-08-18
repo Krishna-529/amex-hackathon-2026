@@ -199,10 +199,22 @@ function score(
   // What the MEMBER pays, not the ticket price. On the involuntary path the
   // carrier pays and this term correctly stops mattering.
   const comparable = alt.currency === ctx.cap.currency;
+  // A cap of zero means "nothing is pre-authorised", NOT "spend freely". This
+  // used to score 1 — a perfect cost score — while `costFor` was flagging the
+  // very same option `overCap` (`total > cap.amount` is true for every paid
+  // option when the cap is 0). The two disagreed inside one `score()` call, and
+  // because `applyEarlyArrivalOverride` requires `!s.cost.overCap`, the third
+  // fare:0 guard became unreachable: a free option landing hours later could
+  // never be displaced by a paid one that arrives sooner.
+  //
+  // Reachable in practice — `capOf(undefined)` in preferences/adapt.ts yields
+  // exactly `{amount: 0}` for a profile that states no out-of-pocket limit.
+  // Default-deny is the house posture, so an unpaid option still scores 1 and
+  // anything costing money scores 0 until a real ceiling is known.
   const costScore = !comparable
     ? 0.5
     : ctx.cap.amount <= 0
-      ? 1
+      ? (cost.total === 0 ? 1 : 0)
       : clamp01(1 - cost.total / (ctx.cap.amount * 2));
   if (!comparable) {
     notes.push(`Priced in ${alt.currency} against a cap set in ${ctx.cap.currency} — we will not convert it automatically`);

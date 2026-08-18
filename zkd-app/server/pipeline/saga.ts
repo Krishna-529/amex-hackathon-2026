@@ -52,7 +52,7 @@
 // `node --experimental-strip-types` cannot resolve a bare directory import, and
 // this file is now exercised directly by server/pipeline/verify.ts.
 import { revalidateOffer, type Offer } from '../suppliers';
-import { holdHotel, revalidateHotel, type HotelOffer } from '../hotels';
+import { revalidateHotel, type HotelOffer } from '../hotels';
 import * as journal from './journal';
 import { fallbackNote } from './fallbackNote';
 import { dispatch } from '../notify';
@@ -216,6 +216,40 @@ function buildSteps(input: SagaInput): SagaStep[] {
       if (r.state === 'gone') {
         return { ok: false, error: `${alt.code} was taken while you were deciding`, uncertain: false };
       }
+      // `price-changed` is not `available`. Letting it fall through to the
+      // success line below would clear the last gate before money moves while
+      // narrate() tells the member "still at the price you were shown" — and
+      // the cap decision that authorised this spend was taken against the OLD
+      // fare, so a re-priced option can cross a ceiling nobody approved. §10 of
+      // the action policy is explicit that even an explicit approval cannot
+      // pass the cap.
+      //
+      // A fare that moved *down* is still inside what the member authorised, so
+      // it proceeds — with honest wording. A fare that moved up, or changed
+      // currency (this codebase refuses FX rather than inventing a rate), stops.
+      if (r.state === 'price-changed') {
+        const now = r.offer.price;
+        const shown = { amount: alt.fare, currency: alt.currency };
+        if (now.currency !== shown.currency) {
+          return {
+            ok: false,
+            error: `${alt.code} is now quoted in ${now.currency} rather than the ${shown.currency} you were shown — we will not convert a fare to make it fit`,
+            uncertain: false,
+          };
+        }
+        if (now.amount > shown.amount) {
+          return {
+            ok: false,
+            error: `${alt.code} re-priced from ${shown.amount} to ${now.amount} ${now.currency} while you were deciding, which is more than you approved — nothing was booked and nothing was charged`,
+            uncertain: false,
+          };
+        }
+        return {
+          ok: true,
+          ref: `checked:${alt.supplierOfferId}`,
+          narration: `${alt.code} re-checked with the supplier just now — still there, and the fare has come down to ${now.amount} ${now.currency} from the ${shown.amount} you were shown. This is the last check before anything is spent.`,
+        };
+      }
       return { ok: true, ref: `checked:${alt.supplierOfferId}`, narration: narrate('revalidate') };
     },
   });
@@ -265,19 +299,30 @@ function buildSteps(input: SagaInput): SagaStep[] {
         if (check.state === 'gone') {
           return { ok: false, error: `${hotel.name} sold out while you were deciding`, uncertain: false };
         }
-        // The reversible half of the WAIT gate — a held rate that lapses free.
-        const held = await holdHotel(hotel.offer);
-        const ref = held?.holdRef ?? hotel.offer.supplierRateId ?? hotel.id;
-        return mutationsAllowed()
-          ? { ok: false, error: 'live hotel booking is not implemented', uncertain: false }
-          : { ok: true, ref: `intent:${ref}`, narration: narrate('hotel') };
+
+        // The mutations gate is checked BEFORE `holdHotel`, not after it.
+        //
+        // `holdHotel` performs a real supplier hold. Taking it first meant both
+        // branches were wrong: on the live branch the hold succeeded and the
+        // step then returned ok:false, so it never entered `done`, so
+        // compensateAll never saw it and no orphan was recorded — the exact
+        // "orphan nobody can see" this module forbids. On the intent branch we
+        // mutated a supplier while telling the member nothing was touched.
+        //
+        // Live ticketing is not implemented, so there is nothing a hold could
+        // usefully precede. Fail before touching the supplier instead.
+        if (mutationsAllowed()) {
+          return { ok: false, error: 'live hotel booking is not implemented', uncertain: false };
+        }
+        const ref = hotel.offer.supplierRateId ?? hotel.id;
+        return { ok: true, ref: `intent:${ref}`, narration: narrate('hotel') };
       },
-      compensate: async (ref) =>
-        ref.startsWith('unverified:')
-          // Nothing was held, so there is nothing to release. Claiming a
-          // cancellation we did not perform would be a fake compensation.
-          ? { ok: true, detail: `nothing to release for ${ref}` }
-          : { ok: true, detail: `cancelled ${ref} inside the free-cancellation window` },
+      // Nothing is held on either path now, so there is nothing to release on
+      // either. The previous `cancelled ${ref} inside the free-cancellation
+      // window` was a fake compensation — it reported a cancellation without
+      // calling any cancel API, three lines below a comment forbidding exactly
+      // that.
+      compensate: async (ref) => ({ ok: true, detail: `nothing to release for ${ref}` }),
     });
   }
 

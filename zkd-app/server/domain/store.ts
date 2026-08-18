@@ -31,7 +31,7 @@ import { sql, ensureReady } from './db';
 import type {
   Passenger, Flight, Booking, Itinerary, PreAuthRecord, PastFlight,
   DisruptionEvent, RecoveryTask, Credential, Traveller, SeatAssignment,
-  Stay, Ride,
+  Stay, Ride, Step,
 } from './types';
 import type { PipelineRun } from '../pipeline/types';
 
@@ -368,6 +368,28 @@ export async function setRecoveryTask(task: RecoveryTask): Promise<void> {
   await q`
     insert into recovery_tasks (key, flight_id, passenger_id, data) values (${key}, ${task.flightId}, ${task.passengerId}, ${q.json(task)})
     on conflict (key) do update set data = excluded.data
+  `;
+}
+
+/**
+ * Append one timeline step to a task, and touch nothing else.
+ *
+ * The display mirror in pipeline/journal.ts used to read the whole task, push
+ * onto `shown`, and write the whole task back — unawaited. Any write that
+ * landed inside that window was reverted by the stale copy: the saga's final
+ * step fires the mirror, `execute()` then sets `phase: 'booked'` with its note,
+ * and the in-flight mirror writes `phase: 'acting'` back over it. The member's
+ * recovery silently un-completes.
+ *
+ * Doing it as one jsonb concat means there is no window at all — the array grows
+ * server-side and no other field is in the statement to be clobbered.
+ */
+export async function appendShownStep(flightId: string, passengerId: string, step: Step): Promise<void> {
+  const q = await db();
+  await q`
+    update recovery_tasks
+    set data = jsonb_set(data, '{shown}', coalesce(data->'shown', '[]'::jsonb) || ${q.json(step)}::jsonb)
+    where key = ${`${flightId}:${passengerId}`}
   `;
 }
 

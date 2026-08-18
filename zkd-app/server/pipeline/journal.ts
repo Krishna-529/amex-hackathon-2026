@@ -125,8 +125,7 @@ export function append(run: PipelineRun, input: AppendInput): PipelineEvent {
 }
 
 /**
- * Re-reads the task from the store before mutating — never a reference held
- * across an await. See the module header.
+ * Appends one step to the task's timeline, and nothing else.
  *
  * Fire-and-forget by design: `append` is a synchronous primitive called from
  * many places throughout the saga's step-execution loop (saga.ts), and the
@@ -135,14 +134,15 @@ export function append(run: PipelineRun, input: AppendInput): PipelineEvent {
  * RecoveryTask.shown is cosmetic (what the recovery page's timeline renders),
  * so it is allowed to land a tick after `append` returns rather than forcing
  * every saga call site to become async for a display-only side effect.
+ *
+ * Being unawaited is only safe because the write is *narrow*. It used to
+ * read-modify-write the whole task, which meant a mirror still in flight could
+ * land its stale copy on top of `execute()`'s `phase: 'booked'` and revert the
+ * recovery to 'acting' — a cosmetic write undoing a real one. `appendShownStep`
+ * grows the array in a single statement instead, so no other field is at risk.
  */
 function mirrorToTask(run: PipelineRun, step: Step): void {
-  void (async () => {
-    const task = await store.getRecoveryTask(run.flightId, run.passengerId);
-    if (!task) return;
-    task.shown = [...task.shown, step];
-    await store.setRecoveryTask(task);
-  })();
+  void store.appendShownStep(run.flightId, run.passengerId, step).catch(() => {});
 }
 
 export type TransitionResult =

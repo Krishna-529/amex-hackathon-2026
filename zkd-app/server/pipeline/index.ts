@@ -140,7 +140,7 @@ export function onDisruptionDetected(flightId: string): void {
 
 /** SEARCHING → EVALUATING → HOLD_PENDING, then parks at the WAIT gate. */
 async function plan(run: PipelineRun): Promise<void> {
-  const flight = await store.getFlight(run.flightId);
+  let flight = await store.getFlight(run.flightId);
   const bookings = await store.getBookingsForFlight(run.flightId);
   const booking = bookings.find((b) => b.passengerId === run.passengerId);
   if (!flight || !booking) return halt(run, 'flight or booking vanished mid-recovery');
@@ -153,6 +153,14 @@ async function plan(run: PipelineRun): Promise<void> {
   // Force a confirm-lane refresh: a disruption is exactly the moment staleness
   // is unacceptable at any price, and this is what the reserve exists for.
   await refreshAltsNow(run.flightId, 'disruption detected').catch(() => {});
+
+  // Re-read after that refresh. `refreshAltsNow` writes the fresh alts through
+  // `store.createFlight`, and `store.getFlight` hands back a freshly
+  // deserialised object each call — so the copy fetched above is now the
+  // *pre*-refresh snapshot. Ranking it would mean paying for the refresh and
+  // then choosing an alt the refresh had just removed, which is precisely the
+  // staleness this call exists to prevent.
+  flight = (await store.getFlight(run.flightId)) ?? flight;
 
   const directCount = flight.candidates.alts.filter((a) => a.ok).length;
   const connections = await composeConnections(
@@ -170,6 +178,13 @@ async function plan(run: PipelineRun): Promise<void> {
       ...flight.candidates.alts,
       ...connections.alts.filter((a) => !existing.has(a.id)),
     ];
+    // Write the composed connections back, for the same reason altsCache.ts
+    // does: the store hands out a fresh object per read, so a mutation that is
+    // never upserted exists only inside this function. `run.plan.altId` would
+    // then name a `conn:…` alt that no later reader can resolve — the member
+    // silently loses the connection, and the supplier calls that built it are
+    // spent for nothing.
+    await store.createFlight(flight);
   }
 
   journal.append(run, {
@@ -317,6 +332,11 @@ async function arrangeOvernight(
   const cabs = withinGroundCap(ground.offers, prefs.rules.groundCap);
   flight.candidates.hotels = eligible.map((h) => toHotelOpt(h));
   flight.candidates.cabs = cabs.map(toCabOpt);
+  // Persist, or the room and cab exist only on this in-memory copy: `execute()`
+  // re-reads the flight to resolve `run.plan.hotelId`, finds an empty
+  // `candidates.hotels`, and the saga skips the bed for a member the pipeline
+  // has just decided is stranded overnight.
+  await store.createFlight(flight);
 
   // Keep the rich offers so the saga can take a real hold against a rate id
   // rather than committing to a room by name alone.
@@ -375,10 +395,14 @@ export async function execute(task: RecoveryTask, resolution: DisruptionResoluti
   const run = journal.ensureRun(task.flightId, task.passengerId);
   const flight = await store.getFlight(task.flightId);
   const booking = await store.getBooking(task.bookingId);
-  if (!flight || !booking) return void halt(run, 'flight or booking vanished before execution');
+  if (!flight || !booking) {
+    return haltTask(run, task, 'We could not confirm your booking details, so we stopped before spending anything. Nothing was booked and nothing was charged.');
+  }
 
   const alt = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
-  if (!alt) return void halt(run, 'the chosen option is no longer in the candidate list');
+  if (!alt) {
+    return haltTask(run, task, 'The option you approved is no longer in the candidate list, so we stopped rather than book something you did not choose. Nothing was booked and nothing was charged.');
+  }
 
   // The room the member is holding, if any. `flight.candidates.hotels` carries
   // the UI shape; the richer HotelOffer only exists when the pipeline's own
@@ -395,7 +419,20 @@ export async function execute(task: RecoveryTask, resolution: DisruptionResoluti
 
   const cab = flight.candidates.cabs.find((c) => c.id === task.chosenCabId) ?? null;
 
-  if (!journal.transition(run, 'CONFIRMED', `consent recorded: ${resolution.kind}`).ok) return;
+  // A run that has not reached HOLD_PENDING cannot legally cross to CONFIRMED.
+  // This is reachable in normal operation, not just in theory: `finishDecide`
+  // fires on a ~1.5s timer while `plan()` is still doing a forced refresh and
+  // up to a dozen supplier searches, so the pre-auth and autopilot paths can
+  // both arrive here while the run is still SEARCHING/EVALUATING. It is also
+  // guaranteed after a restart, because `pipelineRuns` is in-process while the
+  // RecoveryTask is durable, so `ensureRun` hands back a fresh TRIGGERED run.
+  //
+  // Returning silently leaves `task.phase` at 'acting' with no note — the
+  // member watches a spinner forever. Stopping short of spending is correct;
+  // doing it invisibly is not.
+  if (!journal.transition(run, 'CONFIRMED', `consent recorded: ${resolution.kind}`).ok) {
+    return haltTask(run, task, 'We were still assembling your options when the go-ahead arrived, so we stopped rather than book against a half-finished plan. Nothing was booked and nothing was charged — your held seats stay held.');
+  }
 
   // Fetched once, up front: narrate()'s 'onward' step must stay synchronous
   // (the saga calls it inline as each step completes), so the async store
@@ -442,6 +479,24 @@ export async function execute(task: RecoveryTask, resolution: DisruptionResoluti
 export function abort(flightId: string, passengerId: string, reason: string): void {
   const run = store.getPipelineRun(flightId, passengerId);
   if (run) halt(run, reason);
+}
+
+/**
+ * Halt the run *and* release the member.
+ *
+ * `halt()` alone only records the stop on the pipeline's own journal, which is
+ * invisible to the member. Anywhere `execute()` gives up, the RecoveryTask is
+ * sitting at `phase: 'acting'` — the spinner state — and something has to move
+ * it, or the member waits on a machine that has already stopped. 'handed' is
+ * the same terminal the saga's own failure branch uses, so the member lands
+ * where they would after any other stop: nothing booked, nothing charged.
+ */
+async function haltTask(run: PipelineRun, task: RecoveryTask, reason: string): Promise<void> {
+  halt(run, reason);
+  const fresh = (await store.getRecoveryTask(task.flightId, task.passengerId)) ?? task;
+  fresh.phase = 'handed';
+  fresh.note = reason;
+  await store.setRecoveryTask(fresh);
 }
 
 function halt(run: PipelineRun, reason: string): void {
