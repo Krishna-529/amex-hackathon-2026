@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useWorld } from '@/components/WorldProvider';
 import { days, ddMon } from '@/lib/time';
 import { SettingsSkeleton } from '@/components/PageSkeletons';
+import { STRATEGY_LABEL } from '@/server/preferences/presets';
+import type { OptimizationStrategy } from '@/server/preferences/schema';
 
 const CHOICES = [
   {
@@ -27,12 +29,48 @@ const CHOICES = [
   },
 ];
 
+/**
+ * The four settings the scorer already understands.
+ *
+ * The one-line label comes from STRATEGY_LABEL rather than being retyped, so
+ * what the member is promised here and what server/pipeline/score.ts actually
+ * weighs cannot drift apart. Everything else is member-facing explanation of
+ * the same choice.
+ */
+const STRATEGIES: { id: OptimizationStrategy; title: string; sub: string; body: string }[] = [
+  {
+    id: 'earliest_arrival',
+    title: 'Get me there soonest',
+    sub: 'Default',
+    body: 'Arrival time outweighs everything else we can trade. If a paid seat lands materially earlier than a free one and stays inside your cap, we take it.',
+  },
+  {
+    id: 'lowest_cost',
+    title: 'Keep it cheapest',
+    sub: 'Least out of pocket',
+    body: 'We lean on what the airline owes you before anything you pay for. Cost can never be the whole story though — an option we cannot actually book is not a bargain, and a much earlier flight still wins.',
+  },
+  {
+    id: 'minimize_layovers',
+    title: 'Fewest changes',
+    sub: 'Straightest route',
+    body: 'A direct beats a connection even when the connection is quicker or cheaper. Worth choosing if you travel with children, checked bags or tight mobility.',
+  },
+  {
+    id: 'stick_to_preferred_airline',
+    title: 'Stay on my airline',
+    sub: 'Protect status',
+    body: 'We prefer carriers you hold status with, so your miles and tier benefits survive the disruption. We will still move you off them rather than leave you stranded.',
+  },
+];
+
 export default function SettingsPage() {
-  const { schedule, setConsent } = useWorld();
+  const { schedule, setConsent, setStrategy } = useWorld();
   if (!schedule) return <SettingsSkeleton />;
 
   const activated = days(new Date(), -412);
   const consent = schedule.passenger.consent;
+  const strategy = schedule.passenger.strategy;
 
   return (
     <div className="skeleton">
@@ -84,6 +122,40 @@ export default function SettingsPage() {
                 </span>
                 <span className="p">{c.body}</span>
                 <span className="best">{c.best}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="sect">What to optimise for</div>
+      <p style={{ margin: '0 0 16px', color: 'var(--mist2)', fontSize: 13, maxWidth: '62ch' }}>
+        Standing permission decides <em>whether</em> we act. This decides <em>which</em> option we pick
+        when we do — we compare every alternative on arrival, cost, how reliably it can actually be
+        booked, cabin, your loyalty and how many changes it adds, and this sets what that comparison
+        leans on. Your card&apos;s spending limit is not a preference and never moves.
+        {strategy === null && ' You have not chosen yet, so we are getting you there soonest.'}
+      </p>
+
+      <div className="choices">
+        {STRATEGIES.map((s) => {
+          const on = strategy === null ? s.id === 'earliest_arrival' : strategy === s.id;
+          return (
+            <button
+              key={s.id}
+              className={`g choice ${on ? 'on' : ''}`}
+              aria-pressed={on}
+              onClick={() => setStrategy(s.id)}
+            >
+              <span className="mark" aria-hidden />
+              <span className="body">
+                <span className="hd">
+                  <span className="ttl">{s.title}</span>
+                  <span className="tag">{s.sub}</span>
+                  {on && <span className="tag live">{strategy === null ? 'In effect' : 'Your choice'}</span>}
+                </span>
+                <span className="p">{s.body}</span>
+                <span className="best">We optimise for {STRATEGY_LABEL[s.id]}.</span>
               </span>
             </button>
           );

@@ -2,6 +2,7 @@ import type {
   Alt, HotelOpt, CabOpt, CabLeg, Consent, PastFlight, DisruptionResolution, RecoveryTaskPhase,
   FlightForecast, FlightForecastSnapshot, TravellerType, Stay,
 } from '@/server/domain/types';
+import type { OptimizationStrategy } from '@/server/preferences/schema';
 import type { PartyAlt } from '@/server/domain/altsForParty';
 import type { PartyCost } from '@/server/domain/pricing';
 import type { ReverifyResult } from '@/server/engine/forecast';
@@ -111,7 +112,13 @@ export type FlightDetail = FlightSummary & {
 };
 
 export type PassengerScheduleResponse = {
-  passenger: { id: string; displayName: string; consent: Consent };
+  passenger: {
+    id: string;
+    displayName: string;
+    consent: Consent;
+    /** null until the member states one — see Passenger.strategy */
+    strategy: OptimizationStrategy | null;
+  };
   upcoming: FlightSummary[];
   past: PastFlight[];
   /** Hotels the member booked themselves. Carried on the schedule rather than

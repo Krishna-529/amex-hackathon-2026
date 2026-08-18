@@ -6,6 +6,8 @@
  * data, and server/domain/store.ts for where it lives.
  */
 
+import type { OptimizationStrategy } from '../preferences/schema';
+
 export type Consent = 'autopilot' | 'ask';
 
 /**
@@ -90,6 +92,16 @@ export type Passenger = {
   passport: { number: string; expiry: string; issued: string };
   contact: { email: string; phone: string };
   consent: Consent;
+  /**
+   * What the member wants the rebooking scorer to optimise for.
+   *
+   * Optional because it is stored inside the existing `data` jsonb column and
+   * every seeded passenger predates it — absent means "not stated", which
+   * `preferencesFor` resolves to the schema default rather than to a guess.
+   * Consent decides *whether* the agent may act; this decides *which* option it
+   * picks when it does.
+   */
+  strategy?: OptimizationStrategy;
   loyalty: { airline: string; number: string; tier: string }[];
   prefs: { k: string; v: string }[];
   payment: { card: string; method: string };

@@ -112,6 +112,24 @@ export async function updateConsent(passengerId: string, consent: Passenger['con
   return p;
 }
 
+/**
+ * Sibling of `updateConsent`, and deliberately a separate call rather than a
+ * generic patch: these are the only two fields a member may change about
+ * themselves, and keeping each one explicit means a widened request body can
+ * never reach the passenger record by accident.
+ */
+export async function updateStrategy(
+  passengerId: string,
+  strategy: NonNullable<Passenger['strategy']>,
+): Promise<Passenger | undefined> {
+  const q = await db();
+  const p = await getPassenger(passengerId);
+  if (!p) return undefined;
+  p.strategy = strategy;
+  await q`update passengers set data = ${q.json(p)} where id = ${passengerId}`;
+  return p;
+}
+
 // ------------------------------------------------------------- credentials --
 
 export async function createCredential(c: Credential): Promise<void> {

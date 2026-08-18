@@ -36,6 +36,7 @@ import { searchAccommodation, applyHotelRules, toHotelOpt, affordabilityVeto } f
 import { searchGround, withinGroundCap, toCabOpt } from '../ground';
 import { airport, countryCodeOf } from '../airportDirectory';
 import { adapt, type AdaptedPreferences } from '../preferences/adapt';
+import { WIRE_DEFAULTS, type OptimizationStrategy } from '../preferences/schema';
 import * as journal from './journal';
 import { applyHardRules, rankAlts, type ScoreContext } from './score';
 import { composeConnections, needsOvernight, needsRentalCar } from './compose';
@@ -52,8 +53,16 @@ export * from './types';
  * Until a real preference document is stored per member, every member gets the
  * schema's own defaults layered over the MyCa mock. Kept in one place so
  * swapping in a real store is a single change.
+ *
+ * `strategy` is the first field that genuinely varies per member: it is stored
+ * on the Passenger record and set from /settings. Everything else here is still
+ * a default awaiting a real preference document.
  */
-function defaultWirePreferences(memberCarriers: string[], homeAirport: string) {
+function defaultWirePreferences(
+  memberCarriers: string[],
+  homeAirport: string,
+  strategy: OptimizationStrategy,
+) {
   return {
     traveler_identity: {
       full_legal_name: '', date_of_birth: '', gender: 'UNSPECIFIED' as const,
@@ -66,7 +75,7 @@ function defaultWirePreferences(memberCarriers: string[], homeAirport: string) {
     flight_preferences: { preferred_cabin: 'economy' as const, max_acceptable_layovers: 1 },
     ground_transport_preferences: {},
     autonomous_rebooking_rules: {
-      optimization_strategy: 'earliest_arrival' as const,
+      optimization_strategy: strategy,
       auto_approve_rebooking: true,
       hotel_trigger_threshold_hours: 6,
       rental_car_trigger_threshold_hours: 24,
@@ -88,9 +97,14 @@ const hotelOffersByRun = new Map<string, Map<string, import('../hotels').HotelOf
 
 async function preferencesFor(passengerId: string): Promise<AdaptedPreferences> {
   const profile = await fetchProfile(passengerId);
+  // The member's own choice, where they have made one. Absent means they have
+  // not been asked yet, which is the schema's default — not a guess about what
+  // they want.
+  const passenger = await store.getPassenger(passengerId);
   const wire = defaultWirePreferences(
     profile.preferences.preferredCarriers,
     profile.cardMember.nationality === 'Indian' ? 'MAA' : '',
+    passenger?.strategy ?? WIRE_DEFAULTS.optimization_strategy,
   );
   const adapted = adapt(wire, profile.payment.billingCurrency);
   // MyCa remains the system of record for entitlement and cap — a preference

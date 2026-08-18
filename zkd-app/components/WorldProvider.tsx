@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { usePoll } from '@/lib/usePoll';
 import type { PassengerScheduleResponse } from '@/lib/apiTypes';
 import type { Consent } from '@/server/domain/types';
+import type { OptimizationStrategy } from '@/server/preferences/schema';
 
 /**
  * This used to build an entire mock World client-side on mount and hold
@@ -32,6 +33,7 @@ type Ctx = {
   displayName: string | null;
   schedule: PassengerScheduleResponse | null;
   setConsent: (c: Consent) => void;
+  setStrategy: (s: OptimizationStrategy) => void;
   signOut: () => void;
 };
 
@@ -85,14 +87,25 @@ export function WorldProvider({ children }: { children: React.ReactNode }) {
     }).catch(() => {});
   }, [passengerId]);
 
+  // Sibling of setConsent, and posted the same way: the PATCH takes exactly one
+  // field, so neither can be changed as a side effect of setting the other.
+  const setStrategy = useCallback((s: OptimizationStrategy) => {
+    if (!passengerId) return;
+    fetch(`/api/passengers/${passengerId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ strategy: s }),
+    }).catch(() => {});
+  }, [passengerId]);
+
   const signOut = useCallback(() => {
     fetch('/api/auth/logout', { method: 'POST' })
       .finally(() => window.location.assign('/login'));
   }, []);
 
   const value = useMemo<Ctx>(
-    () => ({ status, passengerId, displayName, schedule: schedule ?? null, setConsent, signOut }),
-    [status, passengerId, displayName, schedule, setConsent, signOut],
+    () => ({ status, passengerId, displayName, schedule: schedule ?? null, setConsent, setStrategy, signOut }),
+    [status, passengerId, displayName, schedule, setConsent, setStrategy, signOut],
   );
 
   return <WorldCtx.Provider value={value}>{children}</WorldCtx.Provider>;

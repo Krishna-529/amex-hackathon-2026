@@ -17,7 +17,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     store.getStaysForPassenger(id),
   ]);
   const body: PassengerScheduleResponse = {
-    passenger: { id: g.passenger.id, displayName: g.passenger.displayName, consent: g.passenger.consent },
+    passenger: {
+      id: g.passenger.id,
+      displayName: g.passenger.displayName,
+      consent: g.passenger.consent,
+      strategy: g.passenger.strategy ?? null,
+    },
     upcoming: await Promise.all(schedule.map(({ flight }) => toFlightSummary(flight, id))),
     past,
     // Hotels the member booked themselves. Carried here rather than on their

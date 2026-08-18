@@ -135,6 +135,10 @@ export type TravelerPreferencesWire = {
  * whichever call site read it first happened to assume.
  */
 export const WIRE_DEFAULTS = {
+  // What to optimise for when the member has not chosen. Getting them there
+  // soonest is the only default that cannot be read as us economising on their
+  // behalf without being asked.
+  optimization_strategy: 'earliest_arrival',
   max_acceptable_layovers: 1,
   accessibility_requirements: false,
   max_distance_from_airport_km: 15,

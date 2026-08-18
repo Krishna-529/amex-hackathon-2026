@@ -45,6 +45,36 @@ export type ResolveAction =
   | { kind: 'swap-hotel'; hotelId: string }
   | { kind: 'swap-cab'; cabId: string };
 
+/**
+ * Shape check for a ResolveAction arriving over the wire.
+ *
+ * It lives next to the union rather than in the route so that adding a variant
+ * and forgetting to validate it is a change in one file, not two. The endpoint
+ * this guards approves spend, and it used to trust `(await req.json()) as
+ * ResolveAction` — a cast, which checks nothing at runtime, so a body like
+ * `{kind: 'choose'}` with no altId reached resolveTask as a well-typed lie.
+ */
+export function isResolveAction(v: unknown): v is ResolveAction {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as Record<string, unknown>;
+  const str = (k: string) => typeof o[k] === 'string' && (o[k] as string).length > 0;
+  switch (o.kind) {
+    case 'approve':
+    case 'hand-over':
+    case 'browse':
+    case 'back':
+      return true;
+    case 'choose':
+      return str('altId');
+    case 'swap-hotel':
+      return str('hotelId');
+    case 'swap-cab':
+      return str('cabId');
+    default:
+      return false;
+  }
+}
+
 export type RecoveryView = {
   taskId: string | null;
   flightId: string;
