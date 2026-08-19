@@ -127,6 +127,19 @@ export function estimateRefund(input: RefundInput): RefundEstimate {
   }
 
   const currency = paid.currency;
+  // `farePaid` is PER TRAVELLER (see the field's doc on Booking), so a whole-PNR
+  // refund scales by the party — exactly what partySize()'s own docstring says
+  // the fare refund does. The multiplication was missing here, which mattered
+  // more than it looks: alternatives are priced with `partyFare` (fare x party),
+  // so a party of six compared a six-person replacement against a one-person
+  // refund. On f-multi that understated Arjun's refund by INR 32,250 and
+  // overstated the delta — the single number the member decides on — by the
+  // same amount.
+  //
+  // Only the ticket scales. The hotel and cab lines below are already
+  // whole-booking totals.
+  const travellers = partySize(booking);
+  const ticket = paid.amount * travellers;
   const lines: RefundLine[] = [];
 
   const jurisdiction = jurisdictionFor(flight.from, flight.to);
@@ -147,20 +160,22 @@ export function estimateRefund(input: RefundInput): RefundEstimate {
     // The carrier cancelled. The ticket's value comes back in full — fare
     // conditions govern a passenger changing their mind, not the airline.
     lines.push({
-      label: 'Original ticket',
-      amount: paid.amount,
+      label: travellers > 1 ? `Original tickets (${travellers})` : 'Original ticket',
+      amount: ticket,
       currency,
       basis:
         'The airline cancelled, so the full fare is refundable regardless of the fare rules you booked under.',
     });
   } else {
     const basis: FareBasis = booking.fareBasis ?? 'partially-refundable';
-    const fee = Math.round(paid.amount * VOLUNTARY_FEE_FRACTION[basis]);
+    const fee = Math.round(ticket * VOLUNTARY_FEE_FRACTION[basis]);
     lines.push({
-      label: 'Original ticket',
-      amount: paid.amount,
+      label: travellers > 1 ? `Original tickets (${travellers})` : 'Original ticket',
+      amount: ticket,
       currency,
-      basis: 'What you paid for the ticket being cancelled.',
+      basis: travellers > 1
+        ? 'What you paid for the tickets being cancelled.'
+        : 'What you paid for the ticket being cancelled.',
     });
     if (fee > 0) {
       lines.push({
