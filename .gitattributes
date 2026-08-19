@@ -1,0 +1,35 @@
+# ── The two shared logs ──────────────────────────────────────────────────────
+#
+# `memory.md` and `context.md` are one file each, shared by every session and
+# every worktree. But a worktree is a separate checkout, so each one holds its
+# own working copy, and the copies drift the moment two branches both append —
+# which they do, because appending to memory.md is how a session signs off.
+#
+# `merge=union` keeps BOTH sides' lines instead of raising a conflict, which is
+# the right semantics for an append-only log: nothing is lost and no session has
+# to hand-resolve a diff it did not write.
+#
+# The cost, stated so it is not a surprise: union merge cannot know which entry
+# came first, so after a merge the ordering near the top may interleave. Check
+# it. Nothing is lost either way, which is the property that matters.
+memory.md   merge=union
+context.md  merge=union
+
+# ── Line endings ─────────────────────────────────────────────────────────────
+#
+# This is a WSL2 checkout edited from both Linux and Windows tooling, and a
+# single stray CRLF has already cost a merge: `memory.md` showed as modified in
+# the main checkout purely because one line had been rewritten with \r\n, and
+# git refused to fast-forward over it. Normalise text on the way in so an
+# editor's line-ending default can never again read as a real change.
+* text=auto eol=lf
+
+# Anything genuinely binary must not be touched by that normalisation.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.pdf       binary
+*.xlsx      binary
+*.pptx      binary
+*.apk       binary
+*.mp4       binary

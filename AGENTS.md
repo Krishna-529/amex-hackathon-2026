@@ -46,6 +46,31 @@ carrier, and stop safely when it cannot.
 | `README.md`, `context.md`, `memory.md` | Kept at the root deliberately — landing page, fast orientation, and the running decision record |
 | `iropssim.py` | Monte Carlo simulator behind every `sim`-tier number. Stays at the root because the metrics site cites `python iropssim.py` as its reproduction command |
 
+## The two shared logs — one file each, on `main`
+
+`memory.md` (the dated decision log) and `context.md` (fast orientation) are **shared by every
+session, every worktree and every branch**. They are never forked per branch and never maintained
+in parallel.
+
+Worktrees make this need saying out loud. A worktree is a separate checkout, so each one holds its
+own working copy of both files — on 2026-08-19 there were four copies of `memory.md` at 425, 464,
+479 and 646 lines, all the same tracked path. That is not a bug in git; it is what a checkout is.
+The rule is that the copies get **reconciled back onto `main`**, not left to diverge.
+
+Three things make that cheap, and they are already in place:
+
+- `.gitattributes` marks both files `merge=union`, so two branches appending at once merge instead
+  of conflicting. Union keeps both sides but cannot know which came first — **check the ordering
+  after a merge**.
+- `* text=auto eol=lf` in the same file. A single stray CRLF in `memory.md` once blocked a
+  fast-forward, because git correctly reported the file as modified.
+- Write UTF-8. A latin-1 `§` (0xa7) written by an earlier session made `memory.md` decode-hostile:
+  grep classified it as binary and silently matched **nothing**, and python refused to read it. A
+  log nobody can grep is not a log. Repaired 2026-08-19.
+
+When you finish a task: append your entry to the top of `memory.md`'s *Recent work*, refresh
+`context.md` if the shape of the repo changed, and get both onto `main`.
+
 ## House rules
 
 - No GPU is on the critical path; supplier API rate limits are the binding constraint, not compute.

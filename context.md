@@ -1,5 +1,9 @@
 # context.md — current state of the repository
 
+> **One file, and it lives on `main`** — shared by every session and every worktree, never forked
+> per branch. See the note at the top of [`memory.md`](memory.md) for why the copies drift and how
+> they are reconciled. This file is the fast orientation; `memory.md` is the dated decision log.
+
 Last refreshed: 2026-08-08.
 
 ## Project

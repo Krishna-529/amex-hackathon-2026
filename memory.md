@@ -1,5 +1,15 @@
 # memory.md — decisions, insights, work log
 
+> **One file, and it lives on `main`.** Every session — every worktree, every branch — reads and
+> writes *this* file and `context.md`, and neither is ever forked per branch. Worktrees each hold
+> their own working copy because that is what a checkout is, so the copies drift the moment two
+> branches both append; the rule is that they get reconciled back onto `main` rather than left to
+> diverge. `.gitattributes` marks both files `merge=union` so an append from two branches merges
+> instead of conflicting — check the ordering after a merge, since union keeps both sides but
+> cannot know which came first.
+>
+> Newest entries at the top of "Recent work". Convert relative dates to absolute ones.
+
 ## Recent work
 
 - 2026-08-19 (later) — **Webhook-driven cancellation detection, and `gh` installed globally.**
@@ -588,13 +598,68 @@
   before debugging further (chased a phantom "reverify is broken" this session before finding this).
 - `ZKD Website/serve.js` serves the three demo sites on 5173/5174/5175; binds `0.0.0.0` (demo),
   don't run on public Wi-Fi.
+## 2026-08-18 — Pipeline repair, then a reachable preference knob and free-text refinement
+
+*Folded in from `worktree-preference-refinement` on 2026-08-19. That branch is still unmerged —
+see the collision note in the 2026-08-19 entry before merging it.*
+
+Started as "let the member type what they want and send it to an LLM". Reading the merged
+`server/pipeline` + `server/preferences` changed the shape of it twice:
+
+1. **The preference model already existed** — `score.ts` is a six-criterion weighted scorer with
+   hard rules as pre-scoring filters and weights from an `optimization_strategy` preset. Note
+   **`lib/ranking.ts` is DEAD CODE** (no importers, referenced only in two comments); the live
+   ranker is `server/pipeline/score.ts`. Don't repeat that mistake.
+2. **But the knob was unreachable** — `optimization_strategy` was a hardcoded literal at
+   `pipeline/index.ts:69`, stored nowhere, absent from the UI. Three of four presets were dead at
+   runtime.
+
+A code review of those two directories then found the pipeline was discarding its own work:
+
+- `plan()` mutated the `Flight` aggregate and never called `store.createFlight`, while `getFlight`
+  returns a fresh object per call — so `run.plan` named things no later reader could resolve and
+  the saga silently skipped the hotel.
+- `plan()` paid for a forced refresh and then ranked the pre-refresh snapshot.
+- `execute()` returned silently when the run had not reached `HOLD_PENDING`, leaving the task at
+  `phase:'acting'` forever.
+- `price-changed` passed the last check before spending while narrate claimed the price was
+  unchanged.
+- A real hotel hold was taken and then orphaned; its compensator reported a cancellation it never
+  performed.
+- A cap of zero meant "unlimited" to the scorer and "nothing authorised" to the pricer.
+- The display mirror read-modify-wrote the whole RecoveryTask unawaited and could revert
+  `phase:'booked'` back to `'acting'`.
+
+Then the feature: strategy persisted on `Passenger` (optional, in the existing jsonb, no
+migration) and settable in `/settings`; the scorer's `why` sentence and the `applyHardRules`
+exclusion rules rendered on the recovery page; and a `refine` action taking free text → Gemini
+structured output → validated `PreferenceDelta` → `replan()`.
+
+Safety boundaries that were deliberate on that branch — **note the first one is now contradicted
+by the 2026-08-19 cap removal, which is exactly the collision to resolve**:
+
+- The delta has **no monetary field at all**, so "spend whatever" is inexpressible rather than
+  merely ignored (§10 of the action policy, as it read then).
+- Only the strategy **enum** crosses, never raw weights, so `RELIABILITY_FLOOR` survives.
+- A deadline is accepted only as a parsed, future, absolute time — it boosts arrival weight 1.5×,
+  so sentiment must not set it.
+- `refineWith` requires `HOLD_PENDING`, keeping the loop left of `IRREVERSIBLE_EDGE`.
+
+Gotchas worth keeping:
+
+- CI (`.github/workflows/ci.yml`) runs `tsc`/`vitest`/`build` but **not** `npm run verify`, and
+  never sets `GEMINI_API_KEY`. New assertions belong in vitest `*.test.ts`.
+- `npm run build` needs `SESSION_SECRET` set or it fails collecting route config.
+- The three `execute()`/`plan()` persistence fixes need a live Postgres to test — those suites
+  self-skip without `DATABASE_URL`.
+
 ## 2026-08-18 - Money-flow policy + member-scenario audit (checklist workbook)
 
 - New sheet "Member scenarios" in `ZKD-Feature-Checklist.xlsx` (generator: `tools/add_member_scenarios.py`, rerunnable):
   22 real-life disruption scenarios as an Amex customer, mapped to code, status colour-coded: 9 Covered,
   8 Partial, 5 Not covered (denied boarding, diversion, baggage, medical, original-ticket refund).
 - New policy: **all spend on the member's Amex card, all refunds to that same card - the balance can never
-  go negative from this flow.** Documented as �10 in `documentation/design/03-action-policy.md`; enforced by
+  go negative from this flow.** Documented as §10 in `documentation/design/03-action-policy.md`; enforced by
   the existing per-transaction cap on every spend path (approve / autopilot / silent timeout). Also captured
   as rows 44-47 ("8. Money flow") in the Feature checklist sheet.
 - Live findings recorded in the sheet:
