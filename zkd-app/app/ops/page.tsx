@@ -1,12 +1,10 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { usePoll } from '@/lib/usePoll';
 import { hhmm, money } from '@/lib/time';
 import type { FlightSummary, DisruptionOpsView } from '@/lib/apiTypes';
 import { SkTableRows, SkLine } from '@/components/Skeletons';
-
-type PassengerRow = { id: string; displayName: string; consent: string };
 
 /**
  * Only the detection slice of /api/pipeline/health is typed here — the budget
@@ -54,10 +52,7 @@ function ago(at: number | null): string {
   return `${Math.round(mins / 60)} h ago`;
 }
 
-const emptyForm = {
-  code: '', from: '', to: '', depISO: '', durationMin: 120,
-  aircraft: '', terminal: '', passengerIds: [] as string[],
-};
+
 
 /**
  * Not part of the member experience (not linked from SiteHeader — direct-URL
@@ -69,11 +64,9 @@ const emptyForm = {
  */
 export default function OpsPage() {
   const { data: flights } = usePoll<FlightSummary[]>('/api/flights', 3000);
-  const { data: passengers } = usePoll<PassengerRow[]>('/api/passengers', 8000);
   const { data: disruptions } = usePoll<DisruptionOpsView[]>('/api/disruptions', 2000);
   const { data: health } = usePoll<HealthResponse>('/api/pipeline/health', 10000);
 
-  const [form, setForm] = useState(emptyForm);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [warmingId, setWarmingId] = useState<string | null>(null);
 
@@ -96,25 +89,6 @@ export default function OpsPage() {
   const warm = (flightId: string) => {
     setWarmingId(flightId);
     fetch(`/api/flights/${flightId}/warm`, { method: 'POST' }).finally(() => setWarmingId(null));
-  };
-
-  const togglePassenger = (id: string) => {
-    setForm((f) => ({
-      ...f,
-      passengerIds: f.passengerIds.includes(id)
-        ? f.passengerIds.filter((x) => x !== id)
-        : [...f.passengerIds, id],
-    }));
-  };
-
-  const addFlight = (e: FormEvent) => {
-    e.preventDefault();
-    if (!form.depISO) return;
-    fetch('/api/flights', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, depISO: new Date(form.depISO).toISOString() }),
-    }).then(() => setForm(emptyForm));
   };
 
   return (
@@ -249,54 +223,7 @@ export default function OpsPage() {
         )}
       </div>
 
-      <div className="sect">Add a flight</div>
-      <form onSubmit={addFlight} className="g panel ops-form" style={{ marginBottom: 28, display: 'grid', gap: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-          <input required placeholder="Code, e.g. AI 999" value={form.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value })} />
-          <input required placeholder="From, e.g. DEL" value={form.from}
-            onChange={(e) => setForm({ ...form, from: e.target.value.toUpperCase() })} />
-          <input required placeholder="To, e.g. BOM" value={form.to}
-            onChange={(e) => setForm({ ...form, to: e.target.value.toUpperCase() })} />
-          <input required type="datetime-local" value={form.depISO}
-            onChange={(e) => setForm({ ...form, depISO: e.target.value })} />
-          <input required type="number" min={30} placeholder="Duration (min)" value={form.durationMin}
-            onChange={(e) => setForm({ ...form, durationMin: Number(e.target.value) })} />
-          <input placeholder="Aircraft" value={form.aircraft}
-            onChange={(e) => setForm({ ...form, aircraft: e.target.value })} />
-          <input placeholder="Terminal" value={form.terminal}
-            onChange={(e) => setForm({ ...form, terminal: e.target.value })} />
-        </div>
-        <div>
-          <div className="lbl" style={{ marginBottom: 8 }}>Passengers on this flight</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {!passengers && ['7em', '5.5em', '8em', '6em'].map((w) => (
-              <span
-                key={w}
-                className="opt"
-                style={{ padding: '7px 14px', width: 'auto', pointerEvents: 'none' }}
-                aria-hidden="true"
-              >
-                <SkLine w={w} />
-              </span>
-            ))}
-            {(passengers ?? []).map((p) => (
-              <button
-                type="button"
-                key={p.id}
-                onClick={() => togglePassenger(p.id)}
-                className={`opt ${form.passengerIds.includes(p.id) ? 'pick' : ''}`}
-                style={{ padding: '7px 14px', width: 'auto' }}
-              >
-                {p.displayName}
-              </button>
-            ))}
-          </div>
-        </div>
-        <button className="go" type="submit" style={{ justifySelf: 'start', padding: '10px 20px' }}>
-          Add flight
-        </button>
-      </form>
+
 
       <div className="sect">Active disruptions</div>
       {!disruptions ? (

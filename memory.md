@@ -811,3 +811,47 @@ Findings worth keeping:
   in zkd-app/server/. The §4 latency budget therefore starts from the wrong moment.
 - design/06 deliberately sets NO target values and NO composite score - no baseline exists for a
   single KPI, and a composite would hide the granularity the meeting asked for.
+
+---
+
+## 2026-08-19 — Removing a fabricated option is two jobs, and only one was done
+
+Verified a handoff brief ("make the prices real") that another agent executed. Three of its four
+tasks landed; the headline one did not, and the miss is the general lesson.
+
+`carrierProtectedAlt()` used to clone the cheapest real offer and reprice it to `fare: 0,
+seats: 99`, standing for "the airline owes you a seat". It was deleted on 2026-08-19 — the domain
+reason being that **a cancelling airline returns money, not a replacement seat**, so we source
+alternatives ourselves and show what the member pays after the refund. Deleting the writer was
+treated as finishing the job. It was not: `altsCache` only rewrites a flight's alts on refresh, so
+rows the function had already written stayed in Postgres. One survived on `f-multi` — the flight
+the demo runs on — and `server/pipeline/verify.ts` records that its three guards against a
+fabricated `fare: 0` were removed *along with* the kind, so nothing caught it on the way out.
+
+It rendered as a free option that also paid the member back: `altsForParty` reads `seats: 99` as
+"fits everyone" and `fare: 0` as "costs nothing", and the new per-row formatting turned that into
+"₹0 → ₹X back after refund". Removing the writer had made the symptom worse, not better.
+
+**Rule taken from this: when a field stops being legal, purge the rows AND guard the read path.**
+For a JSONB-per-aggregate store there is no schema change to force the issue and no migration that
+would have caught it — the stale row is simply still valid JSON. `dropFabricatedAlts()` in
+`server/domain/views.ts` now runs on the read path, matched on the signature (free, or more seats
+than an aircraft has) rather than on `kind` alone, because rows exist that predate the `kind` field.
+
+Also fixed, same class of problem in the opposite direction: `POST /api/bookings` had been given
+`farePaid: { amount: 6500 }`, a constant, on every booking. That contradicts the route's own
+docstring ("no fare is charged and none is invented") and `app/page.tsx`'s note that OAG sells
+schedules, not fares. It is worse than absence — `estimateRefund()` returns an honest
+`known: false` without a fare, and the refund is subtracted from every alternative to produce the
+number the member actually decides on, so one invented fare is a wrong number on every row.
+`farePaid` is now unset until we have a fare we were really quoted.
+
+Database facts worth keeping:
+- **`u5`/`u6` have never existed in the local dev database.** They were added to `seed.ts` after it
+  was seeded, and `doSeed()` is gated on a `seed_state` row. Clearing that row is NOT a safe fix:
+  `seedFlights`/`seedPassengers`/`seedCredentials` are idempotent on fixed ids, but bookings,
+  itineraries and travellers are minted from a sequence with no natural key, so a re-run duplicates
+  every one of them. Restoring specific rows by hand is the safe path; a full reset is the other.
+- `u4`'s flight row had been deleted while its booking `bk4` survived — an orphan pointing at a
+  nonexistent flight. Nothing in `zkd-app` deletes flights, so that was a manual SQL deletion.
+  Restored.

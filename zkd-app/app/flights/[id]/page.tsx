@@ -498,9 +498,11 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
                   {f.booking && f.booking.partySize > 1 ? ` seat all ${f.booking.partySize} of you and` : ''} fit your
                   policy and protect your onward connection — re-checked continuously, so they&apos;re
                   still valid the moment we need them.
-                  {refundKnown && refundTotal > 0 && (
-                    <> Prices below are what you&apos;d pay after the {money(refundTotal)} refunded
-                    on your original ticket.</>
+                  {' '}
+                  {refundKnown ? (
+                    <>Original ticket refund: {money(refundTotal, refund?.currency)}.</>
+                  ) : (
+                    <>Original ticket refund: not known yet.</>
                   )}
                 </>
               )}
@@ -529,15 +531,13 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
                     {picked ? '\u2713 ' : ''}{a.code} · {a.dep}
                   </span>
                   <span className={`v ${refundKnown && rowDelta <= 0 ? 'ok' : ''}`}>
-                    {/* What they actually pay: the replacement, less what the
-                        cancelled ticket returns. The airline gives money back,
-                        not a seat, so a gross fare here would overstate the cost
-                        by the whole original ticket. */}
-                    {!refundKnown
-                      ? money(a.partyFare)
-                      : rowDelta > 0 ? money(rowDelta)
-                        : rowDelta < 0 ? `${money(-rowDelta)} back`
-                          : 'nothing to pay'}
+                    {!refundKnown ? (
+                      <>{money(a.partyFare, a.currency)} · refund not known yet</>
+                    ) : (
+                      <>
+                        {money(a.partyFare, a.currency)} → {rowDelta > 0 ? money(rowDelta) : rowDelta < 0 ? `${money(-rowDelta)} back` : money(0)} after refund
+                      </>
+                    )}
                   </span>
                 </button>
               );

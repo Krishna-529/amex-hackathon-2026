@@ -157,6 +157,18 @@ export async function POST(req: NextRequest) {
     seat: '—',
     pnr: pnr(),
     cabin: body.cabin ?? 'Economy',
+    // `farePaid` is deliberately absent. OAG sells schedules, not fares — see
+    // the note at the top of app/page.tsx — so no price is shown at search and
+    // none arrives in this body. estimateRefund() already returns
+    // `known: false` for a booking without one, and the flight page renders
+    // "refund not known yet" rather than a number.
+    //
+    // A constant was briefly written here instead. That is worse than nothing:
+    // an absent fare produces an honest "we don't know", while an invented one
+    // produces a confident refund, and the refund is subtracted from every
+    // alternative's price to give the figure the member actually decides on. A
+    // wrong fare is therefore a wrong number on every row. Set this only from a
+    // fare we were really quoted.
   });
 
   // Captured at booking because that is when the member is actually thinking
