@@ -10,6 +10,7 @@ import type { NotifyEvent } from './types';
 
 const whatsappSend = vi.fn();
 const pushSend = vi.fn();
+const smsSend = vi.fn();
 const logNotification = vi.fn();
 
 vi.mock('./whatsapp', () => ({ send: (e: NotifyEvent) => whatsappSend(e), isConfigured: () => true }));
@@ -20,6 +21,7 @@ vi.mock('./push', () => ({
   forgetDevice: vi.fn(),
   isExpoToken: () => true,
 }));
+vi.mock('./fast2sms', () => ({ send: (e: NotifyEvent) => smsSend(e), isConfigured: () => true }));
 vi.mock('@/server/decisionLedger', () => ({ logNotification: (e: unknown) => logNotification(e) }));
 
 const event: NotifyEvent = {
@@ -38,6 +40,12 @@ const skipped = (channel: string) => ({ channel, ok: false, skipped: true });
 describe('dispatch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Every channel defaults to skipped-unconfigured; each test overrides only
+    // the ones it cares about, so a newly added channel never silently changes
+    // a result an older test asserts on.
+    whatsappSend.mockResolvedValue(skipped('whatsapp'));
+    pushSend.mockResolvedValue(skipped('push'));
+    smsSend.mockResolvedValue(skipped('sms'));
   });
 
   it('reports delivered when any single channel succeeds', async () => {
@@ -47,7 +55,7 @@ describe('dispatch', () => {
 
     const result = await dispatch(event);
     expect(result.delivered).toBe(true);
-    expect(result.results).toHaveLength(2);
+    expect(result.results).toHaveLength(3);
   });
 
   it('does not throw when a channel REJECTS, and still reports the others', async () => {
@@ -67,6 +75,7 @@ describe('dispatch', () => {
     const { dispatch } = await import('./index');
     whatsappSend.mockRejectedValue(new Error('session expired'));
     pushSend.mockRejectedValue(new Error('no credentials'));
+    smsSend.mockRejectedValue(new Error('insufficient credit'));
 
     const result = await dispatch(event);
     expect(result.delivered).toBe(false);
@@ -87,8 +96,9 @@ describe('dispatch', () => {
     };
     expect(entry.delivered).toBe(true);
     // "nobody was told because nothing was configured" must stay
-    // distinguishable from "we tried and it was rejected".
-    expect(entry.channels.filter((c) => c.skipped).map((c) => c.channel)).toEqual(['push']);
+    // distinguishable from "we tried and it was rejected". push and sms both
+    // default to skipped here; whatsapp is the one that delivered.
+    expect(entry.channels.filter((c) => c.skipped).map((c) => c.channel).sort()).toEqual(['push', 'sms']);
   });
 
   it('survives a ledger that throws — logging must never break notifying', async () => {
