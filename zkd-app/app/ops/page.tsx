@@ -8,6 +8,52 @@ import { SkTableRows, SkLine } from '@/components/Skeletons';
 
 type PassengerRow = { id: string; displayName: string; consent: string };
 
+/**
+ * Only the detection slice of /api/pipeline/health is typed here — the budget
+ * and cadence sections are rendered elsewhere and typing them again would give
+ * this file a second opinion about a shape it does not own.
+ */
+type HealthResponse = {
+  detection: {
+    primaryLane: 'webhook' | 'poller' | 'manual';
+    webhooks: {
+      registered: boolean;
+      reason: string | null;
+      subscriptions: number;
+      primary: boolean;
+      providers: {
+        provider: string;
+        configured: boolean;
+        lastDeliveryAt: number | null;
+        deliveries: number;
+        matched: number;
+        stale: boolean;
+      }[];
+    };
+    poller: {
+      running: boolean;
+      callsThisMonth: number;
+      ceiling: number;
+      budgetRemaining: boolean;
+      role: 'primary' | 'standby';
+    };
+  };
+};
+
+const LANE_LABEL: Record<'webhook' | 'poller' | 'manual', string> = {
+  webhook: 'Push feed — a carrier tells us within seconds',
+  poller: 'Polling — up to five minutes behind, and budget-capped',
+  manual: 'Manual only — nothing is watching automatically',
+};
+
+function ago(at: number | null): string {
+  if (at === null) return 'never';
+  const mins = Math.round((Date.now() - at) / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  return `${Math.round(mins / 60)} h ago`;
+}
+
 const emptyForm = {
   code: '', from: '', to: '', depISO: '', durationMin: 120,
   aircraft: '', terminal: '', passengerIds: [] as string[],
@@ -25,6 +71,7 @@ export default function OpsPage() {
   const { data: flights } = usePoll<FlightSummary[]>('/api/flights', 3000);
   const { data: passengers } = usePoll<PassengerRow[]>('/api/passengers', 8000);
   const { data: disruptions } = usePoll<DisruptionOpsView[]>('/api/disruptions', 2000);
+  const { data: health } = usePoll<HealthResponse>('/api/pipeline/health', 10000);
 
   const [form, setForm] = useState(emptyForm);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -137,6 +184,69 @@ export default function OpsPage() {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* ── How would we find out? ──────────────────────────────────────────
+          The most important panel on this page, and the reason it exists: a
+          webhook feed that has stopped delivering looks exactly like a week
+          with no cancellations. Both are silence. If an operator cannot read
+          which lane is live, the first sign of a dead subscription is a
+          stranded member. */}
+      <div className="sect">Detection</div>
+      <div className="g panel" style={{ marginBottom: 28 }}>
+        {!health && <SkLine />}
+        {health && (
+          <>
+            <div className="kv">
+              <span className="k">How we would find out right now</span>
+              <span className={`v ${health.detection.primaryLane === 'webhook' ? 'ok' : health.detection.primaryLane === 'manual' ? 'warn' : ''}`}>
+                {LANE_LABEL[health.detection.primaryLane]}
+              </span>
+            </div>
+
+            <div className="kv">
+              <span className="k">Push subscriptions</span>
+              <span className="v">
+                {health.detection.webhooks.registered
+                  ? `${health.detection.webhooks.subscriptions} flight${health.detection.webhooks.subscriptions === 1 ? '' : 's'}`
+                  : 'not registered'}
+              </span>
+            </div>
+
+            {health.detection.webhooks.reason && (
+              <p className="why" style={{ margin: '4px 0 10px' }}>
+                {health.detection.webhooks.reason}
+              </p>
+            )}
+
+            {health.detection.webhooks.providers.map((p) => (
+              <div className="kv" key={p.provider}>
+                <span className="k">{p.provider}</span>
+                <span className={`v ${!p.configured ? '' : p.stale ? 'warn' : 'ok'}`}>
+                  {!p.configured
+                    ? 'not configured'
+                    : `${p.deliveries} delivered · ${p.matched} matched · last ${ago(p.lastDeliveryAt)}${p.stale ? ' · STALE' : ''}`}
+                </span>
+              </div>
+            ))}
+
+            <div className="kv">
+              <span className="k">Poller (fallback)</span>
+              <span className={`v ${health.detection.poller.budgetRemaining ? '' : 'warn'}`}>
+                {health.detection.poller.running
+                  ? `${health.detection.poller.role} · ${health.detection.poller.callsThisMonth}/${health.detection.poller.ceiling} calls this month`
+                  : 'not running'}
+              </span>
+            </div>
+
+            {!health.detection.poller.budgetRemaining && (
+              <p className="why" style={{ margin: '4px 0 0', color: 'var(--risk)' }}>
+                The AviationStack allowance for this month is spent. Automatic polling has stopped —
+                detection is push plus member reports until it resets.
+              </p>
+            )}
+          </>
+        )}
       </div>
 
       <div className="sect">Add a flight</div>

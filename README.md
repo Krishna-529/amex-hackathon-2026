@@ -67,6 +67,13 @@ To actually use the live integrations, copy `zkd-app/.env.example` to `zkd-app/.
 fill in the keys documented there (`assets/data/round2-api-requirements.xlsx` has signup links and free-tier
 details for each). Without it, the app runs entirely on its built-in mock data.
 
+**Cancellation detection runs on three lanes** — a push webhook, a budget-capped poller, and the
+member telling us. The webhook receiver is live and testable locally with `curl`, but registers
+no subscriptions until `WEBHOOK_PUBLIC_URL` points at a publicly reachable HTTPS origin; `/ops`
+shows which lane is currently live. That last part is the point: a webhook feed that has stopped
+delivering looks exactly like a week with no cancellations, so silence is treated as a fault
+rather than as good news.
+
 ## `zkd-android/` — the mobile app
 
 Expo / React Native subset of the web app: Flights, Flight detail, Recovery, Profile. No

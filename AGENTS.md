@@ -56,6 +56,11 @@ carrier, and stop safely when it cannot.
   fixed at 25/55/80. The confirmation window is derived from supplier offer expiry, not a flat 90
   seconds.
 - No live supplier integrations exist; Duffel / LiteAPI sandboxes are the intended proving ground.
+- Detection is **webhook-first with two fallbacks** (`server/webhooks/`, then the poller, then a
+  member report). Before "improving" the poller, know that **AviationStack cannot push at all** —
+  it is pull-only by design, so its 100-calls/month ceiling was never tunable. The receiver is
+  live and locally testable; setting `WEBHOOK_PUBLIC_URL` is what registers real subscriptions.
+  **Treat a silent feed as a fault, not as good news** — `/ops` exists to make that visible.
 - Safety rests on the WAIT window plus a **notification ladder**, not a spend ceiling — the
   ₹25,000 per-transaction cap was removed on 2026-08-19 and silence now proceeds to book. The
   member is told the risk crossed, told the moment it cancelled, and told the exact delta with a

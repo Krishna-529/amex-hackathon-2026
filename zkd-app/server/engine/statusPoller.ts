@@ -41,9 +41,30 @@
  *      operator must be able to see rather than infer from silence.
  *
  * Even inside all of that, most flights are unwatched most of the time — which
- * is not a defect to apologise for but the reason the member-report lane
- * (server/engine/memberReports.ts) exists. Two imperfect detectors covering
- * each other's gaps is the honest architecture at this budget.
+ * is not a defect to apologise for but the reason the other two lanes exist.
+ *
+ * ── Demoted to a safety net on 2026-08-19 ─────────────────────────────────
+ *
+ * `server/webhooks/` added a push lane, and push is simply the right shape for
+ * this problem: nothing is spent while nothing happens, every subscribed flight
+ * is watched rather than the two most urgent, and the signal arrives in seconds
+ * instead of up to five minutes. AviationStack cannot compete on that because
+ * it structurally cannot — it is a pull API with no webhook support at all, so
+ * this poller was never an interim shortcut that could be tuned into something
+ * better. It was always that vendor's ceiling.
+ *
+ * So this is now a FALLBACK, and it behaves like one:
+ *
+ *   - it skips flights that already have a live webhook subscription, since
+ *     paying AviationStack to re-ask a question a provider is already pushing
+ *     the answer to is pure waste;
+ *   - it drops its own ceiling accordingly, freeing that allowance for the
+ *     member-report corroboration ladder, which spends from the same 100;
+ *   - and critically, it does NOT stand down merely because webhooks are
+ *     configured. It stands down only while they are demonstrably alive
+ *     (`laneStatus().primary`), because a webhook that has stopped delivering
+ *     looks exactly like a quiet week — and a fallback that trusts a dead
+ *     primary is not a fallback.
  */
 
 import { lookupFlightStatus } from '../aviationstack';
@@ -52,6 +73,8 @@ import { getThresholdConfig } from '@/lib/thresholdConfig';
 import { tierFor } from './rescoreTiming';
 import { triggerEventRescore } from './forecast';
 import { detectDisruption } from './simulation';
+import { laneStatus } from '../webhooks';
+import { isSubscribed } from '../webhooks/subscriptions';
 import * as store from '../domain/store';
 import type { Flight } from '../domain/types';
 
@@ -60,8 +83,14 @@ import type { Flight } from '../domain/types';
  * `/api/flight-status` route and the member-report corroboration ladder draw on
  * the same allowance, and a poller that spent all of it would silently disable
  * both.
+ *
+ * Lowered from 45 to 15 when webhooks took over as the primary lane. The
+ * headroom went to the corroboration ladder, which is now the more valuable
+ * consumer: a member reporting a cancellation is a moment where one call
+ * genuinely decides something, whereas a scheduled poll usually confirms that
+ * nothing has changed.
  */
-const MONTHLY_CALL_CEILING = 45;
+const MONTHLY_CALL_CEILING = 15;
 
 /** One tick every five minutes. The day cache means this is not the cost driver. */
 const POLL_INTERVAL_MS = 5 * 60_000;
@@ -100,6 +129,12 @@ export type PollerStatus = {
   ceiling: number;
   /** false when the allowance is gone — detection has fallen back to manual */
   budgetRemaining: boolean;
+  /**
+   * 'primary' when this is the main detection lane; 'standby' while a healthy
+   * webhook feed is carrying it. Surfaced so an operator can see WHICH lane is
+   * live rather than inferring it from an absence of alerts.
+   */
+  role: 'primary' | 'standby';
 };
 
 /** Surfaced on /ops so a blind poller is discovered during setup, not on stage. */
@@ -110,6 +145,7 @@ export function pollerStatus(): PollerStatus {
     callsThisMonth: s.calls,
     ceiling: MONTHLY_CALL_CEILING,
     budgetRemaining: s.calls < MONTHLY_CALL_CEILING,
+    role: laneStatus().primary ? 'standby' : 'primary',
   };
 }
 
@@ -122,12 +158,20 @@ export function pollerStatus(): PollerStatus {
  */
 export function flightsToPoll(flights: Flight[], now = Date.now()): Flight[] {
   const cfg = getThresholdConfig();
+  // Only stand down from a webhook feed that is actually alive. `primary` is
+  // false the moment deliveries go stale, which is precisely when this lane
+  // needs to pick the work back up.
+  const webhooksHealthy = laneStatus(now).primary;
+
   return flights
     .filter((f) => {
       // A flight that has already departed cannot be cancelled, and one already
       // known to be disrupted needs no further confirming.
       const departsAt = new Date(f.depISO).getTime();
       if (departsAt < now - 60 * 60_000) return false;
+      // Already covered by push. Paying for a pull to re-ask the same question
+      // is the clearest waste available in this budget.
+      if (webhooksHealthy && isSubscribed(f.id)) return false;
       return tierFor(f, cfg, now) === 'critical';
     })
     // Soonest departure first: the flight with the least runway left to act on

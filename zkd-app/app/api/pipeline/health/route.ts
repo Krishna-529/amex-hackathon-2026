@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { snapshot } from '@/server/governor';
 import { refreshRationale } from '@/lib/refreshInterval';
 import { altsRefreshPlan } from '@/server/engine/altsCache';
+import { pollerStatus } from '@/server/engine/statusPoller';
+import { laneStatus } from '@/server/webhooks';
+import { subscriptionCount } from '@/server/webhooks/subscriptions';
 import * as store from '@/server/domain/store';
 import { ensureSeeded } from '@/server/domain/seed';
 
@@ -54,10 +57,33 @@ export async function GET() {
     };
   }));
 
+  // ── Which detection lane is actually live ────────────────────────────────
+  //
+  // The single most important thing this endpoint reports, and the reason it
+  // now reports it: a webhook feed that has stopped delivering is
+  // indistinguishable from a week with no cancellations. Both look like
+  // silence. So the lane state has to be readable rather than inferred, or the
+  // first sign of a dead subscription is a stranded member.
+  const webhooks = laneStatus();
+  const poller = pollerStatus();
+
   return NextResponse.json({
     watchers: Math.max(1, watched),
     budgets: snapshot(Math.max(1, watched)),
     cadence,
+    detection: {
+      // 'webhook' | 'poller' | 'manual' — what would actually catch a
+      // cancellation right now, in order of what is currently trusted.
+      primaryLane: webhooks.primary ? 'webhook' : poller.running && poller.budgetRemaining ? 'poller' : 'manual',
+      webhooks: {
+        ...webhooks,
+        subscriptions: subscriptionCount(),
+      },
+      poller,
+      // Always available, needs no key and no budget, and is the only lane that
+      // works when both feeds are wrong. See server/engine/memberReports.ts.
+      memberReports: { available: true },
+    },
     generatedAt: Date.now(),
   });
 }

@@ -36,6 +36,14 @@ export async function register() {
     const { startStatusPoller } = await import('./server/engine/statusPoller');
     startStatusPoller();
 
+    // Registers per-flight push subscriptions, so a carrier's own feed tells us
+    // about a cancellation in seconds instead of us paying to ask every five
+    // minutes. Inert and loudly so while WEBHOOK_PUBLIC_URL is unset — the
+    // receiver still works and is testable locally, nothing is registered, and
+    // the poller above stays primary.
+    const { startSubscriptionSync } = await import('./server/webhooks/subscriptions');
+    startSubscriptionSync();
+
     // Warms the AppConfig-backed threshold cache before the first real
     // request needs it (no-op when THRESHOLD_CONFIG_URL is unset, e.g.
     // local dev) — getThresholdConfig() also self-refreshes lazily on every

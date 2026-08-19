@@ -2,6 +2,84 @@
 
 ## Recent work
 
+- 2026-08-19 (later) — **Webhook-driven cancellation detection, and `gh` installed globally.**
+  Same branch `worktree-intent-refund-detection`. Green: 189 tests / 5 skipped, all three
+  verifiers, `npm run build`, and verified against a **running server** — which mattered, see
+  the bug below.
+
+  **`gh` 2.97.0 installed** from GitHub's official apt repo (not the snap: it has known trouble
+  reading `~/.config/gh` across confinement boundaries; not the Ubuntu archive: it lags). Ubuntu
+  24.04, passwordless sudo. **`gh auth login` is still outstanding** — interactive browser login,
+  has to be the user. Until then PRs cannot be opened from a session.
+
+  **The finding that justified the whole change: AviationStack has NO webhook support.** It is a
+  pull-only REST API by design. So `statusPoller.ts` was never a shortcut that could be tuned
+  into something better — 100 calls/month watching two flights every five minutes was that
+  vendor's ceiling, permanently. Worth remembering before anyone tries to "improve the poller".
+
+  **Provider research (2026-08, all verified against vendor docs):**
+  - **Duffel `order.airline_initiated_change_detected`** — free, token already configured,
+    HMAC-SHA256 signed as `t=<unix>,v1=<hex>` over `<timestamp>.<raw body>`, and Duffel's own
+    docs say to dedupe on `idempotency_key`. **Only fires for orders booked THROUGH Duffel** —
+    every PNR here is seeded, so today it correctly fires for nothing. Wired anyway: it is the
+    right lane the moment booking origination exists, and it is the only provider whose real
+    signature scheme we can exercise.
+  - **AeroDataBox Flight Alert PUSH** — the lane that covers this product's actual case (a
+    ticket bought elsewhere, watched by flight number). `POST /subscriptions/webhook/
+    FlightByNumber/{n}?useCredits=true`, from ~$5/mo on RapidAPI. **Credits are charged when a
+    notification is SENT, not delivered** — so a down endpoint still burns allowance, which is a
+    second reason the staleness watchdog matters. No request signing offered, so the secret rides
+    in a header we register; verify.ts is honest about what a bearer-style secret does and does
+    not buy. Indian coverage still needs checking via `/health/services/airports/{icao}/feeds`.
+  - **OAG Flight Info Alerts** — best long-term fit and we are closest technically (HTTP push,
+    filter by flight/carrier/airport, and `server/oag.ts` already has working auth with key
+    rotation). But it is a **separate product** from the Flight Info API, no published pricing,
+    and our production key is still not an active subscription. **Stubbed deliberately inert** so
+    it can never appear to work.
+  - Rejected: FlightAware AeroAPI (~$100/mo, overkill); AirLabs (beta, and its docs do not list
+    cancellation among monitored fields — the one field we need).
+
+  **The design rule worth keeping:** the seam is at the *inbound shape*, not in any vendor's
+  client. Each adapter's whole job is to produce one `NormalisedFlightEvent`; everything after it
+  — `classify()` → `triggerEventRescore()` → `detectDisruption()` — is what the poller already
+  used. A fourth vendor is a new file plus a registry line, never a change to detection.
+
+  **Adapters must not assert a cancellation they were not told about.** Duffel's event covers
+  both a 10-minute re-time and an outright cancellation, so the adapter forwards
+  `airline_initiated_change` and lets `classify()` decide; AeroDataBox pushes a `changed` diff
+  where most deliveries are gate and belt moves, so only status/schedule changes pass through.
+  Getting this wrong books a replacement for a flight that is still going to operate — tested in
+  both directions in `adapters.test.ts`.
+
+  **A REAL BUG only a running server could catch.** The delivery counters and dedupe set were
+  plain module-level state. Next bundles each route separately, so `server/webhooks/index.ts` was
+  instantiated **twice**: the receiver incremented one set of counters and `/api/pipeline/health`
+  read another, reporting `delivered=0` after three accepted deliveries. Unit tests import one
+  instance and are structurally blind to this. Consequence would have been worse than a wrong
+  dashboard number — every provider reads permanently STALE, the poller never stands down, and an
+  operator learns to ignore the one indicator built to be trusted. Fixed by hanging state off
+  `globalThis`, the same escape hatch `batchScorer.ts` / `statusPoller.ts` / `subscriptions.ts`
+  already use. **Lesson: anything shared between two route handlers needs the globalThis guard,
+  and vitest will never tell you.**
+
+  **The endpoint is deliberately deferred.** Dhawal's call: build it, register nothing yet.
+  Everything keys off **one variable, `WEBHOOK_PUBLIC_URL`** — unset means the receiver, adapters,
+  verification, dedupe and watchdog all work and are curl-testable locally while no subscription
+  exists and nothing is spent. **When this is hosted, setting that variable is the entire job.**
+  `vercel.json` already builds the app, so a deploy URL is the natural value.
+
+  **Verified against a live server, not just in tests:** GET handshake 200; unknown provider 404;
+  missing token 401; wrong token 401; a real `Cancelled` payload for `6E 2789` returned
+  `"acted: cancellation, recovery started"` and produced a real disruption event in phase READY
+  with a live recovery task; the identical payload replayed came back `duplicate: true`; and a
+  `departure.gate` change correctly did **not** start anything.
+
+  **Poller demoted, not deleted.** Ceiling 45→15/month (headroom went to the member-report
+  corroboration ladder, which spends from the same allowance and is where a single call actually
+  decides something). It skips flights a live webhook already covers — but **only stands down
+  while `laneStatus().primary` is true**, because a fallback that trusts a dead primary is not a
+  fallback. Three imperfect detectors covering each other remains the honest architecture.
+
 - 2026-08-19 — **Free-text intent at the 80% gate, real refund maths, and automatic cancellation
   detection.** Branch `worktree-intent-refund-detection`, three commits. Everything below is
   green: `npm test` (147 passed / 5 skipped), `npm run verify` (all three executable checkers),
