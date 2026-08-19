@@ -12,6 +12,51 @@
 
 ## Recent work
 
+- 2026-08-19 — **A wrong answer given confidently, and the rule that should stop the next one.**
+
+  Dhawal said a branch had an Amex-style light theme and that I had shifted the UI back to dark. I
+  searched for the theme the way a theme is normally declared — a `--bg:` token in `:root` — across
+  twenty-six branches and nine worktrees on disk. Every one returned `#080c14`. I reported it as
+  fact: *"nothing in this repository is light-themed."*
+
+  **He was looking at a light page while I said it.**
+
+  `app/globals.css` declares **two** themes. `:root` is the dark default. From roughly line 531
+  there is a complete Amex light skin — `--amex-blue:#016fd0`, `--amex-bg:#f2f4f7`,
+  `--amex-card:#ffffff` — scoped under `.amex-page`, with **~105 override rules** re-skinning the
+  shared components (`.g.panel`, `.kv`, `.gauge`, `.page-h`). `lib/amexRoutes.ts` switches it on
+  for `/`, `/login`, `/flights` and everything under `/flights/`. A class-scoped skin is invisible
+  to a token grep.
+
+  **Three separate errors, worth separating because they have different fixes:**
+
+  1. **I treated "my search found nothing" as "it does not exist."** Those are different claims and
+     only the first was true. State the first one.
+  2. **I let a tidy result outweigh the user's own screen.** Twenty-six branches in a table felt
+     like strong evidence. It was one pattern, run twenty-six times. When someone describes what
+     they are looking at and my search disagrees, **the screen is ground truth** — the right move
+     was to ask which URL, not to publish the table.
+  3. **I never opened `lib/amexRoutes.ts`.** Its header explains the whole scheme *and* warns
+     against the exact mistake I then made — putting new work on dark `/prepare` and linking the
+     white Amex row into it: *"you clicked a white Amex row and got a dark glass page."*
+
+  **This rhymes with the `server/.state` leak found the same day**, and the pair is the real
+  lesson. There, the ignore pattern was anchored to the repo root while the ledger path resolves
+  from `process.cwd()`, so a test run from a different directory wrote to a location the pattern
+  never covered. Both failures are the same shape: **the thing was somewhere my search did not
+  look, and I concluded it was not there.**
+
+  Practical guards, in the order they would have helped:
+
+  - For "does X exist anywhere", grep for the **concept** (`amex`, `light`, `#fff`) before the
+    **syntax** (`--bg:`). Syntax assumes you already know how it was written.
+  - A scoped override, a class-gated skin, a route table and a runtime feature flag are all
+    invisible to a token search. If the question is "which theme/route/mode is active", find the
+    **switch**, not the values.
+  - Recorded in `CLAUDE.md` as the third entry under "traps worth knowing before you search",
+    where a session reads it before touching UI.
+
+
 - 2026-08-19 — **`refine.ts` vs `intent.ts`: the collision resolved, and a priority rule for
   resolving the next one.**
 

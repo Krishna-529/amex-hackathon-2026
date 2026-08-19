@@ -97,15 +97,28 @@ Docs describe intent; these are where the behaviour actually lives.
 | What ranks the alternatives? | `zkd-app/server/pipeline/score.ts` — six criteria, hard rules filter *before* scoring |
 | What turns a member's preferences into rules? | `zkd-app/server/preferences/adapt.ts` — the single translation point |
 | What runs the recovery end to end? | `zkd-app/server/pipeline/index.ts`, with `saga.ts` for the irreversible half |
-| What decides whether we may spend? | `zkd-app/server/engine/simulation.ts` — consent, windows, and the cap check |
-| Where is the disruption trigger? | `zkd-app/app/api/disruptions/route.ts` → `detectDisruption`. **Today this is only reached by hand from `/ops`** |
+| What decides whether we may spend? | `zkd-app/server/engine/simulation.ts` — consent and windows. **There is no cap check any more** (removed 2026-08-19); silence now proceeds and the notification ladder in `server/notify/templates.ts` is what stands in its place |
+| Where is the disruption trigger? | `zkd-app/app/api/disruptions/route.ts` → `detectDisruption`. Three lanes reach it now: `server/webhooks/` (push), `server/engine/statusPoller.ts` (fallback), `server/engine/memberReports.ts` (the member), plus `/ops` by hand |
+| Which theme does a screen use? | **`zkd-app/lib/amexRoutes.ts`** — read it before any UI change. See the trap below |
 | Where are predictions logged? | `zkd-app/server/decisionLedger.ts` |
 
-### Two traps worth knowing before you search
+### Three traps worth knowing before you search
 
 - **`zkd-app/lib/ranking.ts` is dead code.** It has no importers and survives only in two comments.
   The live ranker is `zkd-app/server/pipeline/score.ts`. Reading the wrong one leads to the wrong
   conclusion about how options are ordered.
+- **This app has two themes, in one stylesheet.** `:root` in `zkd-app/app/globals.css` is the
+  dark default. A complete **Amex light skin** lives from roughly line 531 — its own token set
+  (`--amex-blue`, `--amex-bg`, `--amex-card`) plus ~105 override rules re-skinning the shared
+  components (`.g.panel`, `.kv`, `.gauge`). It is scoped under `.amex-page` and switched on per
+  route by **`zkd-app/lib/amexRoutes.ts`**: `/`, `/login`, `/flights`, and everything under
+  `/flights/`.
+
+  Grepping `:root` for `--bg` will tell you this app is dark. That answer is **wrong for every
+  member-facing flight screen**, and a session acted on it on 2026-08-19 — it reported to the user
+  that no light theme existed anywhere while the user was looking at one. A class-scoped skin is
+  invisible to a token search. Read `amexRoutes.ts`, not the top of the stylesheet.
+
 - **CI does not run `npm run verify`.** `.github/workflows/ci.yml` runs `tsc`, `vitest run` and
   `build` only, and never sets `GEMINI_API_KEY`. New assertions belong in a vitest `*.test.ts`, and
   anything LLM-dependent must pass with the LLM absent.
