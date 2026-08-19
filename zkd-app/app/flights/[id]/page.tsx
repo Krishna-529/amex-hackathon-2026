@@ -188,6 +188,16 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
         : ['#7cf0c0', 'var(--safe)'];
   const usableAlts = detail.candidates.alts.filter((a) => a.ok);
 
+  // What comes BACK if this flight dies — the other half of every price below.
+  // Quoting a replacement fare on its own overstates the cost by the whole
+  // original ticket, which is the number the member is actually owed.
+  // `known: false` means we have no record of what they paid; that renders as
+  // "not known yet" and never as zero, because a guessed refund becomes a wrong
+  // difference and the difference is what they decide on.
+  const refund = detail.refund;
+  const refundKnown = !!refund?.known;
+  const refundTotal = refundKnown ? refund!.total : 0;
+
   return (
     <div className="skeleton">
       {head}
@@ -358,12 +368,66 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
                 </>
               )}
             </p>
-            {usableAlts.map((a) => (
-              <div className="kv" key={a.id}>
-                <span className="k">{a.code} · {a.dep}</span>
-                <span className={`v ${a.partyFare ? '' : 'ok'}`}>{a.partyFare ? money(a.partyFare) : 'no cost to you'}</span>
+            {/* The refund, stated once above the list rather than repeated on
+                every row: it is a property of the ticket being cancelled, not
+                of the alternative chosen, and repeating it would read as five
+                separate refunds. */}
+            {usableAlts.length > 0 && (
+              <div className="kv" style={{ borderBottom: '1px solid rgba(255,255,255,.1)', paddingBottom: 8, marginBottom: 4 }}>
+                <span className="k">Refunded on your original ticket</span>
+                <span className={`v ${refundKnown && refundTotal > 0 ? 'ok' : ''}`}>
+                  {refundKnown ? (refundTotal > 0 ? money(refundTotal) : 'nothing') : 'not known yet'}
+                </span>
               </div>
-            ))}
+            )}
+
+            {usableAlts.map((a) => {
+              // What this option really costs the member: its fare, less what
+              // the cancelled ticket returns. Negative means they end up ahead,
+              // and that is shown rather than clamped to zero — being rebooked
+              // onto something cheaper after a full refund is a real outcome and
+              // the one members are most pleased to hear about.
+              const difference = a.partyFare - refundTotal;
+              return (
+                <Link
+                  href={`/prepare/${f.id}`}
+                  key={a.id}
+                  className="kv alt-row"
+                  style={{ textDecoration: 'none', color: 'inherit' }}
+                >
+                  <span className="k">
+                    {a.code} · {a.dep}
+                    {a.quoted && (
+                      <span style={{ display: 'block', opacity: .65, fontSize: 11.5 }}>
+                        {a.quoted.currency} {a.quoted.amount.toLocaleString('en-IN')} converted
+                      </span>
+                    )}
+                  </span>
+                  <span className="v" style={{ textAlign: 'right' }}>
+                    {money(a.partyFare)}
+                    <span
+                      style={{ display: 'block', fontSize: 11.5, opacity: .8 }}
+                      className={!refundKnown ? '' : difference > 0 ? 'warn' : 'ok'}
+                    >
+                      {!refundKnown
+                        ? 'before any refund'
+                        : difference > 0
+                          ? `${money(difference)} after refund`
+                          : difference < 0
+                            ? `${money(-difference)} back to you`
+                            : 'nothing to pay after refund'}
+                    </span>
+                  </span>
+                </Link>
+              );
+            })}
+
+            {usableAlts.length > 0 && (
+              <p className="why" style={{ marginTop: 12 }}>
+                Tap any of these to set what should happen if this flight is cancelled. Nothing is
+                booked and nothing is charged until it actually is.
+              </p>
+            )}
           </div>
         </div>
       </div>
