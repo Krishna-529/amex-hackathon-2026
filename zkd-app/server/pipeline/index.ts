@@ -197,6 +197,11 @@ async function plan(run: PipelineRun): Promise<void> {
     displayCurrency: BILLING_CURRENCY,
     preferredCarriers: prefs.preferences.preferredCarriers,
     hasHardConstraint: flight.hasHardConstraint,
+    // MyCa signals for the learned ranker: who this is (for their learned
+    // weight deltas) and their red-eye preference (a ranking feature). Both are
+    // read straight from the MyCa-backed profile — the ranker never keeps a copy.
+    memberId: run.passengerId,
+    avoidRedEye: prefs.preferences.avoidRedEye,
   };
 
   const party = altsForParty(flight.candidates.alts, partySize);
