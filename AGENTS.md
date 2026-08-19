@@ -46,6 +46,24 @@ carrier, and stop safely when it cannot.
 | `README.md`, `context.md`, `memory.md` | Kept at the root deliberately — landing page, fast orientation, and the running decision record |
 | `iropssim.py` | Monte Carlo simulator behind every `sim`-tier number. Stays at the root because the metrics site cites `python iropssim.py` as its reproduction command |
 
+## Whose decision wins
+
+**A commit authored by Dhawal with no `Co-Authored-By: Claude` trailer is authoritative.** Of the
+81 commits in this repository, 70 carry that trailer — they are Claude-assisted and yield to the
+11 that do not. When two branches disagree about what the system should do, find the human-only
+commit that governs the question and start from what it actually says, not from a summary of it.
+
+The rule earned its keep immediately. `worktree-preference-refinement` and this branch both built
+free-text preference capture, and disagreed about whether a member may state a budget. The
+governing commit is `f1346ba` (Dhawal, 2026-08-18), and re-reading it settled the argument in a
+way neither branch's own comments could: it pins an **invariant** (money moves only on the
+member's Amex card, and the balance can never go negative from this flow) and separately names
+**two mechanisms** that enforce it. The per-transaction cap was one mechanism, not the invariant.
+Removing the cap therefore did not break what that commit pinned — but it did replace a ceiling
+with a guarantee of a different kind, and §10 of the action policy now says so plainly.
+
+Read the commit. Summaries of decisions drift; the commit does not.
+
 ## The two shared logs — one file each, on `main`
 
 `memory.md` (the dated decision log) and `context.md` (fast orientation) are **shared by every

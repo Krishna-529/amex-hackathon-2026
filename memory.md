@@ -12,6 +12,63 @@
 
 ## Recent work
 
+- 2026-08-19 — **`refine.ts` vs `intent.ts`: the collision resolved, and a priority rule for
+  resolving the next one.**
+
+  **The priority rule, decided now and applying from here on: a commit authored by Dhawal with no
+  `Co-Authored-By: Claude` trailer is authoritative.** Everything else — 70 of the 81 commits in
+  this repository — is Claude-assisted and yields to it. When two branches disagree, find the
+  human-only commit that governs the question and start there. There are 11 such commits; most are
+  merges, and the one that governs this dispute is **`f1346ba` "Audit member disruption scenarios
+  and pin the money-flow invariant" (2026-08-18)**.
+
+  **What `f1346ba` actually pinned**, read from the commit rather than from memory of it:
+
+  > Every payment goes out on the member's Amex card, and every refund comes back to that same
+  > card. **Consequence: the member's Amex balance can never go negative because of this system.**
+  > Two mechanisms enforce it…
+
+  The **invariant** is the routing rule and the never-negative consequence. The per-transaction cap
+  was named as **one of two enforcement mechanisms**, not as the invariant itself. That distinction
+  is the whole resolution, and it was not obvious until the commit was actually re-read.
+
+  **The eight differences, and what happens to each:**
+
+  | # | `refine.ts` (preference-refinement) | `intent.ts` (this branch) | Resolution |
+  |---|---|---|---|
+  | 1 | **No monetary field at all.** Prompt: *"Never infer a budget, a price, or a spending limit. There is no field for it."* | `max_out_of_pocket`, validated, applied as a hard rule via `rules.outOfPocketCap` | **Keep the field.** See below — it is not the thing `f1346ba` forbade |
+  | 2 | `/recovery`, during a live disruption | `/prepare`, pre-emptively at the ask-early band | **Both.** Complementary moments, not rival implementations |
+  | 3 | `refineWith` requires `HOLD_PENDING`, keeping the loop left of `IRREVERSIBLE_EDGE` | No gate — `/prepare` runs before any cancellation exists | **Keep the gate** on the recovery call site. It is load-bearing there and meaningless on the other |
+  | 4 | `PreferenceDelta`, camelCase, 8 fields | `PreferenceOverride`, snake_case, 17 fields | **One type, snake_case** — it matches `preferences/schema.ts`, which is the wire contract both are adapting to |
+  | 5 | Drops unrecognised values silently | `unsupported[]` reports them back to the member | **Keep `unsupported[]`.** A member who asked for something we cannot do is owed that answer |
+  | 6 | Returns null when nothing usable survived | Clamps, and reports every clamp in the diff | **Keep both** — null for "understood nothing", clamps reported for "understood, adjusted" |
+  | 7 | Strips **all** control chars incl. newlines, collapses whitespace, 400 chars | Keeps newlines, 600 chars | **Keep newlines** (people write lists), take refine's tighter whitespace collapse |
+  | 8 | `understood` | `restated_intent` | Same field. One name |
+
+  **Why the monetary field survives, stated carefully because it looks like it contradicts
+  `f1346ba` and does not.** `refine.ts` removed the field to comply with mechanism 1 — the card's
+  per-transaction cap. Dhawal removed that cap outright on 2026-08-19. What `intent.ts` carries is
+  not that cap returning: it is **the member's own stated budget**, which is a preference they
+  choose, not a ceiling the card imposes. The two are opposite in direction — one is the system
+  refusing the member, the other is the member refusing the system. Mechanism 2 (money returns to
+  the card it left) is untouched, so the routing invariant `f1346ba` actually pinned still holds.
+
+  **The one thing genuinely weakened, and it should not be glossed:** "balance can never go
+  negative" used to rest on our own pre-spend check. It now rests on the notification ladder, which
+  is a guarantee of a **different kind** — informed consent, not a ceiling. A member who never
+  answers can be charged an arbitrary amount, with only Amex's own authorisation declining it.
+  §10 of the action policy states this trade; it is a real cost of the 2026-08-19 decision and not
+  a detail.
+
+  **Also required at merge time:** `refine.ts`'s prompt line *"Never infer a budget… There is no
+  field for it"* must be deleted, or the two call sites will actively contradict each other — one
+  telling the model a budget is inexpressible while the other accepts one.
+
+  **Do not "fix" the wrong ranker.** `lib/ranking.ts` is dead code with no importers; the live
+  ranker is `server/pipeline/score.ts`. Recorded on the preference-refinement branch and repeated
+  here because it is the kind of thing that costs an afternoon.
+
+
 - 2026-08-19 (later) — **Webhook-driven cancellation detection, and `gh` installed globally.**
   Same branch `worktree-intent-refund-detection`. Green: 189 tests / 5 skipped, all three
   verifiers, `npm run build`, and verified against a **running server** — which mattered, see
