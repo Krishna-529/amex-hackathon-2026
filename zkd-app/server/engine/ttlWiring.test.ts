@@ -11,6 +11,16 @@ import { describe, expect, it, vi } from 'vitest';
  * DIFFERENT TTL than the real default and assert the staleness functions
  * actually honor it — proving they're live-wired, not hardcoded copies
  * that happen to agree with the default today.
+ *
+ * isAltsStale (altsCache.ts) no longer reads config.altCache.ttlMs at all —
+ * server/engine/altsCache.ts's adaptive-refresh rewrite replaced the flat
+ * config-driven TTL with a real computed interval (lib/refreshInterval.ts's
+ * refreshIntervalFor, floored by server/governor.ts's sustainableIntervalMs),
+ * and made isAltsStale async to read the disruption/recovery-task state that
+ * interval depends on. Its own second describe block below covers the
+ * equivalent property for the new contract — "is this wired to the live
+ * plan, not a hardcoded copy" — with the interval math itself already
+ * covered by tests/refreshCadence.test.ts.
  */
 vi.mock('@/lib/thresholdConfig', () => ({
   getThresholdConfig: () => ({
@@ -152,5 +162,45 @@ describe('cache staleness functions honor the live config TTL, not a hardcoded c
     const stale = { groundAsOf: now - 1_500 } as unknown as Parameters<typeof isGroundStale>[0];
     expect(isGroundStale(fresh)).toBe(false);
     expect(isGroundStale(stale)).toBe(true);
+  });
+});
+
+// isAltsStale's own dependencies, mocked separately from the block above:
+// the interval math (refreshIntervalFor) is already covered by
+// tests/refreshCadence.test.ts, so it's stubbed to a fixed value here — this
+// block only has to prove isAltsStale actually calls into the live plan and
+// compares against it, not that the plan's arithmetic is correct.
+vi.mock('../domain/store', () => ({
+  listFlights: async () => [],
+  getDisruptionEvent: async () => undefined,
+  getRecoveryTasksForFlight: async () => [],
+}));
+vi.mock('../governor', () => ({ sustainableIntervalMs: () => 0 }));
+vi.mock('@/lib/refreshInterval', () => ({
+  refreshIntervalFor: () => ({
+    ms: 1_000, boundBy: 'floor', targetMs: 1_000,
+    factors: { urgency: 1, severity: 1, scarcity: 1, window: 1 },
+    inputs: {},
+  }),
+}));
+
+describe('isAltsStale (altsCache.ts) is wired to the live adaptive refresh plan, not a hardcoded copy', () => {
+  function flightWith(altsAsOf: number | undefined) {
+    return {
+      id: 'flt-ttl-test', depISO: new Date(Date.now() + 3_600_000).toISOString(),
+      candidates: { alts: [] }, altsAsOf,
+    } as unknown as Parameters<typeof import('./altsCache').isAltsStale>[0];
+  }
+
+  it('honors whatever altsRefreshPlan computes (mocked to 1s), not a fixed constant', async () => {
+    const { isAltsStale } = await import('./altsCache');
+    const now = Date.now();
+    expect(await isAltsStale(flightWith(now - 200))).toBe(false);
+    expect(await isAltsStale(flightWith(now - 1_500))).toBe(true);
+  });
+
+  it('a flight never refreshed (altsAsOf undefined) is always stale, regardless of the plan', async () => {
+    const { isAltsStale } = await import('./altsCache');
+    expect(await isAltsStale(flightWith(undefined))).toBe(true);
   });
 });
