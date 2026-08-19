@@ -1,0 +1,159 @@
+- generic [active] [ref=f77e1]:
+  - generic [ref=f77e19]:
+    - generic [ref=f77e22]:
+      - generic [ref=f77e24]:
+        - link [ref=f77e25] [cursor=pointer]:
+          - /url: https://www.twilio.com/console/projects/summary
+          - generic [ref=f77e27]:
+            - img "Go to Console homepage" [ref=f77e29]
+            - text: Twilio Home
+        - generic [ref=f77e31]:
+          - generic [ref=f77e34]:
+            - generic "mainAccount" [ref=f77e36]: My First Twilio Account
+            - button "Switch accounts" [ref=f77e37] [cursor=pointer]
+          - generic [ref=f77e43]:
+            - text: "Trial:"
+            - strong [ref=f77e44]: $0.00
+            - link [ref=f77e45] [cursor=pointer]:
+              - /url: /account/upgrade
+              - strong [ref=f77e46]: Upgrade
+      - generic [ref=f77e47]:
+        - combobox [ref=f77e55]:
+          - textbox [ref=f77e56]:
+            - /placeholder: Jump to...
+          - listbox
+        - button "Admin" [ref=f77e57] [cursor=pointer]
+        - button [ref=f77e63] [cursor=pointer]:
+          - generic [ref=f77e65]:
+            - img "Notifications" [ref=f77e67]
+            - img "success" [ref=f77e70]
+        - button [ref=f77e72] [cursor=pointer]
+        - button "Switch products" [ref=f77e77] [cursor=pointer]
+        - button [ref=f77e86] [cursor=pointer]:
+          - img "User Name" [ref=f77e92]
+    - generic [ref=f77e97]:
+      - link "Skip to content" [ref=f77e98] [cursor=pointer]:
+        - /url: "#content"
+      - link "Skip to navigation" [ref=f77e99] [cursor=pointer]:
+        - /url: "#149"
+      - link "Skip to topbar" [ref=f77e100] [cursor=pointer]:
+        - /url: "#topbar"
+    - complementary [ref=f77e101]:
+      - navigation "console-sidebar" [ref=f77e103]:
+        - link "Account Dashboard" [ref=f77e105] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f77e113]:
+          - tablist "Sidebar tabs" [ref=f77e116]:
+            - generic [ref=f77e119]:
+              - tab "Develop" [selected] [ref=f77e120] [cursor=pointer]
+              - tab "Monitor" [ref=f77e121] [cursor=pointer]
+          - generic [ref=f77e125]:
+            - generic [ref=f77e126]:
+              - button "Phone Numbers" [ref=f77e131] [cursor=pointer]
+              - generic [ref=f77e142]:
+                - button "Messaging" [expanded] [ref=f77e145] [cursor=pointer]
+                - generic [ref=f77e156]:
+                  - link "Overview" [ref=f77e157] [cursor=pointer]:
+                    - /url: /us1/develop/sms/overview
+                  - generic [ref=f77e160]:
+                    - button "Try it out" [expanded] [ref=f77e162] [cursor=pointer]
+                    - generic [ref=f77e169]:
+                      - link "Send an SMS" [ref=f77e170] [cursor=pointer]:
+                        - /url: /us1/develop/sms/try-it-out/send-an-sms
+                      - link "Send a WhatsApp message" [ref=f77e172] [cursor=pointer]:
+                        - /url: /us1/develop/sms/try-it-out/whatsapp-learn?frameUrl=%2Fconsole%2Fsms%2Fwhatsapp%2Flearn%3Fx-target-region%3Dus1
+                  - link "Virtual Phone" [ref=f77e174] [cursor=pointer]:
+                    - /url: /us1/develop/sms/virtual-phone
+                  - link "Services" [ref=f77e176] [cursor=pointer]:
+                    - /url: /us1/develop/sms/services
+                  - button "Senders" [ref=f77e181] [cursor=pointer]
+                  - link "Content Template Builder" [ref=f77e188] [cursor=pointer]:
+                    - /url: /us1/develop/sms/content-template-builder
+                  - button "Settings" [ref=f77e193] [cursor=pointer]
+                  - button "Regulatory Compliance" [ref=f77e203] [cursor=pointer]
+              - button "Voice" [ref=f77e214] [cursor=pointer]
+              - button "Email" [ref=f77e228] [cursor=pointer]
+              - button "Verify" [ref=f77e242] [cursor=pointer]
+              - button "Flex" [ref=f77e256] [cursor=pointer]
+              - button "Video" [ref=f77e270] [cursor=pointer]
+              - button "Conversations (classic)" [ref=f77e284] [cursor=pointer]
+              - button "Studio" [ref=f77e298] [cursor=pointer]
+            - generic [ref=f77e308]:
+              - separator [ref=f77e309]
+              - link [ref=f77e310] [cursor=pointer]:
+                - /url: /develop/explore
+                - generic [ref=f77e311]:
+                  - text: Explore products
+                  - img "Explore products" [ref=f77e313]
+      - button "Close sidebar" [expanded] [ref=f77e318] [cursor=pointer]
+    - generic [ref=f77e325]:
+      - status [ref=f77e326]:
+        - generic [ref=f77e327]:
+          - img "(information)" [ref=f77e330]
+          - generic [ref=f77e334]:
+            - text: If you have
+            - link "Privacy features" [ref=f77e335] [cursor=pointer]:
+              - /url: "1"
+            - text: enabled, Twilio's Sandbox may temporarily store the phone number for up to 3 days.
+          - button "Dismiss alert" [ref=f77e337] [cursor=pointer]
+      - generic [ref=f77e343]:
+        - generic [ref=f77e344]: (warning)
+        - generic [ref=f77e350]:
+          - text: Sandbox may not reliably deliver international messages. For best results, register your own WhatsApp sender. Learn more (
+          - link "Direct Customer" [ref=f77e351] [cursor=pointer]:
+            - /url: https://www.twilio.com/docs/whatsapp/self-sign-up
+          - text: or
+          - link "ISV" [ref=f77e352] [cursor=pointer]:
+            - /url: https://www.twilio.com/docs/whatsapp/isv/register-senders
+          - text: )
+      - generic [ref=f77e353]:
+        - heading "Try WhatsApp" [level=1] [ref=f77e354]
+        - paragraph [ref=f77e355]: Twilio Sandbox for WhatsApp lets you test your app in a developer environment without WhatsApp approval for your account.
+      - generic [ref=f77e356]:
+        - tablist "sandbox-settings-tabs" [ref=f77e357]:
+          - generic [ref=f77e360]:
+            - tab "Sandbox" [selected] [ref=f77e361] [cursor=pointer]
+            - tab "Sandbox settings" [ref=f77e362] [cursor=pointer]
+        - tabpanel "Sandbox" [ref=f77e365]:
+          - generic [ref=f77e370]:
+            - heading [level=1]
+            - generic [ref=f77e371]:
+              - heading [level=6]
+              - generic [ref=f77e372]:
+                - generic [ref=f77e373]:
+                  - paragraph [ref=f77e377]: Connect to sandbox
+                  - paragraph [ref=f77e387]: Business-Initiated message
+                  - paragraph [ref=f77e397]: User-Initiated conversation
+                  - paragraph [ref=f77e407]: Wrap-up
+                - button "Next step" [disabled] [ref=f77e408]
+              - article [ref=f77e415]:
+                - heading "Connect to WhatsApp Sandbox" [level=2] [ref=f77e416]
+                - paragraph [ref=f77e417]: To begin testing, connect to Twilio sandbox by sending a WhatsApp message from your device to the Twilio number.
+                - article [ref=f77e418]:
+                  - generic [ref=f77e420]:
+                    - generic [ref=f77e422]:
+                      - heading "Send a WhatsApp message" [level=3] [ref=f77e423]
+                      - generic [ref=f77e424]: Use WhatsApp and send a message from your device to
+                      - generic [ref=f77e425]:
+                        - generic [ref=f77e426]:
+                          - img "WhatsApp logo" [ref=f77e427]
+                          - text: +1 415 523 8886
+                        - button [ref=f77e428] [cursor=pointer]:
+                          - img "copy sid" [ref=f77e431]
+                      - generic [ref=f77e433]:
+                        - generic [ref=f77e434]: with code
+                        - generic [ref=f77e435]: join
+                        - generic [ref=f77e436]: local-whenever
+                        - button [ref=f77e437] [cursor=pointer]:
+                          - img "copy sid" [ref=f77e440]
+                      - link [ref=f77e442] [cursor=pointer]:
+                        - /url: http://wa.me/+14155238886?text=join%20local-whenever
+                        - generic [ref=f77e443]:
+                          - text: Open WhatsApp
+                          - img "(link takes you to an external page)" [ref=f77e445]
+                    - generic [ref=f77e449]:
+                      - generic [ref=f77e450]:
+                        - heading "Scan the QR code on mobile" [level=3] [ref=f77e451]
+                        - img "http://wa.me/+14155238886?text=join%20local-whenever" [ref=f77e453]
+                      - generic [ref=f77e454]: Twilio WhatsApp Sandbox
+  - status [ref=f77e456]

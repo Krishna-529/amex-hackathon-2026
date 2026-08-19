@@ -1,0 +1,30 @@
+- generic [ref=f63e6]:
+  - generic [ref=f63e9]:
+    - link [ref=f63e12] [cursor=pointer]:
+      - /url: https://www.twilio.com/console/projects/summary
+      - generic [ref=f63e14]:
+        - img "Go to Console homepage" [ref=f63e16]
+        - text: Twilio Home
+    - generic [ref=f63e18]:
+      - combobox [ref=f63e26]:
+        - textbox [ref=f63e27]:
+          - /placeholder: Jump to...
+        - listbox
+      - button "Admin" [ref=f63e28] [cursor=pointer]
+      - button [ref=f63e34] [cursor=pointer]:
+        - img "Notifications" [ref=f63e38]
+      - button [ref=f63e40] [cursor=pointer]
+      - button [ref=f63e47] [cursor=pointer]
+  - generic [ref=f63e56]:
+    - link "Skip to content" [ref=f63e57] [cursor=pointer]:
+      - /url: "#content"
+    - link "Skip to navigation" [ref=f63e58] [cursor=pointer]:
+      - /url: "#17"
+    - link "Skip to topbar" [ref=f63e59] [cursor=pointer]:
+      - /url: "#topbar"
+  - complementary [ref=f63e60]:
+    - navigation "console-sidebar" [ref=f63e62]
+    - button "Close sidebar" [expanded] [ref=f63e72] [cursor=pointer]
+  - generic [ref=f63e80]:
+    - img "twilio-logo" [ref=f63e83]
+    - img "Loading..." [ref=f63e87]

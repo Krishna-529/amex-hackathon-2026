@@ -53,7 +53,12 @@ zkd-risk-model/data/processed/
 zkd-risk-model/.venv/
 
 # --- OAG trial call-budget counter (process-local state, not source) ---
-zkd-app/server/.state/
+# Anchored to the repo root, which was not enough: server/decisionLedger.ts
+# resolves this directory from process.cwd(), so running the test suite from
+# the repo root instead of from zkd-app/ writes it to <root>/server/.state and
+# the anchored pattern missed it entirely. Two ledger files reached main that
+# way on 2026-08-19. Match at any depth instead.
+**/server/.state/
 
 # --- Playwright (test run artifacts, not source) ---
 zkd-app/test-results/

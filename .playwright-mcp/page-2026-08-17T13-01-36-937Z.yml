@@ -1,0 +1,112 @@
+- generic [active] [ref=f61e1]:
+  - generic [ref=f61e19]:
+    - generic [ref=f61e22]:
+      - generic [ref=f61e24]:
+        - link [ref=f61e25] [cursor=pointer]:
+          - /url: https://www.twilio.com/console/projects/summary
+          - generic [ref=f61e27]:
+            - img "Go to Console homepage" [ref=f61e29]
+            - text: Twilio Home
+        - generic [ref=f61e31]:
+          - generic [ref=f61e34]:
+            - generic "mainAccount" [ref=f61e36]: My First Twilio Account
+            - button "Switch accounts" [ref=f61e37] [cursor=pointer]
+          - generic [ref=f61e43]:
+            - text: "Trial:"
+            - strong [ref=f61e44]: $0.00
+            - link [ref=f61e45] [cursor=pointer]:
+              - /url: /account/upgrade
+              - strong [ref=f61e46]: Upgrade
+      - generic [ref=f61e47]:
+        - combobox [ref=f61e55]:
+          - textbox [ref=f61e56]:
+            - /placeholder: Jump to...
+          - listbox
+        - button "Admin" [ref=f61e57] [cursor=pointer]
+        - button [ref=f61e63] [cursor=pointer]:
+          - generic [ref=f61e65]:
+            - img "Notifications" [ref=f61e67]
+            - img "success" [ref=f61e70]
+        - button [ref=f61e72] [cursor=pointer]
+        - button "Switch products" [ref=f61e77] [cursor=pointer]
+        - button [ref=f61e86] [cursor=pointer]:
+          - img "User Name" [ref=f61e92]
+    - generic [ref=f61e97]:
+      - link "Skip to content" [ref=f61e98] [cursor=pointer]:
+        - /url: "#content"
+      - link "Skip to navigation" [ref=f61e99] [cursor=pointer]:
+        - /url: "#61"
+      - link "Skip to topbar" [ref=f61e100] [cursor=pointer]:
+        - /url: "#topbar"
+    - complementary [ref=f61e101]:
+      - navigation "console-sidebar" [ref=f61e103]:
+        - generic [ref=f61e104]:
+          - button [ref=f61e107] [cursor=pointer]:
+            - paragraph [ref=f61e112]: Back
+          - separator [ref=f61e113]
+          - generic [ref=f61e115]:
+            - paragraph [ref=f61e120]: Manage account
+            - link "General settings" [ref=f61e122] [cursor=pointer]:
+              - /url: /us1/account/manage-account/general-settings
+            - link "Manage users" [ref=f61e125] [cursor=pointer]:
+              - /url: /us1/account/manage-account/manage-users
+            - link "Subaccounts" [ref=f61e128] [cursor=pointer]:
+              - /url: /us1/account/manage-account/subaccounts
+            - link "Notification preferences" [ref=f61e131] [cursor=pointer]:
+              - /url: /us1/account/manage-account/notification-preferences?frameUrl=%2Fconsole%2Fnotification-preferences%3Fx-target-region%3Dus1
+            - link "Audit events" [ref=f61e134] [cursor=pointer]:
+              - /url: /us1/account/manage-account/audit-events
+            - separator [ref=f61e136]
+          - generic [ref=f61e138]:
+            - paragraph [ref=f61e143]: Keys & Credentials
+            - link "API keys & tokens" [ref=f61e145] [cursor=pointer]:
+              - /url: /us1/account/keys-credentials/api-keys
+            - link "OAuth apps" [ref=f61e148] [cursor=pointer]:
+              - /url: /us1/account/keys-credentials/server-oauth
+            - link "Credentials" [ref=f61e151] [cursor=pointer]:
+              - /url: /us1/account/keys-credentials/credentials
+            - link "Connected apps" [ref=f61e154] [cursor=pointer]:
+              - /url: /us1/account/keys-credentials/connected-apps
+      - button "Close sidebar" [expanded] [ref=f61e159] [cursor=pointer]
+    - generic [ref=f61e166]:
+      - heading "General settings" [level=1] [ref=f61e167]
+      - generic [ref=f61e168]:
+        - generic [ref=f61e169]:
+          - heading "Account details" [level=3] [ref=f61e170]
+          - generic [ref=f61e172]:
+            - generic [ref=f61e173]:
+              - generic [ref=f61e174] [cursor=pointer]: Account name
+              - textbox "Account name" [ref=f61e178]: My First Twilio Account
+            - generic [ref=f61e179]:
+              - generic [ref=f61e180] [cursor=pointer]: Account SID
+              - textbox "Account SID" [ref=f61e184]: AC3b580fc2c81d695e8395ccc5d863e007
+        - generic [ref=f61e185]:
+          - text: "Note: Auth tokens are relocated. You can now find your API keys and Auth tokens in one place on the"
+          - link "API keys & tokens" [ref=f61e186] [cursor=pointer]:
+            - /url: /us1/account/keys-credentials/api-keys
+          - text: .
+        - group [ref=f61e188]:
+          - heading "SSL certificate validation" [level=3] [ref=f61e192]
+          - generic [ref=f61e193]: Determines if certificate validation is performed on all Twilio originated requests.
+          - generic [ref=f61e196]:
+            - generic [ref=f61e198]:
+              - 'radio "Enabled: Enforces certificate validation on webhooks from Twilio to your servers. Twilio does not support self-signed certificates yet." [checked]'
+              - generic [ref=f61e199] [cursor=pointer]: "Enabled: Enforces certificate validation on webhooks from Twilio to your servers. Twilio does not support self-signed certificates yet."
+            - generic [ref=f61e209]:
+              - 'radio "Disabled: Does not enforce certificate validation on webhooks from Twilio to your servers. This is not recommended for production services and should only be used during development."'
+              - generic [ref=f61e210] [cursor=pointer]: "Disabled: Does not enforce certificate validation on webhooks from Twilio to your servers. This is not recommended for production services and should only be used during development."
+        - generic [ref=f61e216]:
+          - heading "Public key client validation" [level=3] [ref=f61e217]
+          - paragraph [ref=f61e218]: Public Key Client Validation provides an additional layer of security by validating the origin and integrity of the request being sent to Twilio. This is achieved by sharing a public key with Twilio and then signing each request with the associated private key.
+          - paragraph [ref=f61e219]:
+            - text: Public key client Validation is an Enterprise feature.
+            - link [ref=f61e220] [cursor=pointer]:
+              - /url: https://www.twilio.com/solutions/enterprise
+              - generic [ref=f61e221]:
+                - text: Learn more about Enterprise
+                - img "(link takes you to an external page)" [ref=f61e224]
+        - generic [ref=f61e229]:
+          - button "Save" [disabled] [ref=f61e231]
+          - button "Cancel" [ref=f61e234] [cursor=pointer]
+          - button "Close account" [ref=f61e237] [cursor=pointer]
+  - status [ref=f61e239]

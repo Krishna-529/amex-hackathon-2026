@@ -1,0 +1,145 @@
+- generic [active] [ref=f63e1]:
+  - generic [ref=f63e92]:
+    - generic [ref=f63e95]:
+      - generic [ref=f63e97]:
+        - link [ref=f63e98] [cursor=pointer]:
+          - /url: https://www.twilio.com/console/projects/summary
+          - generic [ref=f63e100]:
+            - img "Go to Console homepage" [ref=f63e102]
+            - text: Twilio Home
+        - generic [ref=f63e104]:
+          - generic [ref=f63e107]:
+            - generic "mainAccount" [ref=f63e109]: My First Twilio Account
+            - button "Switch accounts" [ref=f63e110] [cursor=pointer]
+          - generic [ref=f63e116]:
+            - text: "Trial:"
+            - strong [ref=f63e117]: $0.00
+            - link [ref=f63e118] [cursor=pointer]:
+              - /url: /account/upgrade
+              - strong [ref=f63e119]: Upgrade
+      - generic [ref=f63e120]:
+        - combobox [ref=f63e128]:
+          - textbox [ref=f63e129]:
+            - /placeholder: Jump to...
+          - listbox
+        - button "Admin" [ref=f63e130] [cursor=pointer]
+        - button [ref=f63e136] [cursor=pointer]:
+          - img "Notifications" [ref=f63e140]
+        - button [ref=f63e142] [cursor=pointer]
+        - button "Switch products" [ref=f63e147] [cursor=pointer]
+        - button [ref=f63e156] [cursor=pointer]:
+          - img "User Name" [ref=f63e162]
+    - generic [ref=f63e167]:
+      - link "Skip to content" [ref=f63e168] [cursor=pointer]:
+        - /url: "#content"
+      - link "Skip to navigation" [ref=f63e169] [cursor=pointer]:
+        - /url: "#62"
+      - link "Skip to topbar" [ref=f63e170] [cursor=pointer]:
+        - /url: "#topbar"
+    - complementary [ref=f63e171]:
+      - navigation "console-sidebar" [ref=f63e173]:
+        - generic [ref=f63e174]:
+          - button [ref=f63e177] [cursor=pointer]:
+            - paragraph [ref=f63e182]: Back
+          - separator [ref=f63e183]
+          - generic [ref=f63e185]:
+            - paragraph [ref=f63e190]: Manage account
+            - link "General settings" [ref=f63e192] [cursor=pointer]:
+              - /url: /us1/account/manage-account/general-settings
+            - link "Manage users" [ref=f63e195] [cursor=pointer]:
+              - /url: /us1/account/manage-account/manage-users
+            - link "Subaccounts" [ref=f63e198] [cursor=pointer]:
+              - /url: /us1/account/manage-account/subaccounts
+            - link "Notification preferences" [ref=f63e201] [cursor=pointer]:
+              - /url: /us1/account/manage-account/notification-preferences?frameUrl=%2Fconsole%2Fnotification-preferences%3Fx-target-region%3Dus1
+            - link "Audit events" [ref=f63e204] [cursor=pointer]:
+              - /url: /us1/account/manage-account/audit-events
+            - separator [ref=f63e206]
+          - generic [ref=f63e208]:
+            - paragraph [ref=f63e213]: Keys & Credentials
+            - link "API keys & tokens" [ref=f63e215] [cursor=pointer]:
+              - /url: /us1/account/keys-credentials/api-keys
+            - link "OAuth apps" [ref=f63e218] [cursor=pointer]:
+              - /url: /us1/account/keys-credentials/server-oauth
+            - link "Credentials" [ref=f63e221] [cursor=pointer]:
+              - /url: /us1/account/keys-credentials/credentials
+            - link "Connected apps" [ref=f63e224] [cursor=pointer]:
+              - /url: /us1/account/keys-credentials/connected-apps
+      - button "Close sidebar" [expanded] [ref=f63e229] [cursor=pointer]
+    - generic [ref=f63e236]:
+      - generic [ref=f63e237]:
+        - generic [ref=f63e239]:
+          - generic [ref=f63e240]: (new)
+          - paragraph [ref=f63e246]:
+            - text: You can now add permissions to an API Key through Restricted API Keys. This limits the access to selected resources and actions. When creating a new API Key, chose the type ‘Restricted’. Learn more
+            - link [ref=f63e247] [cursor=pointer]:
+              - /url: https://www.twilio.com/docs/iam/api-keys/restricted-api-keys
+              - generic [ref=f63e248]:
+                - text: here
+                - img "(link takes you to an external page)" [ref=f63e251]
+            - text: .
+        - generic [ref=f63e254]:
+          - heading "API keys & tokens" [level=1] [ref=f63e255]
+          - generic [ref=f63e256]:
+            - generic [ref=f63e261] [cursor=pointer]:
+              - generic [ref=f63e262]: Region
+              - button "Regional" [ref=f63e264]
+            - combobox "Region Regional" [ref=f63e277] [cursor=pointer]:
+              - option "United States - Default" [selected]
+              - option "Australia"
+              - option "Ireland"
+        - generic [ref=f63e278]:
+          - generic [ref=f63e279]:
+            - heading "API keys - United States (US1) - (recommended)" [level=3] [ref=f63e281]
+            - button "Create API key" [ref=f63e283] [cursor=pointer]
+          - paragraph [ref=f63e288]:
+            - text: API keys are revocable credentials for the Twilio API. You can use API keys to authenticate to the REST API using Basic Auth with “user=KeySid” and “password=KeySecret”. You can also use API keys to sign Access Tokens, which are used by our real-time Communications SDKs. Access Tokens are short-lived credentials that can be distributed safely to client-side applications.
+            - link [ref=f63e289] [cursor=pointer]:
+              - /url: https://www.twilio.com/docs/iam/api-keys
+              - generic [ref=f63e290]:
+                - text: Learn more about API keys.
+                - img "(link takes you to an external page)" [ref=f63e293]
+        - article [ref=f63e297]:
+          - generic [ref=f63e298]:
+            - img "No items" [ref=f63e300]
+            - generic [ref=f63e301]:
+              - heading "You don’t have any API keys" [level=3] [ref=f63e302]
+              - link [ref=f63e303] [cursor=pointer]:
+                - /url: https://www.twilio.com/docs/iam/api-keys
+                - generic [ref=f63e304]:
+                  - text: Learn more about API keys
+                  - img "(link takes you to an external page)" [ref=f63e307]
+      - generic [ref=f63e309]:
+        - heading "Auth Tokens - United States (US1)" [level=3] [ref=f63e310]
+        - paragraph [ref=f63e311]:
+          - text: Auth tokens can be used to authenticate while making API requests. You will need to use HTTP Basic Authentication with user=Account SID and password=AuthToken. Auth tokens are specific to your account and can be used to access all APIs for the account. Please keep the auth tokens in a secure place and rotate them periodically.
+          - link [ref=f63e312] [cursor=pointer]:
+            - /url: https://www.twilio.com/docs/usage/requests-to-twilio
+            - generic [ref=f63e313]:
+              - text: Learn more about auth tokens.
+              - img "(link takes you to an external page)" [ref=f63e316]
+      - article [ref=f63e320]:
+        - generic [ref=f63e321]:
+          - heading "Live credentials" [level=3] [ref=f63e323]
+          - generic [ref=f63e324]:
+            - generic [ref=f63e325]: Account SID- used to exercise the REST API
+            - text: AC3b580fc2c81d695e8395ccc5d863e007
+          - generic [ref=f63e326]:
+            - generic [ref=f63e327]:
+              - generic [ref=f63e328]: Auth token
+              - button "Request a secondary token" [ref=f63e329] [cursor=pointer]
+            - alert [ref=f63e331]:
+              - generic [ref=f63e332]:
+                - img "(warning)" [ref=f63e335]
+                - generic [ref=f63e339]:
+                  - text: Sensitive information. Store your token securely to protect your account.
+                  - link [ref=f63e340] [cursor=pointer]:
+                    - /url: https://www.twilio.com/blog/protect-phishing-auth-token-fraud
+                    - generic [ref=f63e341]:
+                      - text: Learn more
+                      - img "(link takes you to an external page)" [ref=f63e344]
+            - generic [ref=f63e346]:
+              - button [ref=f63e347] [cursor=pointer]
+              - generic [ref=f63e352]: ﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡﹡
+          - generic [ref=f63e353]: Keep this somewhere safe and secure
+  - status [ref=f63e355]

@@ -1,0 +1,213 @@
+- generic [ref=f57e1]:
+  - generic [ref=f57e19]:
+    - generic [ref=f57e22]:
+      - generic [ref=f57e24]:
+        - link [ref=f57e25] [cursor=pointer]:
+          - /url: https://www.twilio.com/console/projects/summary
+          - generic [ref=f57e26]: Twilio Home
+        - generic [ref=f57e31]:
+          - generic [ref=f57e34]:
+            - generic [ref=f57e35]: My First Twilio Account
+            - button [ref=f57e37] [cursor=pointer]:
+              - generic [ref=f57e38]: Switch accounts
+          - generic [ref=f57e43]:
+            - text: "Trial:"
+            - strong [ref=f57e44]: $0.00
+            - link [ref=f57e45] [cursor=pointer]:
+              - /url: /account/upgrade
+              - strong [ref=f57e46]: Upgrade
+      - generic [ref=f57e47]:
+        - combobox [ref=f57e55]:
+          - textbox [ref=f57e56]:
+            - /placeholder: Jump to...
+        - button [ref=f57e57] [cursor=pointer]:
+          - generic [ref=f57e58]: Admin
+        - button [ref=f57e63] [cursor=pointer]
+        - button [ref=f57e72] [cursor=pointer]
+        - button [ref=f57e77] [cursor=pointer]:
+          - generic [ref=f57e78]: Switch products
+        - button [ref=f57e86] [cursor=pointer]
+    - generic [ref=f57e97]:
+      - link [ref=f57e98] [cursor=pointer]:
+        - /url: "#content"
+        - text: Skip to content
+      - link [ref=f57e99] [cursor=pointer]:
+        - /url: "#137"
+        - text: Skip to navigation
+      - link [ref=f57e100] [cursor=pointer]:
+        - /url: "#topbar"
+        - text: Skip to topbar
+    - complementary [ref=f57e101]:
+      - navigation [ref=f57e103]:
+        - link [ref=f57e105] [cursor=pointer]:
+          - /url: /
+          - generic [ref=f57e112]: Account Dashboard
+        - generic [ref=f57e113]:
+          - tablist [ref=f57e116]:
+            - generic [ref=f57e119]:
+              - tab [selected] [ref=f57e120] [cursor=pointer]: Develop
+              - tab [ref=f57e121] [cursor=pointer]: Monitor
+          - generic [ref=f57e125]:
+            - generic [ref=f57e126]:
+              - button [ref=f57e131] [cursor=pointer]:
+                - generic [ref=f57e139]: Phone Numbers
+              - button [ref=f57e145] [cursor=pointer]:
+                - generic [ref=f57e153]: Messaging
+              - button [ref=f57e159] [cursor=pointer]:
+                - generic [ref=f57e167]: Voice
+              - button [ref=f57e173] [cursor=pointer]:
+                - generic [ref=f57e181]: Email
+              - button [ref=f57e187] [cursor=pointer]:
+                - generic [ref=f57e195]: Verify
+              - button [ref=f57e201] [cursor=pointer]:
+                - generic [ref=f57e209]: Flex
+              - button [ref=f57e215] [cursor=pointer]:
+                - generic [ref=f57e223]: Video
+              - button [ref=f57e229] [cursor=pointer]:
+                - generic [ref=f57e237]: Conversations (classic)
+            - generic [ref=f57e239]:
+              - separator [ref=f57e240]
+              - link [ref=f57e241] [cursor=pointer]:
+                - /url: /develop/explore
+                - generic [ref=f57e242]: Explore products
+      - button [expanded] [ref=f57e249] [cursor=pointer]:
+        - generic [ref=f57e250]: Close sidebar
+    - generic [ref=f57e257]:
+      - generic [ref=f57e260]:
+        - generic [ref=f57e264]:
+          - paragraph [ref=f57e266]: Ahoy, Dhawal Khatri
+          - heading [level=1] [ref=f57e268]: Get started with Twilio
+          - button [ref=f57e272] [cursor=pointer]
+        - navigation [ref=f57e277]:
+          - list [ref=f57e279]:
+            - listitem [ref=f57e280]:
+              - link [ref=f57e281] [cursor=pointer]:
+                - /url: "#"
+                - text: For You
+            - listitem [ref=f57e282]:
+              - link [ref=f57e283] [cursor=pointer]:
+                - /url: "#"
+                - text: Verifications
+            - listitem [ref=f57e284]:
+              - link [ref=f57e285] [cursor=pointer]:
+                - /url: "#"
+                - text: Notifications
+            - listitem [ref=f57e286]:
+              - link [ref=f57e287] [cursor=pointer]:
+                - /url: "#"
+                - text: Marketing
+            - listitem [ref=f57e288]:
+              - link [ref=f57e289] [cursor=pointer]:
+                - /url: "#"
+                - text: Customer Care
+            - listitem [ref=f57e290]:
+              - link [ref=f57e291] [cursor=pointer]:
+                - /url: "#"
+                - text: Custom
+        - generic [ref=f57e298]:
+          - generic [ref=f57e299]: Quick start tutorial
+          - heading [level=3] [ref=f57e305]: Take the next step at Twilio!
+          - heading [level=2] [ref=f57e306]: Reach unlimited recipients and access phone number options across the world
+          - button [ref=f57e308] [cursor=pointer]:
+            - generic [ref=f57e309]: Upgrade account
+      - generic [ref=f57e449]:
+        - generic [ref=f57e454]:
+          - heading [level=4] [ref=f57e455]:
+            - button [expanded] [ref=f57e456] [cursor=pointer]: Account Info
+          - generic [ref=f57e462]:
+            - generic [ref=f57e466]:
+              - generic [ref=f57e467] [cursor=pointer]: Account SID
+              - generic [ref=f57e470]:
+                - textbox [ref=f57e471]: AC3b580fc2c81d695e8395ccc5d863e007
+                - button [ref=f57e473] [cursor=pointer]
+            - generic [ref=f57e480]:
+              - generic [ref=f57e481]:
+                - generic [ref=f57e482] [cursor=pointer]: Auth Token
+                - generic [ref=f57e485]:
+                  - generic [ref=f57e487]:
+                    - textbox [ref=f57e488]: "--------------------------------"
+                    - button [ref=f57e490] [cursor=pointer]
+                  - button [ref=f57e496] [cursor=pointer]:
+                    - generic [ref=f57e497]: Show
+              - paragraph [ref=f57e502]:
+                - text: Always store your token securely to protect your account.
+                - link [ref=f57e503] [cursor=pointer]:
+                  - /url: https://www.twilio.com/blog/protect-phishing-auth-token-fraud
+                  - generic [ref=f57e504]: Learn more
+            - paragraph [ref=f57e510]:
+              - text: You are in a trial account and can only send messages and make calls to
+              - link [ref=f57e511] [cursor=pointer]:
+                - /url: /us1/develop/phone-numbers/manage/verified
+                - text: verified phone numbers
+              - text: . Learn more about your
+              - link [ref=f57e512] [cursor=pointer]:
+                - /url: https://www.twilio.com/docs/usage/tutorials/how-to-use-your-free-trial-account
+                - generic [ref=f57e513]: trial account
+            - link [ref=f57e519] [cursor=pointer]:
+              - /url: /us1/account/manage-account/general-settings
+              - generic [ref=f57e520]: Go to account settings
+            - generic [ref=f57e526]:
+              - heading [level=5] [ref=f57e527]: API Keys
+              - link [ref=f57e528] [cursor=pointer]:
+                - /url: /us1/account/keys-credentials/api-keys
+                - text: Go to API Keys
+        - generic [ref=f57e533]:
+          - heading [level=4] [ref=f57e534]:
+            - button [expanded] [ref=f57e535] [cursor=pointer]: Helpful links
+          - generic [ref=f57e542]:
+            - generic [ref=f57e543]:
+              - link [ref=f57e544] [cursor=pointer]:
+                - /url: https://www.youtube.com/watch?v=euJAcVfn0C4
+                - generic [ref=f57e545]: How does Twilio work?
+              - paragraph [ref=f57e550]: Understand how to use Twilio in a 2-minute video.
+            - generic [ref=f57e551]:
+              - link [ref=f57e552] [cursor=pointer]:
+                - /url: https://www.twilio.com/docs
+                - generic [ref=f57e553]: API documentation
+              - paragraph [ref=f57e558]: Learn the basics of Twilio APIs.
+            - generic [ref=f57e559]:
+              - link [ref=f57e560] [cursor=pointer]:
+                - /url: /us1/develop/add-ons/catalog
+                - text: Explore Marketplace
+              - paragraph [ref=f57e561]: Do more with less code. Explore our Partner integrations available on Marketplace.
+            - generic [ref=f57e562]:
+              - link [ref=f57e563] [cursor=pointer]:
+                - /url: https://support.twilio.com/hc/en-us
+                - generic [ref=f57e564]: Support help center
+              - paragraph [ref=f57e569]: Troubleshoot common issues.
+  - status [ref=f57e570]
+  - dialog [ref=f57e572]:
+    - generic [ref=f57e574]:
+      - generic [ref=f57e575]:
+        - generic [ref=f57e576]:
+          - generic [ref=f57e577]: Personalize your onboarding ✨
+          - generic [ref=f57e578]: 16%
+        - progressbar "Progress" [ref=f57e579]
+      - generic [ref=f57e581]:
+        - generic [ref=f57e582]: Which best describes you?
+        - group [ref=f57e587]:
+          - generic [ref=f57e591]:
+            - generic [ref=f57e594]:
+              - radio "Business" [active]
+              - generic [ref=f57e595] [cursor=pointer]: Business
+              - generic [ref=f57e601]: Business
+            - generic [ref=f57e605]:
+              - radio "Government"
+              - generic [ref=f57e606] [cursor=pointer]: Government
+              - generic [ref=f57e612]: Government
+            - generic [ref=f57e616]:
+              - radio "Hobbyist or student"
+              - generic [ref=f57e617] [cursor=pointer]: Hobbyist or student
+              - generic [ref=f57e623]: Hobbyist or student
+            - generic [ref=f57e627]:
+              - radio "Non-profit"
+              - generic [ref=f57e628] [cursor=pointer]: Non-profit
+              - generic [ref=f57e634]: Non-profit
+            - generic [ref=f57e638]:
+              - radio "Sole proprietor or self-employed"
+              - generic [ref=f57e639] [cursor=pointer]: Sole proprietor or self-employed
+              - generic [ref=f57e645]: Sole proprietor or self-employed
+        - button [disabled] [ref=f57e648]:
+          - generic [ref=f57e649]:
+            - text: Next
+            - img "Next" [ref=f57e651]

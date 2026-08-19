@@ -4,7 +4,11 @@
       "Bash(python3 -c \"import openpyxl; print\\('ok'\\)\")",
       "Bash(python3 -c \"import pandas; print\\('pandas ok'\\)\")",
       "Bash(python3 -c \"import xlsxwriter; print\\('xlsxwriter ok'\\)\")",
-      "Bash(pip install *)"
+      "Bash(pip install *)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "Bash(git *)",
+      "Bash(cd *)"
     ]
   }
 }
