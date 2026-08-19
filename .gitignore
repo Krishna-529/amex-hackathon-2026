@@ -71,3 +71,9 @@ zkd-app/blob-report/
 *.tfstate.*
 *.tfplan
 *.auto.tfvars
+
+# Never track node_modules — a symlink to another worktree was committed on
+# 2026-08-19 and replaced the real dependency tree in the worktree that serves
+# the dev server, breaking it on checkout.
+node_modules/
+**/node_modules
