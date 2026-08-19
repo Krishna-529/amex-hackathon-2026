@@ -365,69 +365,41 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
                   {f.booking && f.booking.partySize > 1 ? ` seat all ${f.booking.partySize} of you and` : ''} fit your
                   policy and protect your onward connection — re-checked continuously, so they&apos;re
                   still valid the moment we need them.
+                  {refundKnown && refundTotal > 0 && (
+                    <> Prices below are what you&apos;d pay after the {money(refundTotal)} refunded
+                    on your original ticket.</>
+                  )}
                 </>
               )}
             </p>
-            {/* The refund, stated once above the list rather than repeated on
-                every row: it is a property of the ticket being cancelled, not
-                of the alternative chosen, and repeating it would read as five
-                separate refunds. */}
-            {usableAlts.length > 0 && (
-              <div className="kv" style={{ borderBottom: '1px solid rgba(255,255,255,.1)', paddingBottom: 8, marginBottom: 4 }}>
-                <span className="k">Refunded on your original ticket</span>
-                <span className={`v ${refundKnown && refundTotal > 0 ? 'ok' : ''}`}>
-                  {refundKnown ? (refundTotal > 0 ? money(refundTotal) : 'nothing') : 'not known yet'}
+            {/* One line per option, exactly as before — the list is the thing
+                being scanned and a second line under every price turned it into
+                a wall. The refund belongs in the sentence above rather than in
+                a row of its own: it is a property of the ticket being
+                cancelled, not of the alternative chosen. */}
+            {usableAlts.map((a) => (
+              <Link
+                href={`/prepare/${f.id}`}
+                key={a.id}
+                className="kv"
+                style={{ textDecoration: 'none', color: 'inherit' }}
+              >
+                <span className="k">{a.code} · {a.dep}</span>
+                <span className={`v ${refundKnown && a.partyFare - refundTotal <= 0 ? 'ok' : ''}`}>
+                  {/* What they actually pay: the fare, less what the cancelled
+                      ticket returns. Shown negative when the replacement is
+                      cheaper than the refund — a real outcome, and the one
+                      members are most pleased to hear about. */}
+                  {!refundKnown
+                    ? money(a.partyFare)
+                    : a.partyFare - refundTotal > 0
+                      ? money(a.partyFare - refundTotal)
+                      : a.partyFare - refundTotal < 0
+                        ? `${money(refundTotal - a.partyFare)} back`
+                        : 'nothing to pay'}
                 </span>
-              </div>
-            )}
-
-            {usableAlts.map((a) => {
-              // What this option really costs the member: its fare, less what
-              // the cancelled ticket returns. Negative means they end up ahead,
-              // and that is shown rather than clamped to zero — being rebooked
-              // onto something cheaper after a full refund is a real outcome and
-              // the one members are most pleased to hear about.
-              const difference = a.partyFare - refundTotal;
-              return (
-                <Link
-                  href={`/prepare/${f.id}`}
-                  key={a.id}
-                  className="kv alt-row"
-                  style={{ textDecoration: 'none', color: 'inherit' }}
-                >
-                  <span className="k">
-                    {a.code} · {a.dep}
-                    {a.quoted && (
-                      <span style={{ display: 'block', opacity: .65, fontSize: 11.5 }}>
-                        {a.quoted.currency} {a.quoted.amount.toLocaleString('en-IN')} converted
-                      </span>
-                    )}
-                  </span>
-                  <span className="v" style={{ textAlign: 'right' }}>
-                    {money(a.partyFare)}
-                    <span
-                      style={{ display: 'block', fontSize: 11.5, opacity: .8 }}
-                      className={!refundKnown ? '' : difference > 0 ? 'warn' : 'ok'}
-                    >
-                      {!refundKnown
-                        ? 'before any refund'
-                        : difference > 0
-                          ? `${money(difference)} after refund`
-                          : difference < 0
-                            ? `${money(-difference)} back to you`
-                            : 'nothing to pay after refund'}
-                    </span>
-                  </span>
-                </Link>
-              );
-            })}
-
-            {usableAlts.length > 0 && (
-              <p className="why" style={{ marginTop: 12 }}>
-                Tap any of these to set what should happen if this flight is cancelled. Nothing is
-                booked and nothing is charged until it actually is.
-              </p>
-            )}
+              </Link>
+            ))}
           </div>
         </div>
       </div>
