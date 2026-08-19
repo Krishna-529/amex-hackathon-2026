@@ -6,10 +6,11 @@ import { notFound } from 'next/navigation';
 import { useWorld } from '@/components/WorldProvider';
 import RouteLine from '@/components/Route';
 import { usePoll } from '@/lib/usePoll';
-import { BAND_LABEL, BAND_SAY } from '@/lib/thresholds';
+import { BAND_LABEL, BAND_SAY, type Band } from '@/lib/thresholds';
 import { OUTCOME } from '@/lib/outcome';
 import { hhmm, mins, dayLabel, money } from '@/lib/time';
-import type { FlightDetail, FlightForecast, ReverifyResult } from '@/lib/apiTypes';
+import { roomsFor, vehiclesFor } from '@/lib/partyCost';
+import type { FlightDetail, FlightForecast, ReverifyResult, PreAuthResponse } from '@/lib/apiTypes';
 import type { PastFlight } from '@/server/domain/types';
 import ForecastAudit from '@/components/ForecastAudit';
 import { FlightDetailSkeleton, RiskBodySkeleton } from '@/components/PageSkeletons';
@@ -39,9 +40,64 @@ export default function FlightPage({ params }: { params: Promise<{ id: string }>
   );
 }
 
+/**
+ * Above this band, the page stops being a status read-out and starts asking the
+ * member to decide.
+ *
+ * `prepare` rather than a hand-picked percentage, because the system already
+ * has an opinion about when a flight is worth interrupting someone over:
+ * server/notify/bandCrossing.ts uses exactly this band as the point a member's
+ * phone is allowed to buzz, and it is the same band that gates the alternative
+ * pre-fetch. Using it here keeps one answer to "is this serious yet" instead of
+ * three — a screen that showed a plan the notifier did not think worth sending,
+ * or hid one it did, would be incoherent.
+ */
+const PLAN_AT: Band = 'prepare';
+const BAND_ORDER: Band[] = ['watch', 'prepare', 'hold-gate', 'pre-authorise'];
+const atOrAbove = (b: Band | undefined, floor: Band) =>
+  b !== undefined && BAND_ORDER.indexOf(b) >= BAND_ORDER.indexOf(floor);
+
+/** What POST /api/flights/[id]/intent hands back. The route applies nothing —
+ *  this is a preview the member confirms or discards. */
+type IntentResult = {
+  understood: boolean;
+  message?: string;
+  restated?: string | null;
+  confidence?: 'high' | 'medium' | 'low';
+  diff?: { changes: string[]; clamped: string[]; unsupported: { asked: string; why: string }[] };
+  removed?: { id: string; code: string; rule: string }[];
+  options?: { id: string; code: string; dep: string; arr: string; partyFare: number; ok: boolean; why: string }[];
+};
+
 function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { schedule } = useWorld();
+
+  // ── Everything below used to be a second page, /prepare/[id] ──────────────
+  //
+  // Splitting them meant a member read their flight's risk on one screen and
+  // acted on it from another, and the two disagreed visually: /flights/[id] is
+  // on the Amex light skin (lib/amexRoutes.ts) and /prepare never was, so
+  // clicking through went from a white Amex page into dark glass. Folding it in
+  // removes the jump and the duplication in one move — the risk score and the
+  // response to it now sit on one page, which is also how a member thinks about
+  // it.
+  const [altId, setAltId] = useState<string | null>(null);
+  const [hotelId, setHotelId] = useState<string | null>(null);
+  const [cabId, setCabId] = useState<string | null>(null);
+
+  // Free-text intent. This is a PREVIEW: nothing it returns is applied to the
+  // member's profile or to any recovery until they confirm, which is what makes
+  // it safe to let a language model near the input at all.
+  const [text, setText] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const [intent, setIntent] = useState<IntentResult | null>(null);
+
+  // The member as a detection source. Behind a confirm, because pressing it
+  // starts a real recovery — for them immediately, and for everyone else on the
+  // flight only once corroborated (server/engine/memberReports.ts).
+  const [reporting, setReporting] = useState(false);
+  const [reported, setReported] = useState<{ message: string; confirmed: boolean } | null>(null);
 
   const upcoming = schedule?.upcoming.find((x) => x.id === id);
   const past = schedule?.past.find((x) => x.id === id);
@@ -61,6 +117,51 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   // are a frozen record with no live candidates or signals). The route is
   // session-guarded server-side, so starting early cannot leak anything.
   const { data: detail } = usePoll<FlightDetail>(past ? null : `/api/flights/${id}`, 5000);
+  // The session on this request IS the passenger, so no id travels in the URL.
+  const { data: preAuth } = usePoll<PreAuthResponse>(past ? null : `/api/flights/${id}/preauth`, 8000);
+
+  const ask = () => {
+    if (!text.trim() || thinking) return;
+    setThinking(true);
+    fetch(`/api/flights/${id}/intent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+      .then((r) => r.json())
+      .then((r: IntentResult) => {
+        setIntent(r);
+        // Move the selection to the new leader, but only when we understood
+        // them and something survived their own rules.
+        if (r.understood && r.options?.length) setAltId((r.options.find((o) => o.ok) ?? r.options[0]).id);
+      })
+      .catch(() => setIntent({ understood: false, message: 'We could not reach that service. Your preferences are unchanged.' }))
+      .finally(() => setThinking(false));
+  };
+
+  const reportCancelled = () => {
+    if (reporting) return;
+    const ok = window.confirm(
+      'Tell us this flight has been cancelled?\n\n'
+      + 'We will start rebooking you straight away. We will check it against the airline before '
+      + 'moving anyone else on this flight, and nothing is charged without telling you first.',
+    );
+    if (!ok) return;
+    setReporting(true);
+    fetch(`/api/flights/${id}/report-cancellation`, { method: 'POST' })
+      .then((r) => r.json())
+      .then((r) => setReported({ message: r.message ?? r.error ?? 'Reported.', confirmed: !!r.confirmed }))
+      .catch(() => setReported({ message: 'We could not send that just now — please try again.', confirmed: false }))
+      .finally(() => setReporting(false));
+  };
+
+  const authorise = () => {
+    fetch(`/api/flights/${id}/preauth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ altId, hotelId, cabId }),
+    }).then(() => setIntent(null));
+  };
 
   // Reverify lives here (not inside ForecastAudit) because its trigger sits
   // next to the headline score, not in the audit panel below. liveForecast
@@ -198,6 +299,33 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const refundKnown = !!refund?.known;
   const refundTotal = refundKnown ? refund!.total : 0;
 
+  // ── is this serious enough to ask them to decide? ─────────────────────────
+  const planning = atOrAbove(fc?.band, PLAN_AT);
+
+  // The intent preview re-orders the list; without one we show what the scorer
+  // already decided. Either way the member is looking at a real ranking.
+  const orderedAlts = intent?.understood && intent.options?.length
+    ? (intent.options
+        .map((o) => usableAlts.find((a) => a.id === o.id))
+        .filter(Boolean) as typeof usableAlts)
+    : usableAlts;
+
+  const alt = orderedAlts.find((a) => a.id === altId) ?? orderedAlts[0];
+  const hotel = detail.candidates.hotels.find((h) => h.id === hotelId)
+    ?? detail.candidates.hotels.find((h) => h.ok) ?? detail.candidates.hotels[0];
+  const cab = detail.candidates.cabs.find((c) => c.id === cabId)
+    ?? detail.candidates.cabs.find((c) => c.ok) ?? detail.candidates.cabs[0];
+
+  const partySize = detail.booking?.partySize ?? 1;
+  const rooms = roomsFor(partySize);
+  const vehicles = cab ? vehiclesFor(partySize, cab.seats) : 0;
+  const hotelCost = hotel ? (hotel.extra || hotel.rate) * rooms : 0;
+  const cabCost = cab ? cab.extra * vehicles : 0;
+  const owed = (alt?.partyFare ?? 0) + hotelCost + cabCost;
+  // The number the member actually decides on. The airline returns money, not a
+  // seat — so what this costs is the replacement minus what comes back.
+  const delta = owed - refundTotal;
+
   return (
     <div className="skeleton">
       {head}
@@ -212,7 +340,12 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
                     <stop offset="100%" stopColor={stops[1]} />
                   </linearGradient>
                 </defs>
-                <circle cx="105" cy="105" r="92" fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="13" />
+                {/* The track carries a class rather than a literal stroke: this page renders
+                    on the Amex LIGHT skin, where a white-alpha ring is invisible.
+                    globals.css already styles `.amex-page .gauge .track` — the class was
+                    simply never applied, so the ring has been missing on the skinned
+                    page all along. */}
+                <circle className="track" cx="105" cy="105" r="92" fill="none" strokeWidth="13" />
                 <circle
                   cx="105" cy="105" r="92" fill="none" stroke="url(#gr)" strokeWidth="13"
                   strokeLinecap="round"
@@ -372,34 +505,213 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
                 </>
               )}
             </p>
-            {/* One line per option, exactly as before — the list is the thing
-                being scanned and a second line under every price turned it into
-                a wall. The refund belongs in the sentence above rather than in
-                a row of its own: it is a property of the ticket being
-                cancelled, not of the alternative chosen. */}
-            {usableAlts.map((a) => (
-              <Link
-                href={`/prepare/${f.id}`}
-                key={a.id}
-                className="kv"
-                style={{ textDecoration: 'none', color: 'inherit' }}
-              >
-                <span className="k">{a.code} · {a.dep}</span>
-                <span className={`v ${refundKnown && a.partyFare - refundTotal <= 0 ? 'ok' : ''}`}>
-                  {/* What they actually pay: the fare, less what the cancelled
-                      ticket returns. Shown negative when the replacement is
-                      cheaper than the refund — a real outcome, and the one
-                      members are most pleased to hear about. */}
-                  {!refundKnown
-                    ? money(a.partyFare)
-                    : a.partyFare - refundTotal > 0
-                      ? money(a.partyFare - refundTotal)
-                      : a.partyFare - refundTotal < 0
-                        ? `${money(refundTotal - a.partyFare)} back`
-                        : 'nothing to pay'}
-                </span>
-              </Link>
-            ))}
+            {/* One line per option. Below the plan band this is a read-only
+                preview — the member is being reassured, not asked. Above it the
+                rows become selectable and the plan below them appears. */}
+            {orderedAlts.map((a) => {
+              const rowDelta = a.partyFare + hotelCost + cabCost - refundTotal;
+              const picked = planning && a.id === alt?.id;
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => planning && setAltId(a.id)}
+                  disabled={!planning}
+                  className="kv"
+                  style={{
+                    width: '100%', font: 'inherit', textAlign: 'left', border: 0,
+                    background: picked ? 'var(--amex-line2, rgba(47,127,240,.08))' : 'transparent',
+                    cursor: planning ? 'pointer' : 'default',
+                    borderRadius: 6, paddingLeft: 8, paddingRight: 8,
+                  }}
+                >
+                  <span className="k">
+                    {picked ? '\u2713 ' : ''}{a.code} · {a.dep}
+                  </span>
+                  <span className={`v ${refundKnown && rowDelta <= 0 ? 'ok' : ''}`}>
+                    {/* What they actually pay: the replacement, less what the
+                        cancelled ticket returns. The airline gives money back,
+                        not a seat, so a gross fare here would overstate the cost
+                        by the whole original ticket. */}
+                    {!refundKnown
+                      ? money(a.partyFare)
+                      : rowDelta > 0 ? money(rowDelta)
+                        : rowDelta < 0 ? `${money(-rowDelta)} back`
+                          : 'nothing to pay'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ── Everything below appears only once the flight is actually at
+              risk. Under that band the page stays what it has always been: a
+              status read-out. ─────────────────────────────────────────────── */}
+          {planning && (
+            <>
+              <div className="g panel" style={{ marginTop: 16 }}>
+                <h3>Tell us what matters</h3>
+                <p className="why" style={{ marginTop: 0 }}>
+                  In your own words — a time you have to be there by, an airline you would rather
+                  not fly, how much of your own money you are willing to spend. We will re-order
+                  the options above and show you exactly what changed.
+                </p>
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  maxLength={600}
+                  rows={3}
+                  aria-label="What matters to you about this trip"
+                  placeholder="e.g. I have to be in Delhi before 9pm for my sister's wedding, and I'd rather not fly Air India"
+                  className="intent-box"
+                />
+                <div className="acts" style={{ marginTop: 10 }}>
+                  <button onClick={ask} disabled={thinking || !text.trim()}>
+                    {thinking ? 'Reading that…' : 'Use this'}
+                  </button>
+                  {intent && <button onClick={() => { setIntent(null); setText(''); }}>Undo</button>}
+                </div>
+
+                {intent && !intent.understood && (
+                  <p className="why" style={{ color: 'var(--risk)' }}>{intent.message}</p>
+                )}
+
+                {intent?.understood && (
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--amex-line2, rgba(255,255,255,.1))' }}>
+                    {intent.restated && <p style={{ margin: '0 0 10px', fontSize: 14 }}><b>{intent.restated}</b></p>}
+                    {!!intent.diff?.changes.length && (
+                      <>
+                        <div className="lbl">What we will do</div>
+                        <ul className="why" style={{ paddingLeft: 18 }}>
+                          {intent.diff.changes.map((c) => <li key={c}>{c}</li>)}
+                        </ul>
+                      </>
+                    )}
+                    {/* Anything we altered from what was proposed is stated, never
+                        silently corrected. */}
+                    {!!intent.diff?.clamped.length && (
+                      <>
+                        <div className="lbl">What we adjusted</div>
+                        <ul className="why" style={{ paddingLeft: 18 }}>
+                          {intent.diff.clamped.map((c) => <li key={c}>{c}</li>)}
+                        </ul>
+                      </>
+                    )}
+                    {!!intent.diff?.unsupported.length && (
+                      <>
+                        <div className="lbl">What we cannot do</div>
+                        <ul className="why" style={{ paddingLeft: 18, color: 'var(--risk)' }}>
+                          {intent.diff.unsupported.map((u) => <li key={u.asked}>{u.asked} — {u.why}</li>)}
+                        </ul>
+                      </>
+                    )}
+                    {/* "We found nothing" and "your own instruction excluded
+                        everything" are different answers, and the member is owed
+                        the second one. */}
+                    {!!intent.removed?.length && (
+                      <>
+                        <div className="lbl">Ruled out by what you told us</div>
+                        <ul className="why" style={{ paddingLeft: 18 }}>
+                          {intent.removed.map((r) => <li key={r.id}>{r.code} — {r.rule}</li>)}
+                        </ul>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="g panel" style={{ marginTop: 16 }}>
+                <h3>If it does cancel, here is the plan</h3>
+                {partySize > 1 && (
+                  <div className="kv">
+                    <span className="k">Party</span>
+                    <span className="v">{partySize} travellers · {rooms} room{rooms === 1 ? '' : 's'} · {vehicles} cab{vehicles === 1 ? '' : 's'}</span>
+                  </div>
+                )}
+                {alt && (
+                  <div className="kv">
+                    <span className="k">Flight</span>
+                    <span className="v">{alt.code} · arrives {alt.arr}</span>
+                  </div>
+                )}
+                {hotel && (
+                  <div className="kv">
+                    <span className="k">Room{rooms > 1 ? 's' : ''} tonight</span>
+                    <span className="v">{hotel.name} · {hotel.area}</span>
+                  </div>
+                )}
+                {cab && (
+                  <div className="kv">
+                    <span className="k">Transfers</span>
+                    <span className="v">{cab.kind}{vehicles > 1 ? ` × ${vehicles}` : ''}</span>
+                  </div>
+                )}
+
+                <div className="kv" style={{ marginTop: 6 }}>
+                  <span className="k">This plan costs</span>
+                  <span className={`v ${owed ? 'warn' : 'ok'}`}>{owed ? money(owed) : 'nothing'}</span>
+                </div>
+                <div className="kv">
+                  <span className="k">Comes back to your card</span>
+                  <span className={`v ${refundKnown && refundTotal > 0 ? 'ok' : ''}`}>
+                    {refundKnown ? (refundTotal > 0 ? money(refundTotal) : 'nothing') : 'not known yet'}
+                  </span>
+                </div>
+                <div className="kv">
+                  <span className="k"><b>You end up paying</b></span>
+                  <span className={`v ${delta > 0 ? 'warn' : 'ok'}`}>
+                    {!refundKnown ? `${money(owed)} before any refund`
+                      : delta > 0 ? money(delta)
+                        : delta < 0 ? `${money(-delta)} back to you`
+                          : 'nothing'}
+                  </span>
+                </div>
+
+                {!refundKnown && (
+                  <p className="why">
+                    We have no record of what you paid for this ticket, so we are not going to guess
+                    what comes back. The figure above is what the replacement costs before any refund.
+                  </p>
+                )}
+
+                <p className="why">
+                  This is a conditional instruction, not a booking. Nothing is charged unless this
+                  flight is actually cancelled, and if these exact options are gone by then we come
+                  back to you rather than substituting something you never saw.
+                </p>
+
+                {preAuth ? (
+                  <p className="why" style={{ color: 'var(--safe)' }}>
+                    You have already told us what to do. Choosing again above and confirming will
+                    replace that instruction.
+                  </p>
+                ) : null}
+
+                <button className="cta" onClick={authorise} style={{ width: '100%' }}>
+                  Yes — do this if it cancels
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* The backup detection lane. Deliberately quiet and always available:
+              a member can be standing at a cancelled gate on a flight our model
+              still thinks is healthy. */}
+          <div className="g panel" style={{ marginTop: 16 }}>
+            <h3>Already cancelled?</h3>
+            <p className="why" style={{ marginTop: 0 }}>
+              If the airline has told you this flight is cancelled and we have not caught it yet,
+              tell us and we will start straight away rather than wait for the feed.
+            </p>
+            {reported ? (
+              <p className="why" style={{ color: reported.confirmed ? 'var(--safe)' : undefined }}>
+                {reported.message}
+              </p>
+            ) : (
+              <button onClick={reportCancelled} disabled={reporting}>
+                {reporting ? 'Sending…' : 'This flight was cancelled'}
+              </button>
+            )}
           </div>
         </div>
       </div>

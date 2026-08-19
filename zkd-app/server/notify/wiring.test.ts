@@ -74,7 +74,7 @@ describe('thresholdAlert copy', () => {
   it('asks an ask-me-first member for a preference', () => {
     const e = thresholdAlert({ ...base, consent: 'ask' });
     expect(e.body).toContain('Tell us what you would prefer');
-    expect(e.path).toBe('/prepare/f-1');
+    expect(e.path).toBe('/flights/f-1');
   });
 
   it('tells an autopilot member what will happen and how to stop it', () => {

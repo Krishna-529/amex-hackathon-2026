@@ -67,12 +67,15 @@ export function thresholdAlert(i: ThresholdAlertInput): NotifyEvent {
     passengerId: i.passengerId,
     title: `${i.code} may be cancelled`,
     body: `${lead}\n\n${stance}${option}`,
-    path: `/prepare/${i.flightId}`,
+    // The flight page — /prepare was folded into it on 2026-08-19. A deep link
+    // is the one place a stale path is unforgivable: it fires at the moment the
+    // member most needs the app to open on the right thing.
+    path: `/flights/${i.flightId}`,
     actions: [
       { id: 'choose', label: 'Choose my option' },
       { id: 'details', label: 'See the prediction' },
     ],
-    data: { screen: 'Prepare', flightId: i.flightId, band: i.band, pct: String(i.pct) },
+    data: { screen: 'FlightDetail', flightId: i.flightId, band: i.band, pct: String(i.pct) },
   };
 }
 

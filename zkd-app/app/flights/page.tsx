@@ -96,7 +96,7 @@ export default function FlightsPage() {
               ask-early threshold, ask. The threshold is not a fixed 80 — it moves with
               how many seats are left and how close departure is. */}
           {!nextDisrupted && next.forecast && next.forecast.pct >= next.forecast.thresholds.preAuthorise && (
-            <Link href={`/prepare/${next.id}`} className="g alert warn" style={{ display: 'flex' }}>
+            <Link href={`/flights/${next.id}`} className="g alert warn" style={{ display: 'flex' }}>
               <span className="ic">!</span>
               <span className="tx">
                 <span className="tt">

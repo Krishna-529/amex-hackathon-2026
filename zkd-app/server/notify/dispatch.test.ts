@@ -28,7 +28,7 @@ const event: NotifyEvent = {
   passengerId: 'p-1',
   title: 'test',
   body: 'test',
-  path: '/prepare/f-1',
+  path: '/flights/f-1',
 };
 
 const ok = (channel: string) => ({ channel, ok: true, ref: 'r' });

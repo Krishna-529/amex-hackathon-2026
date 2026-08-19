@@ -1657,3 +1657,23 @@ body:has(.amex-page) footer {
    there is nothing dark left to bleed through. Scoped with :has() so only the
    skinned routes are affected. */
 body:has(.amex-page) { background: var(--amex-bg) }
+
+/* ── free-text intent box ──────────────────────────────────────────────────
+   Styled here rather than inline because it renders on BOTH grounds: the dark
+   default and the Amex light skin. An inline rgba(255,255,255,.03) background
+   with a white-alpha border — which is what this had — is a perfectly invisible
+   box on a white page. Tokens do the switching instead. */
+.intent-box{
+  width:100%;padding:10px 12px;border-radius:8px;resize:vertical;
+  background:var(--glass);color:inherit;font-size:13.5px;
+  border:1px solid var(--edge);font-family:inherit;line-height:1.5;
+}
+.intent-box:focus-visible{outline:2px solid var(--iris);outline-offset:1px}
+.amex-page .intent-box{background:#fff;border-color:var(--amex-line);color:var(--amex-text)}
+.amex-page .intent-box::placeholder{color:var(--amex-mist2)}
+.amex-page .intent-box:focus-visible{outline-color:var(--amex-blue)}
+.amex-page .lbl{color:var(--amex-mist2)}
+.amex-page .acts button{background:#fff;border:1px solid var(--amex-line);color:var(--amex-text)}
+.amex-page .acts button:hover:not(:disabled){border-color:var(--amex-blue);color:var(--amex-blue)}
+.amex-page .cta{background:var(--amex-blue);color:#fff;border:0}
+.amex-page .cta:hover{filter:brightness(1.06)}

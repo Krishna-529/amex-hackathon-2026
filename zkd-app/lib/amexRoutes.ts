@@ -14,7 +14,7 @@
  * accidentally match a future sibling like `/flights-archive`, and everything
  * under it (`/flights/u1`, and any deeper segment added later) is in scope.
  *
- * Every OTHER route — `/prepare/[id]`, `/recovery/[id]`, `/profile`,
+ * Every OTHER route — `/recovery/[id]`, `/profile`,
  * `/settings`, `/history`, `/how-it-works`, `/ops` — keeps the original dark
  * glass theme. That is a real decision, not an omission: `/ops` is an operator
  * console rather than a member screen, and the recovery flow's urgency reads
