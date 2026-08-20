@@ -368,7 +368,7 @@ async function arrangeOvernight(
 export function preferredPlan(
   flightId: string,
   passengerId: string,
-): { altId: string; hotelId: string; cabId: string } | null {
+): { altId: string; hotelId: string | null; cabId: string | null } | null {
   const run = store.getPipelineRun(flightId, passengerId);
   return run?.plan ?? null;
 }

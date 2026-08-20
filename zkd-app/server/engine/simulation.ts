@@ -61,8 +61,8 @@ export type RecoveryView = {
   windowBoundBy: RecoveryTask['windowBoundBy'];
   partySize: number;
   chosenAltId: string;
-  chosenHotelId: string;
-  chosenCabId: string;
+  chosenHotelId: string | null;
+  chosenCabId: string | null;
   rejectedAltIds: string[];
   owedNow: number;
   cost: PartyCost;

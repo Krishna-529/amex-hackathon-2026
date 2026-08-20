@@ -509,9 +509,9 @@ export type DisruptionEvent = {
 };
 
 export type DisruptionResolution =
-  | { kind: 'autopilot' | 'approved'; at: number; altId: string; hotelId: string; cabId: string }
+  | { kind: 'autopilot' | 'approved'; at: number; altId: string; hotelId: string | null; cabId: string | null }
   /** the flight moved but still works: no new ticket, only downstream bookings re-timed */
-  | { kind: 're-timed'; at: number; hotelId: string; cabId: string; shiftMinutes: number }
+  | { kind: 're-timed'; at: number; hotelId: string | null; cabId: string | null; shiftMinutes: number }
   | { kind: 'handed-over'; at: number };
 
 /**
@@ -561,8 +561,10 @@ export type RecoveryTask = {
   /** what bounded the window, so the UI can say why it is that long */
   windowBoundBy: 'offer-expiry' | 'check-in' | 'ceiling' | 'floor';
   chosenAltId: string;
-  chosenHotelId: string;
-  chosenCabId: string;
+  // Hotel and cab are optional parts of a recovery plan — a same-day reseat
+  // needs neither. Null when the plan has no overnight/transfer leg.
+  chosenHotelId: string | null;
+  chosenCabId: string | null;
   rejectedAltIds: string[];
   shown: Step[];
   note: string | null;
