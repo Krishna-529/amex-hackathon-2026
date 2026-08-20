@@ -31,7 +31,7 @@ import { sql, ensureReady } from './db';
 import type {
   Passenger, Flight, Booking, Itinerary, PreAuthRecord, PastFlight,
   DisruptionEvent, RecoveryTask, Credential, Traveller, SeatAssignment,
-  Stay, Ride,
+  Stay, Ride, JourneyPrefs,
 } from './types';
 import type { PipelineRun } from '../pipeline/types';
 
@@ -297,6 +297,32 @@ export async function setPreAuth(rec: PreAuthRecord): Promise<void> {
 export async function clearPreAuth(flightId: string, passengerId: string): Promise<void> {
   const q = await db();
   await q`delete from pre_auths where key = ${`${flightId}:${passengerId}`}`;
+}
+
+// ------------------------------------------------------- journey prefs --
+// A member's temporary, per-flight window + consent choice. Same storage shape
+// as pre_auths above (one row per flight+passenger, JSON blob) — deliberately,
+// because it is the same kind of thing: an advance instruction for one flight
+// that is discarded with it, never merged into the durable MyCa profile.
+
+export async function getJourneyPrefs(flightId: string, passengerId: string): Promise<JourneyPrefs | undefined> {
+  const q = await db();
+  const rows = await q<{ data: JourneyPrefs }[]>`select data from journey_prefs where key = ${`${flightId}:${passengerId}`}`;
+  return rows[0]?.data;
+}
+
+export async function setJourneyPrefs(rec: JourneyPrefs): Promise<void> {
+  const q = await db();
+  const key = `${rec.flightId}:${rec.passengerId}`;
+  await q`
+    insert into journey_prefs (key, flight_id, passenger_id, data) values (${key}, ${rec.flightId}, ${rec.passengerId}, ${q.json(rec)})
+    on conflict (key) do update set data = excluded.data
+  `;
+}
+
+export async function clearJourneyPrefs(flightId: string, passengerId: string): Promise<void> {
+  const q = await db();
+  await q`delete from journey_prefs where key = ${`${flightId}:${passengerId}`}`;
 }
 
 // ------------------------------------------------------------ past flights --

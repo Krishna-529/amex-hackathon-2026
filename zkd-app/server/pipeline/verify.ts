@@ -128,6 +128,40 @@ console.log('\nNever split a party');
   check('reason names the party', removed[0]?.rule.includes('6') === true, removed[0]?.rule);
 }
 
+console.log('\nThe journey window is a hard filter at both ends');
+{
+  // latest-arrive (the existing deadline field, now also set from a member's
+  // JourneyPrefs.latestArriveISO)
+  const late = alt({ id: 'w-late', code: 'AI 1', arrivesAt: hours(9), departsAt: hours(6) });
+  const onTime = alt({ id: 'w-ok', code: 'AI 2', arrivesAt: hours(4), departsAt: hours(1) });
+  const byDeadline = ctxFor([late, onTime], {
+    flight: { ...flightWith([late, onTime]), hardDeadlineISO: new Date(hours(6)).toISOString() },
+  });
+  const d = applyHardRules([late, onTime], byDeadline);
+  check('arrives-after-deadline is removed', d.kept.length === 1 && d.kept[0].id === 'w-ok');
+  check('deadline removal names the deadline', d.removed[0]?.rule.includes('deadline') === true, d.removed[0]?.rule);
+
+  // earliest-start (the new symmetric lower bound)
+  const tooEarly = alt({ id: 'w-early', code: 'AI 3', departsAt: hours(1), arrivesAt: hours(4) });
+  const okStart = alt({ id: 'w-start', code: 'AI 4', departsAt: hours(7), arrivesAt: hours(10) });
+  const byEarliest = ctxFor([tooEarly, okStart], {
+    flight: { ...flightWith([tooEarly, okStart]), earliestDepartISO: new Date(hours(5)).toISOString() },
+  });
+  const e = applyHardRules([tooEarly, okStart], byEarliest);
+  check('leaves-before-earliest-start is removed', e.kept.length === 1 && e.kept[0].id === 'w-start',
+    `kept ${e.kept.map((k) => k.id).join(',')}`);
+  check('earliest-start removal names the earliest start', e.removed[0]?.rule.includes('earliest start') === true, e.removed[0]?.rule);
+
+  // an option with no published departure time is NOT removed by the lower bound
+  const unknownDep = alt({ id: 'w-unk', code: 'AI 5', arrivesAt: hours(8) });
+  delete (unknownDep as { departsAt?: number }).departsAt;
+  const withUnknown = ctxFor([unknownDep], {
+    flight: { ...flightWith([unknownDep]), earliestDepartISO: new Date(hours(5)).toISOString() },
+  });
+  const u = applyHardRules([unknownDep], withUnknown);
+  check('an unknown departure time survives the earliest-start filter', u.kept.length === 1 && u.kept[0].id === 'w-unk');
+}
+
 console.log('\nallow_cabin_downgrade:false is a hard filter that can leave nothing');
 {
   const economyOnly = alt({ id: 'a1', code: 'AI 1', cabin: 'Economy' });

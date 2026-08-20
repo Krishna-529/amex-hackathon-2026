@@ -33,6 +33,7 @@ import { cancelledAlert, aboutToBookAlert } from '../notify/templates';
 import { estimateRefund } from '../domain/refund';
 import * as store from '../domain/store';
 import { ensureSeeded } from '../domain/seed';
+import { resolveConsent } from '../preferences/journeyPrefs';
 import * as pipeline from '../pipeline';
 import type {
   DisruptionEvent, RecoveryTask, DisruptionResolution, Flight, Booking, Step, PreAuthRecord,
@@ -235,6 +236,13 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
   const preAuth = await store.getPreAuth(flight.id, passenger.id);
   const planIntact = preAuth ? isPlanIntact(flight, preAuth) : false;
 
+  // The consent that governs THIS flight: the member's per-flight override if
+  // they set one before departure, otherwise their standing profile consent.
+  // This is the human-in-the-loop-vs-autonomous choice — a member on global
+  // autopilot can ask to be consulted for one important flight, and vice versa.
+  const journeyPrefs = await store.getJourneyPrefs(flight.id, passenger.id);
+  const consent = resolveConsent(passenger.consent, journeyPrefs?.consent);
+
   const task: RecoveryTask = {
     id: await store.nextTaskId(),
     disruptionEventId: event.id,
@@ -320,7 +328,7 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
   // against real inventory (the same check a human's explicit approve gets)
   // and act immediately, exactly like the preAuth-and-intact branch above.
   // Only 'ask' consent still needs the window that follows this block.
-  if (passenger.consent === 'autopilot') {
+  if (consent === 'autopilot') {
     const switched = await revalidateChoice(task, flight);
     task.note = switched ?? "Autopilot is your standing permission, so we went ahead the moment the airline filed — there was no one to wait for.";
     await store.setRecoveryTask(task);

@@ -155,6 +155,22 @@ async function plan(run: PipelineRun): Promise<void> {
   const prefs = await preferencesFor(run.passengerId);
   const partySize = store.partySize(booking);
 
+  // The member's temporary, per-flight journey window, if they set one before
+  // this flight was disrupted. It bounds the search from both ends — earliest a
+  // replacement may depart, latest it may arrive — as hard rules. Applied to a
+  // per-passenger view of the flight (a spread copy) rather than the shared
+  // Flight, so two members on the same cancelled flight can hold different
+  // windows. A member-set arrive-by overrides any existing deadline on the
+  // flight; the invariant "a deadline implies hasHardConstraint" is preserved.
+  const journeyPrefs = await store.getJourneyPrefs(run.flightId, run.passengerId);
+  const effectiveDeadlineISO = journeyPrefs?.latestArriveISO ?? flight.hardDeadlineISO ?? null;
+  const flightForScoring = {
+    ...flight,
+    earliestDepartISO: journeyPrefs?.earliestDepartISO ?? flight.earliestDepartISO ?? null,
+    hardDeadlineISO: effectiveDeadlineISO,
+    hasHardConstraint: flight.hasHardConstraint || effectiveDeadlineISO != null,
+  };
+
   // Force a confirm-lane refresh: a disruption is exactly the moment staleness
   // is unacceptable at any price, and this is what the reserve exists for.
   await refreshAltsNow(run.flightId, 'disruption detected').catch(() => {});
@@ -190,13 +206,18 @@ async function plan(run: PipelineRun): Promise<void> {
   if (!journal.transition(run, 'EVALUATING', 'scoring the portfolio against the member profile').ok) return;
 
   const ctx: ScoreContext = {
-    flight,
+    flight: flightForScoring,
     rules: prefs.rules,
     preferredCabin: prefs.preferredCabin,
     partySize,
     displayCurrency: BILLING_CURRENCY,
     preferredCarriers: prefs.preferences.preferredCarriers,
-    hasHardConstraint: flight.hasHardConstraint,
+    hasHardConstraint: flightForScoring.hasHardConstraint,
+    // MyCa signals for the learned ranker: who this is (for their learned
+    // weight deltas) and their red-eye preference (a ranking feature). Both are
+    // read straight from the MyCa-backed profile — the ranker never keeps a copy.
+    memberId: run.passengerId,
+    avoidRedEye: prefs.preferences.avoidRedEye,
   };
 
   const party = altsForParty(flight.candidates.alts, partySize);
