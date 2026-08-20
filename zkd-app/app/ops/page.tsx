@@ -69,6 +69,8 @@ export default function OpsPage() {
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [warmingId, setWarmingId] = useState<string | null>(null);
+  const [ramp, setRamp] = useState<Record<string, number>>({});
+  const [resetting, setResetting] = useState(false);
 
   const trigger = (flightId: string) => {
     setBusyId(flightId);
@@ -91,10 +93,54 @@ export default function OpsPage() {
     fetch(`/api/flights/${flightId}/warm`, { method: 'POST' }).finally(() => setWarmingId(null));
   };
 
+  /**
+   * DEMO control — ramp a flight's risk score up past the threshold, live and
+   * on screen (+1 every 250ms up to 82), so a walkthrough can show the moment
+   * the system decides a flight is at risk. The number is animated locally for
+   * the reveal; the same target is persisted via /demo-risk so every screen
+   * (and the member's own) then reads it too. Cleared by "Reset demo". This is a
+   * presenter control, not the real model — the forecast it writes is tagged
+   * `demo-override`.
+   */
+  const RAMP_TARGET = 82;
+  const rampRisk = (flightId: string) => {
+    if (ramp[flightId] !== undefined) return; // already ramping
+    const current = (flights ?? []).find((f) => f.id === flightId)?.forecast?.riskScore;
+    let v = Math.max(Math.round(current ?? 55), 55);
+    setRamp((r) => ({ ...r, [flightId]: v }));
+    fetch(`/api/flights/${flightId}/demo-risk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ riskScore: RAMP_TARGET }),
+    }).catch(() => {});
+    const iv = setInterval(() => {
+      v += 1;
+      setRamp((r) => ({ ...r, [flightId]: v }));
+      if (v >= RAMP_TARGET) clearInterval(iv);
+    }, 250);
+  };
+
+  const resetDemo = () => {
+    setResetting(true);
+    fetch('/api/ops/demo-reset', { method: 'POST' }).finally(() => {
+      setRamp({});
+      setResetting(false);
+    });
+  };
+
   return (
     <div className="skeleton">
       <div className="page-h">
-        <h1>Operator console</h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <h1>Operator console</h1>
+          <button
+            onClick={resetDemo}
+            disabled={resetting}
+            title="Restore the demo to its seeded state — remove added flights, clear risk scores, and undo any rebook/cancel"
+          >
+            {resetting ? 'Resetting…' : 'Reset demo'}
+          </button>
+        </div>
         <p>
           Not part of the member experience — stands in for a live status feed. A demo can&apos;t wait
           for a real airline to actually cancel a flight, so this triggers the same detection entry
@@ -119,9 +165,13 @@ export default function OpsPage() {
                 <td className="rt">{f.from} → {f.to}</td>
                 <td className="dt">{hhmm(new Date(f.depISO))}</td>
                 <td>
-                  {f.forecast ? `${Math.round(f.forecast.riskScore ?? f.forecast.pct)}/100` : '—'}{' '}
-                  <span style={{ color: 'var(--mist2)' }}>
-                    ({f.forecast ? `${f.forecast.pct}% real · ${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
+                  {ramp[f.id] !== undefined
+                    ? `${ramp[f.id]}/100`
+                    : f.forecast ? `${Math.round(f.forecast.riskScore ?? f.forecast.pct)}/100` : '—'}{' '}
+                  <span style={{ color: ramp[f.id] !== undefined ? 'var(--risk)' : 'var(--mist2)' }}>
+                    ({ramp[f.id] !== undefined
+                      ? 'demo — ramping risk'
+                      : f.forecast ? `${f.forecast.pct}% real · ${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
                   </span>
                 </td>
                 <td>{f.passengerCount}</td>
@@ -133,6 +183,14 @@ export default function OpsPage() {
                   )}
                 </td>
                 <td className="ar">
+                  <button
+                    disabled={ramp[f.id] !== undefined}
+                    onClick={() => rampRisk(f.id)}
+                    style={{ marginRight: 8 }}
+                    title="DEMO: ramp this flight's risk score up past the threshold, live on screen"
+                  >
+                    {ramp[f.id] !== undefined ? `Risk ${ramp[f.id]}…` : 'Ramp risk →80'}
+                  </button>
                   <button
                     disabled={warmingId === f.id}
                     onClick={() => warm(f.id)}

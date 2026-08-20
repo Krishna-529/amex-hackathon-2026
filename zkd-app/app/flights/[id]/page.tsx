@@ -14,6 +14,7 @@ import type { FlightDetail, FlightForecast, ReverifyResult, PreAuthResponse } fr
 import type { PastFlight } from '@/server/domain/types';
 import ForecastAudit from '@/components/ForecastAudit';
 import { FlightDetailSkeleton, RiskBodySkeleton } from '@/components/PageSkeletons';
+import { AnimatedScore } from '@/components/AnimatedScore';
 
 const RING = 2 * Math.PI * 92;
 
@@ -86,6 +87,14 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const [hotelId, setHotelId] = useState<string | null>(null);
   const [cabId, setCabId] = useState<string | null>(null);
 
+  // Pre-authorise ("Yes — do this if it cancels") request state. Without this the
+  // button POSTed and ignored the result, so a rejected request looked identical
+  // to a successful one — the member had no way to tell their instruction never
+  // landed.
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authDone, setAuthDone] = useState(false);
+
   // Free-text intent. This is a PREVIEW: nothing it returns is applied to the
   // member's profile or to any recovery until they confirm, which is what makes
   // it safe to let a language model near the input at all.
@@ -155,13 +164,37 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
       .finally(() => setReporting(false));
   };
 
-  const authorise = () => {
-    fetch(`/api/flights/${id}/preauth`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ altId, hotelId, cabId }),
-    }).then(() => setIntent(null));
+  const authorise = async () => {
+    // Send the RESOLVED selection, not the raw pickers. `hotelId`/`cabId` state
+    // has no UI on this screen and is always null; `alt`/`hotel`/`cab` (below)
+    // already resolve to the chosen row or a sensible default. Only the
+    // alternative is required — hotel/cab ride along when they exist.
+    if (authBusy || !alt?.id) return;
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const res = await fetch(`/api/flights/${id}/preauth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ altId: alt.id, hotelId: hotel?.id ?? null, cabId: cab?.id ?? null }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setAuthError(body.error ?? `Could not save that instruction (${res.status}).`);
+        return;
+      }
+      setAuthDone(true);
+      setIntent(null);
+    } catch {
+      setAuthError('We could not reach the service just now — please try again.');
+    } finally {
+      setAuthBusy(false);
+    }
   };
+
+  // Changing the chosen alternative invalidates a previous confirmation — clear
+  // the "saved" tick and any error so the button reflects the current choice.
+  useEffect(() => { setAuthDone(false); setAuthError(null); }, [altId]);
 
   // Reverify lives here (not inside ForecastAudit) because its trigger sits
   // next to the headline score, not in the audit panel below. liveForecast
@@ -303,12 +336,15 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const planning = atOrAbove(fc?.band, PLAN_AT);
 
   // The intent preview re-orders the list; without one we show what the scorer
-  // already decided. Either way the member is looking at a real ranking.
-  const orderedAlts = intent?.understood && intent.options?.length
+  // already decided. Either way the member is looking at a real ranking. Capped
+  // to the ranker's top 5 — a member choosing a replacement does not want to
+  // scroll a whole inventory, and anything past the fifth-best is noise.
+  const orderedAlts = (intent?.understood && intent.options?.length
     ? (intent.options
         .map((o) => usableAlts.find((a) => a.id === o.id))
         .filter(Boolean) as typeof usableAlts)
-    : usableAlts;
+    : usableAlts
+  ).slice(0, 5);
 
   const alt = orderedAlts.find((a) => a.id === altId) ?? orderedAlts[0];
   const hotel = detail.candidates.hotels.find((h) => h.id === hotelId)
@@ -355,7 +391,7 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
                 />
               </svg>
               <div className="val">
-                <div className={`n ${tone}`}>{headline ?? '—'}</div>
+                <div className={`n ${tone}`}><AnimatedScore value={headline} /></div>
                 <div className="c">
                   risk score
                   {fc && (
@@ -687,8 +723,21 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
                   </p>
                 ) : null}
 
-                <button className="cta" onClick={authorise} style={{ width: '100%' }}>
-                  Yes — do this if it cancels
+                {authError && (
+                  <p className="why" style={{ color: 'var(--risk)' }}>{authError}</p>
+                )}
+
+                <button
+                  className="cta"
+                  onClick={authorise}
+                  disabled={authBusy || !alt?.id}
+                  style={{ width: '100%' }}
+                >
+                  {authBusy
+                    ? 'Saving…'
+                    : authDone
+                      ? 'Saved — we act the second it cancels'
+                      : 'Yes — do this if it cancels'}
                 </button>
               </div>
             </>

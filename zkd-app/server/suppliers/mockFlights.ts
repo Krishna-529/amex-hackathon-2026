@@ -95,6 +95,13 @@ export function generateFlightOffers(params: SearchParams): Offer[] {
     // live Duffel expires_at when this is the offer actually chosen.
     const expiresAt = Date.now() + (12 + Math.floor(rng() * 18)) * 60_000;
 
+    // Economy demo fares are changeable and mostly refundable; premium cabins
+    // always refundable. Without carriers + fareRules an offer reaches the
+    // policy gate incomplete and is default-denied (canon rule), which is what
+    // used to leave the recovery with nothing bookable — so a synthetic offer
+    // that stands in for real inventory has to carry a complete, plausible set.
+    const refundable = cabin !== 'Economy' ? true : rng() > 0.35;
+
     offers.push({
       id: `mock:${params.origin}${params.destination}:${params.departureDate}:${i}`,
       supplier: 'travelport',
@@ -109,6 +116,16 @@ export function generateFlightOffers(params: SearchParams): Offer[] {
       price: { amount: fareAmount, currency: 'INR' },
       expiresAt,
       live: false,
+      supplierType: 'coupon',
+      carriers: { marketing: carrier.code, operating: carrier.code, validating: carrier.code },
+      fareRules: {
+        fareBasis: `${cabin.charAt(0).toUpperCase()}DEMO`,
+        changeable: true,
+        refundable,
+        reissuePermitted: true,
+        interlinePermitted: true,
+        voidWindowMinutes: null,
+      },
     });
   }
 

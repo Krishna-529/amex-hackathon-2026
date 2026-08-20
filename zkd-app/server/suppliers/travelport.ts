@@ -13,17 +13,21 @@
  */
 
 import { generateFlightOffers } from './mockFlights';
+import { oagOffers } from './oagOffers';
 import type { RevalidationResult, Supplier, SupplierStatus } from './types';
 
 export const travelport: Supplier = {
   id: 'travelport',
 
   async search(params) {
-    if (!process.env.TRAVELPORT_API_KEY) {
-      return { offers: generateFlightOffers(params), status: 'ok' as SupplierStatus };
-    }
-    // Real integration lands here once access exists; the shape above is the contract.
-    return { offers: generateFlightOffers(params), status: 'ok' };
+    // Prefer REAL OAG flight identities (carrier / number / times) when we have
+    // them for this route+date, with a demo fare attached; fall back to the
+    // fully synthetic book so a route with no recorded OAG fixture still has
+    // something to rebook onto. Both carry the carriers/fareRules the policy
+    // gate needs.
+    const real = await oagOffers(params);
+    if (real.length > 0) return { offers: real, status: 'ok' as SupplierStatus };
+    return { offers: generateFlightOffers(params), status: 'ok' as SupplierStatus };
   },
 
   async revalidate(): Promise<RevalidationResult> {

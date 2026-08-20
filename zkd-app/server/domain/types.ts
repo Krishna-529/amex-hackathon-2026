@@ -392,8 +392,12 @@ export type PreAuthRecord = {
   flightId: string;
   passengerId: string;
   altId: string;
-  hotelId: string;
-  cabId: string;
+  // Hotel and cab are optional add-ons to the pre-authorised plan — the member
+  // pre-authorises a replacement SEAT; a hotel/cab only apply when the recovery
+  // actually needs an overnight or a transfer. The flight detail screen has no
+  // hotel/cab picker, so those arrive null from there.
+  hotelId: string | null;
+  cabId: string | null;
   owed: number;
   grantedAt: number;
 };
