@@ -264,6 +264,21 @@ export type Flight = {
    * a getter to live.
    */
   hardDeadlineISO?: string | null;
+  /**
+   * The symmetric lower bound: the earliest instant a REPLACEMENT flight may
+   * depart. "I cannot get to the airport before 6am" / "my meeting only ends at
+   * noon". Null when the member gave us no earliest-start.
+   *
+   * Like `hardDeadlineISO` this is a HARD RULE, not a preference weight: a
+   * replacement leaving before the member can physically make it is not a worse
+   * option, it is an impossible one, so `applyHardRules`
+   * (server/pipeline/score.ts) removes it rather than ranking it low. Also like
+   * the deadline, it is stored on the Flight view the pipeline scores against
+   * rather than derived, because the whole Flight is JSON-serialised into one
+   * Postgres column. Set per-passenger from their JourneyPrefs (see below), so
+   * two members on the same physical flight can hold different windows.
+   */
+  earliestDepartISO?: string | null;
   /** fetched from the forecaster, cached here; undefined until the first refresh */
   forecast?: FlightForecast;
   /** every real forecast this flight has ever received, oldest first, capped
@@ -381,6 +396,34 @@ export type PreAuthRecord = {
   cabId: string;
   owed: number;
   grantedAt: number;
+};
+
+/**
+ * A member's temporary, per-flight instruction, set before a booked flight is
+ * ever disrupted. Deliberately NOT part of the MyCa profile: it applies to this
+ * one flight only and is discarded when the flight is done, which is why it is
+ * keyed and stored exactly like PreAuthRecord (per flight + passenger) rather
+ * than living on the durable Passenger/MyCa profile.
+ *
+ * Three things the member states up front:
+ *  - `earliestDepartISO` — the soonest a replacement may depart (journey start)
+ *  - `latestArriveISO`   — the latest it may arrive (journey end); becomes the
+ *                          flight's `hardDeadlineISO` for this passenger
+ *  - `consent`           — whether rebooking this flight should be fully
+ *                          autonomous ('autopilot') or human-in-the-loop
+ *                          ('ask'), overriding the member's profile default.
+ *                          Null means "use my standing profile consent".
+ *
+ * Any field may be null: a member can set only a deadline, only a consent mode,
+ * or all three. Null is "not stated", never a value.
+ */
+export type JourneyPrefs = {
+  flightId: string;
+  passengerId: string;
+  earliestDepartISO: string | null;
+  latestArriveISO: string | null;
+  consent: Consent | null;
+  setAt: number;
 };
 
 /* ── outcomes ────────────────────────────────────────────────────────────── */

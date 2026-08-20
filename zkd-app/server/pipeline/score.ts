@@ -127,6 +127,12 @@ export function applyHardRules(alts: PartyAlt[], ctx: ScoreContext): FilterOutco
   // from a source that publishes no arrival time would be worse than ranking
   // them (score() already scores an unknown arrival neutrally).
   const deadline = ctx.flight.hardDeadlineISO ? Date.parse(ctx.flight.hardDeadlineISO) : NaN;
+  // The symmetric lower bound: the earliest a replacement may depart. Same
+  // discipline as the deadline — a departure the member cannot make is
+  // impossible, not merely worse, so it is filtered, not penalised. Unknown
+  // departure times are NOT removed, for the same reason unknown arrivals
+  // survive the deadline check: we cannot prove they violate the window.
+  const earliestDepart = ctx.flight.earliestDepartISO ? Date.parse(ctx.flight.earliestDepartISO) : NaN;
 
   for (const a of alts) {
     const carrier = a.code.split(/\s+/)[0]?.toUpperCase() ?? '';
@@ -140,6 +146,14 @@ export function applyHardRules(alts: PartyAlt[], ctx: ScoreContext): FilterOutco
         id: a.id,
         code: a.code,
         rule: `arrives after the ${new Date(deadline).toUTCString().slice(0, 16)} deadline you gave us`,
+      });
+      continue;
+    }
+    if (!Number.isNaN(earliestDepart) && typeof a.departsAt === 'number' && a.departsAt < earliestDepart) {
+      removed.push({
+        id: a.id,
+        code: a.code,
+        rule: `leaves before the ${new Date(earliestDepart).toUTCString().slice(0, 16)} earliest start you gave us`,
       });
       continue;
     }
