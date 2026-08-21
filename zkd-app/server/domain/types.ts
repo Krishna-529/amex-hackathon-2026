@@ -569,4 +569,9 @@ export type RecoveryTask = {
   shown: Step[];
   note: string | null;
   resolution: DisruptionResolution | null;
+  /** true once the one grace extension for an undelivered rung-3 notification
+   *  has been used, so settleExpired never grants a second one. See
+   *  server/engine/simulation.ts's settleExpired and
+   *  ZKD-Gap-Audit-Session-Report.md §3. */
+  undeliveredGraceUsed: boolean;
 };

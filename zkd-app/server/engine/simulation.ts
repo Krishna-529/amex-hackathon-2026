@@ -28,7 +28,7 @@ import { revalidateOffer, type Offer } from '../suppliers';
 import { altsForParty } from '../domain/altsForParty';
 import { costFor, type PartyCost } from '../domain/pricing';
 import { money } from '@/lib/time';
-import { dispatch } from '../notify';
+import { dispatch, type DispatchResult } from '../notify';
 import { cancelledAlert, aboutToBookAlert } from '../notify/templates';
 import { estimateRefund } from '../domain/refund';
 import * as store from '../domain/store';
@@ -98,6 +98,14 @@ const ZERO_COST: PartyCost = {
   partySize: 1, fare: 0, rooms: 0, hotel: 0, vehicles: 0, cab: 0, total: 0,
   currency: BILLING_CURRENCY,
 };
+
+/**
+ * The one grace extension rung 3 gets when no channel confirmed delivery.
+ * Short and fixed, not derived like the real window: this is a safety-net
+ * retry for a possibly-transient provider failure, not a second negotiation
+ * with the member. See ZKD-Gap-Audit-Session-Report.md §3.
+ */
+const UNDELIVERED_GRACE_SECONDS = 5 * 60;
 
 function isPlanIntact(flight: Flight, pre: PreAuthRecord): boolean {
   return !!(
@@ -268,6 +276,7 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
     shown: [...DECIDE_STEPS],
     note: null,
     resolution: null,
+    undeliveredGraceUsed: false,
   };
 
   if (preAuth && planIntact) {
@@ -380,21 +389,34 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
     flight, booking, cancelledBy: 'carrier', delayHours: 24,
   });
   const delta = spend.total - (refund.known && refund.currency === spend.currency ? refund.total : 0);
-  void dispatch(
+  const rung3Content = {
+    altCode: chosenAlt?.code ?? 'the best option we found',
+    altArrives: chosenAlt?.arr ?? '—',
+    deltaDisplay: money(Math.max(0, delta)),
+    free: delta <= 0,
+  };
+  const rung3Dispatch = dispatch(
     aboutToBookAlert({
       flightId: flight.id,
       passengerId: passenger.id,
       code: flight.code,
-      altCode: chosenAlt?.code ?? 'the best option we found',
-      altArrives: chosenAlt?.arr ?? '—',
-      deltaDisplay: money(Math.max(0, delta)),
-      free: delta <= 0,
+      ...rung3Content,
       minutes: Math.max(1, Math.round(win.seconds / 60)),
     }),
   );
 
-  setTimeout(() => { void settleExpired(flight.id, passenger.id); }, win.seconds * 1000);
+  setTimeout(() => {
+    void settleExpired(flight.id, passenger.id, { dispatch: rung3Dispatch, content: rung3Content });
+  }, win.seconds * 1000);
 }
+
+/** What settleExpired needs to know about the "about to book" message it is
+ *  the deadline for — only present when one was actually sent (never for the
+ *  `!win.askable` immediate-decide path, which never sends rung 3 at all). */
+type Rung3Outcome = {
+  dispatch: Promise<DispatchResult>;
+  content: { altCode: string; altArrives: string; deltaDisplay: string; free: boolean };
+};
 
 /**
  * The window ran out with nobody having acted — resolves it on schedule
@@ -402,7 +424,7 @@ async function createTaskForBooking(event: DisruptionEvent, flight: Flight, book
  * 'ask': autopilot never reaches this function — it resolves immediately in
  * createTaskForBooking, with no window to expire.
  */
-async function settleExpired(flightId: string, passengerId: string) {
+async function settleExpired(flightId: string, passengerId: string, rung3?: Rung3Outcome) {
   const task = await store.getRecoveryTask(flightId, passengerId);
   const flight = await store.getFlight(flightId);
   const passenger = await store.getPassenger(passengerId);
@@ -426,10 +448,51 @@ async function settleExpired(flightId: string, passengerId: string) {
   // first. This matches the frozen canon's Tier A mechanics — notify, quiet
   // window, proceed if silent.
   //
-  // The load-bearing assumption is that the alerts ACTUALLY ARRIVE. That makes
-  // an undeliverable channel a genuine safety defect rather than a cosmetic
-  // one, which is why dispatch results are written to the decision ledger and
-  // surfaced on /ops.
+  // ── But only once we know rung 3 actually reached them ───────────────────
+  //
+  // The load-bearing assumption above is that the alert ACTUALLY ARRIVES. It
+  // was going unchecked: `dispatch()` computed `delivered` and logged it, and
+  // nothing downstream read it, so a member whose WhatsApp and push both
+  // failed was indistinguishable from one who saw the message and chose not
+  // to object (ZKD-Gap-Audit-Session-Report.md §3). With the ₹25,000 cap gone,
+  // delivery is the only remaining control on an unattended spend, so it is
+  // checked here before anything is allowed to proceed.
+  if (rung3) {
+    const delivered = await rung3.dispatch.then((r) => r.delivered).catch(() => false);
+    if (!delivered) {
+      if (!task.undeliveredGraceUsed) {
+        // One grace extension, for a possibly-transient provider failure —
+        // not a second negotiation, just one more real attempt before we
+        // refuse to book blind.
+        task.undeliveredGraceUsed = true;
+        task.windowExpiresAt = Date.now() + UNDELIVERED_GRACE_SECONDS * 1000;
+        task.note = "We couldn't confirm our last message reached you, so we're giving it a few more minutes before acting without an answer.";
+        await store.setRecoveryTask(task);
+        const retryDispatch = dispatch(
+          aboutToBookAlert({
+            flightId: flight.id,
+            passengerId: passenger.id,
+            code: flight.code,
+            ...rung3.content,
+            minutes: Math.max(1, Math.round(UNDELIVERED_GRACE_SECONDS / 60)),
+          }),
+        );
+        setTimeout(() => {
+          void settleExpired(flightId, passengerId, { dispatch: retryDispatch, content: rung3.content });
+        }, UNDELIVERED_GRACE_SECONDS * 1000);
+        return;
+      }
+
+      // Still nothing, even after the grace extension. We will not book on an
+      // amount the member was never confirmably told about — this halts to a
+      // human rather than treating an unreachable member the same as one who
+      // saw rung 3 and silently consented.
+      task.note = "We couldn't confirm this reached you on any channel, so we stopped rather than book without your knowledge. An operator is picking this up.";
+      await finalizeResolution(task, { kind: 'handed-over', at: Date.now() });
+      return;
+    }
+  }
+
   const switched = await revalidateChoice(task, flight);
   task.note = switched ?? (cost.total === 0
     ? "You didn't answer. This costs you nothing, so we booked it rather than leave you stranded."

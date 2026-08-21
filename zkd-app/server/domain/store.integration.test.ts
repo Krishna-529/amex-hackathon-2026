@@ -102,7 +102,7 @@ describe.skipIf(!hasDb)('store.ts against real Postgres', () => {
       id: taskId, disruptionEventId: event.id, flightId, bookingId: booking.id, passengerId,
       phase: 'waiting' as const, terminal: null, needsRebooking: true, partySize: 1, windowExpiresAt: Date.now() + 60_000,
       windowBoundBy: 'ceiling' as const, chosenAltId: '', chosenHotelId: '', chosenCabId: '',
-      rejectedAltIds: [], shown: [], note: null, resolution: null,
+      rejectedAltIds: [], shown: [], note: null, resolution: null, undeliveredGraceUsed: false,
     };
     await store.setRecoveryTask(task);
     const readTask = await store.getRecoveryTask(flightId, passengerId);
