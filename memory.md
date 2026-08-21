@@ -12,6 +12,85 @@
 
 ## Recent work
 
+- 2026-08-21 — **Full re-audit from a session that started on a different branch entirely, and
+  `context.md` rewritten from a 2026-08-08 stub to something actually current.** The user pointed
+  Claude at `github.com/Krishna-529/amex-hackathon-2026` and asked for the `demo` branch. This
+  session's local clone was sitting on `feature/adaptive-forecast-and-bedrock-refinement` — a
+  **sibling lineage**, not an old copy of this one, diverged from `demo` since the common ancestor
+  `5359121`. `context.md`'s own promise ("one file, lives on `main`, shared by every session") had
+  quietly stopped being true for that file specifically: `memory.md` on `demo` was kept current the
+  whole time (this log, right up to the entry below), but nobody had refreshed `context.md` since
+  2026-08-08 — it still described a pre-Postgres, pre-risk-model, four-screen prototype. Fetched
+  `origin`, found the `demo` branch (plus six other branches nobody had told this session about —
+  see below), checked it out locally as a new branch tracking `origin/demo`, and rewrote
+  `context.md` from scratch reading the code + this whole log, not the stale copy. Full findings
+  now live there; only what's new or corrects something is repeated here.
+
+  **The single most important finding, confirmed independently twice now (the 2026-08-19 gap audit,
+  and this session): `server/policy/index.ts`'s `evaluatePolicy` has exactly one importer in the
+  entire repository — its own test file.** No route, no pipeline step calls it
+  (`grep -rn evaluatePolicy` across `zkd-app` returns one hit: `tests/policy.test.ts`). Combined
+  with the ₹25,000 cap's removal (2026-08-19) and the still-open `dispatch().delivered`-unchecked
+  defect the gap audit found the same day, **there is currently no code path on `demo` that can
+  refuse an autonomous booking on policy or amount grounds.** This isn't a new discovery — the gap
+  audit named the delivery defect — but the policy-gate half of it hadn't been written down
+  anywhere before today, and the two facts compound: even a fixed `delivered` check only restores
+  *informed consent*, not a hard stop: nothing stands between a *consented* action and one that
+  should have been policy-denied (fare-class ceiling, exposure cap, duplicate ticket, etc.) — those
+  twelve real rules simply never run.
+
+  **Read `ZKD-Gap-Audit-Session-Report.md` before repeating any of its work.** A 2026-08-19 session
+  (branch `worktree-gap-audit-report`, not yet merged into `demo`) already did a rigorous,
+  file-and-line-cited audit that overlaps heavily with what a from-scratch re-audit would have
+  produced: it corrected six stale claims in the standing feature checklist (FX, LiteAPI, ground
+  transport, the removed cap, refund, detection are all more real than the checklist said — see its
+  §2), found the `delivered`-unchecked defect (§3), and did real research establishing this product
+  is much further along on international capability than anyone had written down (§4: a 5-jurisdiction
+  entitlement engine, a 6,072-airport worldwide table, a model trained on real international data —
+  India is the launch market, not a ceiling). Its §9 recommended order is still the right order;
+  nothing in today's session found reason to reprioritize it. What today's session adds on top,
+  not already in that report: the policy-gate finding above, and the cross-branch survey below.
+
+  **Six branches on `origin` are not reflected in `demo` and nobody had surveyed them together
+  before today**: `worktree-gap-audit-report` (the report above + a real Fast2SMS channel, not yet
+  merged), `worktree-live-risk-weights` (a real live weather/NOTAM/GDELT feature addition to the
+  learned ranker, `e06ad4f`, branched before the Aug-19 refund/FX work — needs a rebase),
+  `worktree-preference-refinement` (superseded by the already-resolved `intent.ts` collision — do
+  not merge), and three (`docs/meeting-2-kpis`, `worktree-intent-refund-detection`,
+  `worktree-learned-alt-ranker`) already merged into `demo` — safe to delete once confirmed. Full
+  table in `context.md`.
+
+  **Cross-branch comparison, not previously written down because nobody had put the two lineages
+  side by side**: `demo`'s risk model (2-country, US+Brazil, ROC-AUC 0.804, trained 2026-08-15) is
+  measurably weaker than `feature/adaptive-forecast-and-bedrock-refinement`'s (5-country + India
+  carrier-rate prior, ROC-AUC 0.829, with real overfitting/underfitting diagnostics that caught a
+  real chronological-split bug on the other branch). The scoring interface (`inference.py`'s
+  `score()`) is shared, so porting the better-trained artifacts is a real, low-risk, concrete
+  upgrade — not attempted today, flagged for a scoped follow-up. Conversely `demo` has substantial
+  real capability the other lineage lacks entirely: three-lane detection, real notifications, real
+  refund/FX, real bookings, an Amex UI skin, a learned (not hand-tuned) ranker, and real
+  ground/hotel suppliers. Neither branch is a strict improvement on the other; they're
+  complementary, and reconciling them is the biggest open architectural question in this repo.
+
+  **Verified today, all green**: `python3 iropssim.py | diff -` empty; four canon `A2` hashes
+  identical (`6294649430f22e26`); `npx tsc --noEmit` clean; `npx vitest run` → 222 passed / 5
+  skipped / 8 failed, and all 8 failures are `ECONNREFUSED 127.0.0.1:5433` (no local Postgres —
+  `docker-compose.yml` no longer exists on this branch to start one) not real regressions, though
+  worth noting these DB-gated tests hard-fail rather than self-skip here, unlike the pattern used
+  on the sibling branch; `npm run build` succeeds with dummy secrets set.
+
+  **A note on scope, since the user's actual ask was much larger than a docs refresh**: the user
+  asked for context.md/memory.md to be brought current (done, this entry), and separately for a
+  full shortcomings analysis and an end-to-end rebuild toward "the most robust, flagship,
+  production-grade version" of the product. Given (a) an excellent, current, independent audit
+  already exists and shouldn't be duplicated, (b) six branches of real unmerged work are already in
+  flight from teammates as of today, and (c) this is apparently the actual finale-week codebase with
+  people actively committing to it hours before this session started — the responsible next step is
+  a prioritized roadmap presented to the user for a scope/priority decision before any large
+  surgery, not silent unilateral rewrites of a branch three other people are actively pushing to.
+  That roadmap follows in the same conversation turn as this entry; check the conversation, not this
+  log, for its content — it wasn't necessarily committed as a file.
+
 - 2026-08-19 — **A wrong answer given confidently, and the rule that should stop the next one.**
 
   Dhawal said a branch had an Amex-style light theme and that I had shifted the UI back to dark. I
