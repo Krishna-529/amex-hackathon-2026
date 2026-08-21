@@ -10,7 +10,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ fli
   if ('response' in g) return g.response;
 
   const { flightId } = await params;
-  const body = (await req.json()) as { action: ResolveAction };
+  const body = (await req.json().catch(() => null)) as { action?: ResolveAction } | null;
+  const kind = body?.action?.kind;
+  const validKinds = ['approve', 'hand-over', 'browse', 'back', 'choose', 'swap-hotel', 'swap-cab'];
+  if (!body?.action || typeof kind !== 'string' || !validKinds.includes(kind)) {
+    return NextResponse.json({ error: 'a valid action is required' }, { status: 400 });
+  }
   const task = await resolveTask(flightId, g.passenger.id, body.action);
   if (!task) return NextResponse.json({ error: 'no recovery task for this passenger' }, { status: 404 });
   return NextResponse.json(await getRecoveryView(flightId, g.passenger.id));
