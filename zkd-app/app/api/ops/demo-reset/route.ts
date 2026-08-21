@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireSession } from '@/server/auth/guard';
+import { requireOperator } from '@/server/auth/guard';
 import { resetDemo } from '@/server/domain/seed';
 
 /**
@@ -7,9 +7,13 @@ import { resetDemo } from '@/server/domain/seed';
  * back to original (forecast/reschedule cleared), any /ops-added flight removed,
  * and all disruption/recovery state wiped. The /ops "Reset demo" button calls
  * this between walkthroughs.
+ *
+ * `requireOperator`, not `requireSession` — fixed 2026-08-21. Any signed-in
+ * member (including a publicly-listed demo login) could previously wipe the
+ * whole demo/disruption state for everyone mid-event with one request.
  */
 export async function POST(req: NextRequest) {
-  const g = await requireSession(req);
+  const g = await requireOperator(req);
   if ('response' in g) return g.response;
 
   await resetDemo();

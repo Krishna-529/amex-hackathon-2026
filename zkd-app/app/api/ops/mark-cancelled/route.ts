@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as store from '@/server/domain/store';
-import { requireSession } from '@/server/auth/guard';
+import { requireOperator } from '@/server/auth/guard';
 
 /**
  * DEMO / operator control — mark a flight cancelled IN OUR DATA without starting
@@ -10,9 +10,16 @@ import { requireSession } from '@/server/auth/guard';
  * cancelled" plus a helpline. Contrast the /ops "Trigger" button (POST
  * /api/disruptions), which cancels AND kicks off the recovery immediately.
  * Cleared by "Reset demo".
+ *
+ * `requireOperator`, not `requireSession` — fixed 2026-08-21. This route was
+ * previously gated only on "any signed-in member," which meant any account
+ * (including the publicly-listed demo logins) could manufacture "confirmed"
+ * corroboration for an arbitrary flight — `memberReports.ts` treats
+ * `cancelledInData` as instantly authoritative, bypassing the real
+ * 3-independent-reporter threshold.
  */
 export async function POST(req: NextRequest) {
-  const g = await requireSession(req);
+  const g = await requireOperator(req);
   if ('response' in g) return g.response;
 
   const body = (await req.json().catch(() => ({}))) as { flightId?: unknown; cancelled?: unknown };

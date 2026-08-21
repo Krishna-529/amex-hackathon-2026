@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as store from '@/server/domain/store';
-import { requireSession } from '@/server/auth/guard';
+import { requireOperator } from '@/server/auth/guard';
 import { thresholdsFor } from '@/server/engine/thresholds';
 import { bandFor, BAND_TONE } from '@/lib/thresholds';
 import { refreshAltsNow } from '@/server/engine/altsCache';
@@ -15,9 +15,16 @@ import type { FlightForecast } from '@/server/domain/types';
  * `modelVersion: 'demo-override'` marks every forecast it writes so it can never
  * be mistaken for a real score. The /ops "Ramp risk" button calls this; the
  * "Reset demo" button clears it.
+ *
+ * `requireOperator`, not `requireSession` — fixed 2026-08-21. This is a
+ * presenter control with no per-member concept of ownership (it overrides a
+ * FLIGHT's forecast, not a member's own view of one), so the fix is an
+ * operator check, not a booking-ownership check. Previously any signed-in
+ * member could rewrite any flight's forecast and force a real (budget-
+ * consuming) alt-search refresh on it.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const g = await requireSession(req);
+  const g = await requireOperator(req);
   if ('response' in g) return g.response;
 
   const { id } = await params;

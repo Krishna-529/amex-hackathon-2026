@@ -7,9 +7,11 @@ import { NextResponse, type NextRequest } from 'next/server';
 import * as store from '@/server/domain/store';
 import { ensureSeeded } from '@/server/domain/seed';
 import { sessionFrom } from './session';
+import { opsSessionFrom } from './opsSession';
 import type { Passenger } from '@/server/domain/types';
 
 export type Guard = { passenger: Passenger } | { response: NextResponse };
+export type OpsGuard = { ok: true } | { response: NextResponse };
 
 function unauthorized(): Guard {
   return { response: NextResponse.json({ error: 'not signed in' }, { status: 401 }) };
@@ -38,4 +40,20 @@ export async function requireSelf(req: NextRequest, id: string): Promise<Guard> 
   if ('response' in g) return g;
   if (g.passenger.id !== id) return forbidden();
   return g;
+}
+
+/**
+ * The operator boundary — deliberately NOT `requireSession`. A signed-in
+ * member is not an operator; conflating the two is the exact gap this
+ * function closes (see `opsSession.ts`'s header for what was reachable
+ * without it). Every `/ops`-mutating route and the `/api/disruptions`
+ * manual-trigger route (its only caller is the `/ops` console) must use
+ * this, not `requireSession`.
+ */
+export async function requireOperator(req: NextRequest): Promise<OpsGuard> {
+  const session = opsSessionFrom(req);
+  if (!session) {
+    return { response: NextResponse.json({ error: 'operator sign-in required' }, { status: 401 }) };
+  }
+  return { ok: true };
 }
