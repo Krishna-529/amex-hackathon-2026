@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { notFound } from 'next/navigation';
 import { useWorld } from '@/components/WorldProvider';
 import RouteLine from '@/components/Route';
@@ -58,14 +58,17 @@ const BAND_ORDER: Band[] = ['watch', 'prepare', 'hold-gate', 'pre-authorise'];
 const atOrAbove = (b: Band | undefined, floor: Band) =>
   b !== undefined && BAND_ORDER.indexOf(b) >= BAND_ORDER.indexOf(floor);
 
-/** What POST /api/flights/[id]/intent hands back. The route applies nothing —
- *  this is a preview the member confirms or discards. */
-type IntentResult = {
+/** One bubble in the running conversation. */
+type ConversationTurn = { role: 'member' | 'assistant'; text: string; at: number; isClarification?: boolean };
+
+/** What every /api/flights/[id]/intent verb (GET, POST, DELETE) hands back. The
+ *  route applies nothing — this is a preview the member confirms or discards. */
+type ConversationView = {
   understood: boolean;
   message?: string;
-  restated?: string | null;
-  confidence?: 'high' | 'medium' | 'low';
-  diff?: { changes: string[]; clamped: string[]; unsupported: { asked: string; why: string }[] };
+  turns: ConversationTurn[];
+  diff: { changes: string[]; clamped: string[]; unsupported: { asked: string; why: string }[] } | null;
+  clarification: string | null;
   removed?: { id: string; code: string; rule: string }[];
   options?: { id: string; code: string; dep: string; arr: string; partyFare: number; ok: boolean; why: string }[];
 };
@@ -100,7 +103,10 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   // it safe to let a language model near the input at all.
   const [text, setText] = useState('');
   const [thinking, setThinking] = useState(false);
-  const [intent, setIntent] = useState<IntentResult | null>(null);
+  const [conv, setConv] = useState<ConversationView | null>(null);
+  // Restore the conversation once, when the plan panel first becomes available,
+  // so a refresh mid-chat brings back the thread AND the ranking it produced.
+  const convLoaded = useRef(false);
 
   // The member as a detection source. Behind our own confirm modal (not the
   // browser's), because pressing it checks the flight against our airline data:
@@ -133,24 +139,69 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   // The session on this request IS the passenger, so no id travels in the URL.
   const { data: preAuth } = usePoll<PreAuthResponse>(past ? null : `/api/flights/${id}/preauth`, 8000);
 
-  const ask = () => {
+  // Apply a view the server returned: store it, and follow the new top option
+  // whenever the ranking changed under us.
+  const applyView = (v: ConversationView) => {
+    setConv(v);
+    if (v.options?.length) setAltId((v.options.find((o) => o.ok) ?? v.options[0]).id);
+  };
+
+  const send = () => {
     if (!text.trim() || thinking) return;
+    const message = text;
+    setThinking(true);
+    setText('');
+    fetch(`/api/flights/${id}/intent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: message }),
+    })
+      .then((r) => r.json())
+      .then((v: ConversationView) => {
+        // A message we could not read leaves the thread as it was — put the
+        // member's text back so they can edit rather than retype it.
+        if (!v.understood) setText(message);
+        applyView(v);
+      })
+      .catch(() => setConv((c) => (c ? { ...c, understood: false, message: 'We could not reach that service. Nothing changed.' } : c)))
+      .finally(() => setThinking(false));
+  };
+
+  const undo = () => {
+    if (thinking) return;
     setThinking(true);
     fetch(`/api/flights/${id}/intent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ undo: true }),
     })
       .then((r) => r.json())
-      .then((r: IntentResult) => {
-        setIntent(r);
-        // Move the selection to the new leader, but only when we understood
-        // them and something survived their own rules.
-        if (r.understood && r.options?.length) setAltId((r.options.find((o) => o.ok) ?? r.options[0]).id);
-      })
-      .catch(() => setIntent({ understood: false, message: 'We could not reach that service. Your preferences are unchanged.' }))
+      .then(applyView)
+      .catch(() => {})
       .finally(() => setThinking(false));
   };
+
+  const reset = () => {
+    if (thinking) return;
+    setThinking(true);
+    fetch(`/api/flights/${id}/intent`, { method: 'DELETE' })
+      .then((r) => r.json())
+      .then(applyView)
+      .catch(() => {})
+      .finally(() => setThinking(false));
+  };
+
+  // Restore a prior conversation once, for a live flight — so a refresh mid-chat
+  // brings the thread and its ranking back. A past flight is a frozen record
+  // with nothing to resume.
+  useEffect(() => {
+    if (convLoaded.current || past) return;
+    convLoaded.current = true;
+    fetch(`/api/flights/${id}/intent`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v: ConversationView | null) => { if (v?.turns?.length) setConv(v); })
+      .catch(() => {});
+  }, [id, past]);
 
   const openReport = () => { setReportResult(null); setReportOpen(true); };
   const closeReport = () => { if (!reporting) setReportOpen(false); };
@@ -197,7 +248,6 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
         return;
       }
       setAuthDone(true);
-      setIntent(null);
     } catch {
       setAuthError('We could not reach the service just now — please try again.');
     } finally {
@@ -352,8 +402,8 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   // already decided. Either way the member is looking at a real ranking. Capped
   // to the ranker's top 5 — a member choosing a replacement does not want to
   // scroll a whole inventory, and anything past the fifth-best is noise.
-  const orderedAlts = (intent?.understood && intent.options?.length
-    ? (intent.options
+  const orderedAlts = (conv?.options?.length
+    ? (conv.options
         .map((o) => usableAlts.find((a) => a.id === o.id))
         .filter(Boolean) as typeof usableAlts)
     : usableAlts
@@ -598,72 +648,77 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
               status read-out. ─────────────────────────────────────────────── */}
           {planning && (
             <>
-              <div className="g panel" style={{ marginTop: 16 }}>
-                <h3>Tell us what matters</h3>
-                <p className="why" style={{ marginTop: 0 }}>
-                  In your own words — a time you have to be there by, an airline you would rather
-                  not fly, how much of your own money you are willing to spend. We will re-order
-                  the options above and show you exactly what changed.
-                </p>
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  maxLength={600}
-                  rows={3}
-                  aria-label="What matters to you about this trip"
-                  placeholder="e.g. I have to be in Delhi before 9pm for my sister's wedding, and I'd rather not fly Air India"
-                  className="intent-box"
-                />
-                <div className="acts" style={{ marginTop: 10 }}>
-                  <button onClick={ask} disabled={thinking || !text.trim()}>
-                    {thinking ? 'Reading that…' : 'Use this'}
-                  </button>
-                  {intent && <button onClick={() => { setIntent(null); setText(''); }}>Undo</button>}
+              <div className="g panel intent-chat" style={{ marginTop: 16 }}>
+                <div className="intent-head">
+                  <h3 style={{ margin: 0 }}>Tell us what matters</h3>
+                  {!!conv?.turns?.length && (
+                    <div className="intent-controls">
+                      <button onClick={undo} disabled={thinking} className="link-btn">Undo</button>
+                      <button onClick={reset} disabled={thinking} className="link-btn">Reset</button>
+                    </div>
+                  )}
                 </div>
 
-                {intent && !intent.understood && (
-                  <p className="why" style={{ color: 'var(--risk)' }}>{intent.message}</p>
+                <div className="intent-thread" aria-live="polite">
+                  {!conv?.turns?.length ? (
+                    <p className="intent-empty">
+                      In your own words — a deadline you have to hit, an airline you would rather not fly,
+                      how much of your own money you will spend. Keep talking to refine it; the options
+                      above re-order as you do, and you can take anything back.
+                    </p>
+                  ) : (
+                    conv.turns.map((t, i) => (
+                      <div key={`${t.at}-${i}`} className={`bubble ${t.role}${t.isClarification ? ' clarify' : ''}`}>
+                        {t.role === 'assistant' && t.isClarification && <span className="bubble-tag">One thing —</span>}
+                        {t.text}
+                      </div>
+                    ))
+                  )}
+                  {thinking && <div className="bubble assistant pending"><span className="dots"><i /><i /><i /></span></div>}
+                </div>
+
+                {conv && !conv.understood && conv.message && (
+                  <p className="why intent-error">{conv.message}</p>
                 )}
 
-                {intent?.understood && (
-                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--amex-line2, rgba(255,255,255,.1))' }}>
-                    {intent.restated && <p style={{ margin: '0 0 10px', fontSize: 14 }}><b>{intent.restated}</b></p>}
-                    {!!intent.diff?.changes.length && (
-                      <>
-                        <div className="lbl">What we will do</div>
-                        <ul className="why" style={{ paddingLeft: 18 }}>
-                          {intent.diff.changes.map((c) => <li key={c}>{c}</li>)}
-                        </ul>
-                      </>
+                <div className="intent-input">
+                  <textarea
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+                    }}
+                    maxLength={600}
+                    rows={2}
+                    aria-label="What matters to you about this trip"
+                    placeholder={conv?.clarification ? 'Answer above, or say something else…' : "e.g. be in Delhi before 9pm, not Air India"}
+                    className="intent-box"
+                  />
+                  <button onClick={send} disabled={thinking || !text.trim()} className="intent-send" aria-label="Send">
+                    {thinking ? '…' : 'Send'}
+                  </button>
+                </div>
+
+                {/* The running effect of the whole conversation, not just the last
+                    message — what will happen, what we adjusted, and what your own
+                    words ruled out. */}
+                {(!!conv?.diff?.changes.length || !!conv?.diff?.clamped.length || !!conv?.diff?.unsupported.length || !!conv?.removed?.length) && (
+                  <div className="intent-summary">
+                    {!!conv?.diff?.changes.length && (
+                      <><div className="lbl">What we will do</div>
+                        <ul className="why">{conv.diff.changes.map((c) => <li key={c}>{c}</li>)}</ul></>
                     )}
-                    {/* Anything we altered from what was proposed is stated, never
-                        silently corrected. */}
-                    {!!intent.diff?.clamped.length && (
-                      <>
-                        <div className="lbl">What we adjusted</div>
-                        <ul className="why" style={{ paddingLeft: 18 }}>
-                          {intent.diff.clamped.map((c) => <li key={c}>{c}</li>)}
-                        </ul>
-                      </>
+                    {!!conv?.diff?.clamped.length && (
+                      <><div className="lbl">What we adjusted</div>
+                        <ul className="why">{conv.diff.clamped.map((c) => <li key={c}>{c}</li>)}</ul></>
                     )}
-                    {!!intent.diff?.unsupported.length && (
-                      <>
-                        <div className="lbl">What we cannot do</div>
-                        <ul className="why" style={{ paddingLeft: 18, color: 'var(--risk)' }}>
-                          {intent.diff.unsupported.map((u) => <li key={u.asked}>{u.asked} — {u.why}</li>)}
-                        </ul>
-                      </>
+                    {!!conv?.diff?.unsupported.length && (
+                      <><div className="lbl">What we cannot do</div>
+                        <ul className="why" style={{ color: 'var(--risk)' }}>{conv.diff.unsupported.map((u) => <li key={u.asked}>{u.asked} — {u.why}</li>)}</ul></>
                     )}
-                    {/* "We found nothing" and "your own instruction excluded
-                        everything" are different answers, and the member is owed
-                        the second one. */}
-                    {!!intent.removed?.length && (
-                      <>
-                        <div className="lbl">Ruled out by what you told us</div>
-                        <ul className="why" style={{ paddingLeft: 18 }}>
-                          {intent.removed.map((r) => <li key={r.id}>{r.code} — {r.rule}</li>)}
-                        </ul>
-                      </>
+                    {!!conv?.removed?.length && (
+                      <><div className="lbl">Ruled out by what you told us</div>
+                        <ul className="why">{conv.removed.map((r) => <li key={r.id}>{r.code} — {r.rule}</li>)}</ul></>
                     )}
                   </div>
                 )}

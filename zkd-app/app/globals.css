@@ -1767,4 +1767,57 @@ body:has(.amex-page) { background: var(--amex-bg) }
 .amex-page .acts button{background:#fff;border:1px solid var(--amex-line);color:var(--amex-text)}
 .amex-page .acts button:hover:not(:disabled){border-color:var(--amex-blue);color:var(--amex-blue)}
 .amex-page .cta{background:var(--amex-blue);color:#fff;border:0}
+
+/* ── Intent chat ─────────────────────────────────────────────────────────────
+   A running conversation that re-orders the options above. Everything reads
+   from the --amex-* tokens so it holds in both the light skin and the dark
+   toggle; the member's voice is Amex blue, the assistant's is a quiet card. */
+.intent-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.intent-controls{display:flex;gap:6px}
+.link-btn{font:inherit;font-size:12px;font-weight:500;background:none;border:0;padding:4px 6px;
+  border-radius:6px;color:var(--amex-mist);cursor:pointer}
+.link-btn:hover:not(:disabled){color:var(--amex-blue)}
+.link-btn:disabled{opacity:.5;cursor:default}
+
+.intent-thread{display:flex;flex-direction:column;gap:8px;margin:12px 0 4px;
+  max-height:280px;overflow-y:auto;padding:2px}
+.intent-empty{margin:8px 2px;font-size:13.5px;line-height:1.55;color:var(--amex-mist)}
+
+.bubble{max-width:86%;padding:9px 13px;border-radius:14px;font-size:13.5px;line-height:1.5;
+  white-space:pre-wrap;overflow-wrap:anywhere;animation:bubble-in .18s ease-out}
+.bubble.member{align-self:flex-end;background:var(--amex-blue);color:#fff;border-bottom-right-radius:5px}
+.bubble.assistant{align-self:flex-start;background:var(--amex-surf);color:var(--amex-text);
+  border:1px solid var(--amex-line);border-bottom-left-radius:5px}
+/* The clarifying question is a different kind of turn — it wants an answer, so
+   it looks like an invitation, not a receipt. */
+.bubble.assistant.clarify{background:color-mix(in srgb,var(--amex-blue) 9%,var(--amex-card));
+  border-color:color-mix(in srgb,var(--amex-blue) 35%,var(--amex-line));
+  border-left:3px solid var(--amex-blue)}
+.bubble-tag{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--amex-blue);margin-bottom:3px}
+.bubble.pending{padding:11px 14px}
+.dots{display:inline-flex;gap:4px;align-items:center}
+.dots i{width:5px;height:5px;border-radius:50%;background:var(--amex-mist2);animation:dot 1.1s infinite ease-in-out}
+.dots i:nth-child(2){animation-delay:.15s}
+.dots i:nth-child(3){animation-delay:.3s}
+
+.intent-error{color:var(--risk);margin:6px 2px 0}
+
+.intent-input{display:flex;gap:8px;align-items:flex-end;margin-top:8px}
+.intent-input .intent-box{flex:1;min-height:44px}
+.intent-send{font:inherit;font-size:13px;font-weight:600;padding:0 18px;height:44px;flex:0 0 auto;
+  border-radius:11px;background:var(--amex-blue);color:#fff;border:0;cursor:pointer}
+.intent-send:hover:not(:disabled){filter:brightness(1.06)}
+.intent-send:disabled{opacity:.45;cursor:default}
+
+.intent-summary{margin-top:14px;padding-top:12px;border-top:1px solid var(--amex-line2)}
+.intent-summary .why{padding-left:18px;margin:4px 0 10px}
+.intent-summary .lbl{margin-top:8px}
+
+@keyframes bubble-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes dot{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+@media (prefers-reduced-motion: reduce){
+  .bubble{animation:none}
+  .dots i{animation:none;opacity:.6}
+}
 .amex-page .cta:hover{filter:brightness(1.06)}
