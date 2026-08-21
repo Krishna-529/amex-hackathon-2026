@@ -7,7 +7,7 @@ import { usePoll } from '@/lib/usePoll';
 import {
   WARM_STEPS, WARM_TOTAL, DECIDE_TOTAL, ACT_TOTAL, MACHINE_TOTAL,
 } from '@/lib/recovery';
-import { secs, money, agoLabel, hhmm } from '@/lib/time';
+import { secs, money, agoLabel, hhmm, dayLabel } from '@/lib/time';
 import type { RecoveryView, FlightDetail, PreAuthResponse } from '@/lib/apiTypes';
 import type { ResolveAction } from '@/server/engine/simulation';
 import { RecoverySkeleton } from '@/components/PageSkeletons';
@@ -59,7 +59,7 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
       <div className="page-h" style={{ padding: '0 0 26px' }}>
         <h1>{f.code} was cancelled</h1>
         <p>
-          {f.from} → {f.to}, was due to depart {hhmm(new Date(f.depISO))} today.
+          {f.from} → {f.to}, was due to depart {dayLabel(new Date(f.depISO), new Date())} at {hhmm(new Date(f.depISO))}.
           Detected {agoLabel(new Date(view.detectedAt), new Date())}.
         </p>
       </div>
@@ -96,7 +96,9 @@ export default function RecoveryPage({ params }: { params: Promise<{ id: string 
             <p className="phase-note">
               {preAuth
                 ? 'You authorised this beforehand, so there was no waiting on a human at all — this is the entire recovery.'
-                : 'Machine time only. The window you get to object is yours, and is not counted here.'}
+                : consent === 'autopilot'
+                  ? 'Autopilot is your standing permission, so we acted the moment the airline filed — there was no window to wait on.'
+                  : 'Machine time only. The window you get to object is yours, and is not counted here.'}
             </p>
 
             <div className="tl">

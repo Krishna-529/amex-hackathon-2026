@@ -208,9 +208,19 @@ export async function widenDetection(flightId: string): Promise<void> {
   }
 }
 
-async function createTaskForBooking(event: DisruptionEvent, flight: Flight, booking: Booking) {
+async function createTaskForBooking(event: DisruptionEvent, flightArg: Flight, booking: Booking) {
   const passenger = await store.getPassenger(booking.passengerId);
   if (!passenger) return;
+
+  // Wait for the pipeline to finish planning before we pick a plan and (for
+  // autopilot / pre-auth) cross the gate. This closes the race that left the
+  // recovery stuck at 'acting': plan()'s awaited supplier search may not have
+  // populated candidates.alts yet, and the run may not have reached HOLD_PENDING
+  // — so execute()'s → CONFIRMED transition would be rejected and the task hung.
+  // ensurePlanned awaits the SAME in-flight plan() run, then we re-read the flight
+  // so chosenAltId is picked from the freshly-searched alternatives.
+  await pipeline.ensurePlanned(flightArg.id, passenger.id);
+  const flight = (await store.getFlight(flightArg.id)) ?? flightArg;
 
   // ── Rung 2 of the notification ladder ────────────────────────────────────
   //
