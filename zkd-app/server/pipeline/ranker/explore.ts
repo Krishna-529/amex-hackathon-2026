@@ -58,7 +58,22 @@ export function applyExploration(
     return scored;
   }
 
+  // Every element's propensity must be assigned before this function returns
+  // — IPW is only unbiased if it is. Initialised to a sentinel (not a real
+  // probability) specifically so a bug leaving one unset is loud, not a
+  // silently-wrong 1. The bug this replaces: the old loop only ever wrote
+  // `out[i].propensity` in its "near-tie, not swapped" branch, never
+  // `out[i+1]`'s — for an interior pair that gap got closed by the NEXT
+  // iteration re-visiting that same element as its own `out[i]`, but the
+  // LAST element in the array has no next iteration, so an unswapped
+  // near-tie against the second-to-last element left it stamped with a
+  // stale default of 1 instead of the correct `1 - eps/2`. That silently
+  // biased any propensity-weighted (IPW) offline evaluation the moment
+  // exploration was ever turned on.
   const out = [...scored];
+  const UNSET = -1;
+  out.forEach((s) => (s.propensity = UNSET));
+
   for (let i = 0; i < out.length - 1; i++) {
     const gap = Math.abs(out[i].utility - out[i + 1].utility);
     if (gap < delta && rng() < eps) {
@@ -70,11 +85,18 @@ export function applyExploration(
       out[i + 1].propensity = eps / 2;
     } else if (gap < delta) {
       out[i].propensity = 1 - eps / 2;
+      out[i + 1].propensity = 1 - eps / 2;
     } else {
       out[i].propensity = 1;
+      // out[i + 1] is intentionally left for the next iteration (as the new
+      // `out[i]`) to decide, UNLESS it's the last element — the fallback
+      // below covers that case.
     }
   }
-  if (out.length) out[out.length - 1].propensity ??= 1;
+  // Anything still unset (only possible for the last element, when its pair
+  // with the second-to-last fell into the "not near-tied" branch above) was
+  // shown in its model rank with probability 1 — no swap ever touched it.
+  out.forEach((s) => { if (s.propensity === UNSET) s.propensity = 1; });
   out.forEach((s, i) => (s.rank = i));
   return out;
 }

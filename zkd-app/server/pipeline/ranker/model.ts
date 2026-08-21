@@ -51,7 +51,24 @@ export type Candidate = { altId: string; features: FeatureVector; bookability: n
  * trainer's likelihood is defined against.
  */
 export function scoreSet(cands: Candidate[], w: WeightVector, art: RankerArtifact): ModelScored[] {
-  const utilities = cands.map((c) => dot(w, c.features) + bookabilityOffset(c.bookability, art));
+  const rawUtilities = cands.map((c) => dot(w, c.features) + bookabilityOffset(c.bookability, art));
+
+  // Second, independent guard against a non-finite utility (features.ts's
+  // `sanitize` is the first). A single NaN here would make `Math.max` NaN,
+  // which poisons every candidate's softmax probability, not just the broken
+  // one's — so a candidate that still produces a non-finite utility (e.g. a
+  // future feature added without going through featurise's sanitizer) is
+  // pushed to a very low but FINITE utility instead, ranking it last rather
+  // than corrupting the set. Logged, because a candidate silently falling
+  // to the bottom of every ranking is worth knowing about.
+  const utilities = rawUtilities.map((u, i) => {
+    if (Number.isFinite(u)) return u;
+    console.error(`[ranker] non-finite utility for candidate ${cands[i]?.altId} — ranked last, not dropped`, {
+      features: cands[i]?.features,
+      bookability: cands[i]?.bookability,
+    });
+    return -1e9;
+  });
 
   // softmax with the usual max-subtraction for numerical stability
   const max = Math.max(...utilities);

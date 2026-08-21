@@ -127,9 +127,12 @@ export function featurise(alt: PartyAlt, ctx: FeatureContext, art: RankerArtifac
   const overnight = alt.id.startsWith('ovn:') ? 1 : 0;
   const effort = -((legCount(alt) - 1) + overnight) / s.effort;
 
-  // loyalty: on a status carrier or not (MyCa)
-  const carrier = alt.code.split(/\s+/)[0]?.toUpperCase() ?? '';
-  const onPreferred = ctx.preferredCarriers.map((c) => c.toUpperCase()).includes(carrier);
+  // loyalty: on a status carrier or not (MyCa). Checks EVERY leg, not just
+  // the first — a connection where the member's status carrier operates the
+  // second leg is still a loyalty-relevant option, and understating it here
+  // meant the ranker never learned to credit it.
+  const preferredUpper = ctx.preferredCarriers.map((c) => c.toUpperCase());
+  const onPreferred = carriersOf(alt).some((c) => preferredUpper.includes(c));
   const loyalty = (onPreferred ? 1 : 0) / s.loyalty;
 
   // redeye: a red-eye the member specifically asked to avoid (MyCa), negated
@@ -165,7 +168,35 @@ export function featurise(alt: PartyAlt, ctx: FeatureContext, art: RankerArtifac
     : Math.max(maxOver(airports, ctx.advisoryByAirport), maxOver(carriersOf(alt), ctx.advisoryByCarrier));
   const advisoryRisk = -aRisk / s.advisoryRisk;
 
-  return { arrival, cost, cabin, effort, loyalty, redeye, seats, stability, weatherRisk, advisoryRisk };
+  return sanitize({ arrival, cost, cabin, effort, loyalty, redeye, seats, stability, weatherRisk, advisoryRisk });
+}
+
+/**
+ * Last line of defense against a malformed candidate. Real supplier
+ * integrations occasionally return a null/NaN price, a missing seat count, or
+ * a departure/arrival timestamp of 0 or a string that failed to parse
+ * upstream — and this is the ONE place that turns a candidate into numbers,
+ * so it is also the one place that can catch it before it does damage.
+ *
+ * The damage is not local to the broken candidate: `model.ts`'s softmax
+ * subtracts the SET's max utility before exponentiating, so a single NaN
+ * feature produces a NaN utility, which makes `Math.max(...utilities)` NaN,
+ * which poisons every OTHER candidate's choice probability too — one bad
+ * supplier row can silently break ranking for the entire choice set, not
+ * just itself. A non-finite feature is coerced to 0 (the neutral value every
+ * feature is designed around — see the file header's "raw and signed"
+ * rule), which makes the broken candidate merely unremarkable on that one
+ * axis rather than contaminating the set. `scoreSet` in model.ts carries a
+ * second, independent guard at the utility level, since a future feature
+ * added here without going through this function would otherwise bypass it.
+ */
+function sanitize(v: FeatureVector): FeatureVector {
+  const out = {} as FeatureVector;
+  for (const k of Object.keys(v) as (keyof FeatureVector)[]) {
+    const n = v[k];
+    out[k] = Number.isFinite(n) ? n : 0;
+  }
+  return out;
 }
 
 /** The airports a candidate touches: its journey endpoints, plus the hub of a

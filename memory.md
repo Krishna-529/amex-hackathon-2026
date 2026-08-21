@@ -12,6 +12,100 @@
 
 ## Recent work
 
+- 2026-08-21 (alt-flight ranking hardening) — **Full correctness/edge-case audit of the alt-flight
+  ranking pipeline, on the user's own explicit request that this specific component — "the most
+  important component of our entire pipeline" — be made flagship-robust. Found and fixed 7 real
+  bugs, all with regression tests; two files that had never had a single test (`score.ts`,
+  `altsForParty.ts`) now do.** Read the entire pipeline end to end first (`score.ts`,
+  `altsForParty.ts`, all of `ranker/`, `altsCache.ts`, `altsFromOffers.ts`) before changing
+  anything — this was a genuine audit, not a guess-and-patch pass.
+  - **Bug 1 — `applyHardRules`'s `avoidAirlines` only checked a connecting alt's FIRST leg.**
+    `a.code.split(/\s+/)[0]` on `"AI 101 + 6E 202"` returns `"AI"` only. A member who said "never
+    book me on 6E" could still be booked onto a connection whose second leg was 6E — a real
+    trust-breaking bug given the product's own "we will never book you on X" promise. Fixed by
+    reusing `ranker/features.ts`'s existing `carriersOf()` helper (which already correctly parsed
+    every leg — it was just never reused where the safety-critical check needed it).
+  - **Bug 2 — the SAME single-leg blindness existed in the ranker's own loyalty FEATURE**, not
+    just display: a member's real airline status on a connection's second leg got zero ranking
+    credit. Fixed in `features.ts`'s `featurise()` and, for consistency, in `score.ts`'s display
+    loyalty note.
+  - **Bug 3 — the alt's own cancellation-risk score had the same bug**: scored a connection only on
+    its first leg's carrier. Fixed to take the MAX risk across all legs' carriers — the same
+    "conservative, not averaged" reasoning `cancelRisk.ts` already applies when blending
+    carrier-rate vs. route-rate signals internally.
+  - **Bug 4 — a single malformed candidate could corrupt the ENTIRE choice set's ranking, not just
+    itself.** `model.ts`'s softmax subtracts the set's max utility before exponentiating
+    (`Math.exp(u - max)`), so one candidate with a NaN feature (a real supplier occasionally
+    returns a null/undefined price, seat count, or timestamp — not hypothetical) produces a NaN
+    utility, which makes `Math.max(...utilities)` NaN, which makes EVERY candidate's choice
+    probability NaN. Fixed with defense in depth at three layers: `features.ts`'s `sanitize()`
+    coerces every computed feature to a finite fallback (0, the neutral value the whole feature
+    design is oriented around); `model.ts` independently guards a non-finite utility that somehow
+    still gets through (pushed to a very negative but finite value, ranked last rather than
+    poisoning the softmax, logged); and `score.ts`'s shared DISPLAY aggregates (`bestArrival`, the
+    cost `band`) were separately vulnerable — `typeof n === 'number'` is TRUE for `NaN` in
+    JavaScript, so the old filter let a broken candidate's NaN arrival/fare into a
+    `Math.min`/`Math.max` shared across the WHOLE set, blanking every other candidate's display
+    bars too. Switched to `Number.isFinite`. A final backstop in `round3()` (used by every
+    `parts`/`weights`/`total` value on the way into the public `OptionScore`) coerces any remaining
+    non-finite value to 0 rather than letting `NaN%` reach a UI bar.
+  - **Bug 5 — `altsForParty.ts` (the one function every consumer, display and decision alike,
+    passes through) never validated `fare`/`seats`.** A NaN/negative fare is now disqualified
+    outright with an honest reason — deliberately NOT coerced to 0, because that would recreate the
+    exact fabricated-free-option danger this codebase already spent a real incident eliminating (a
+    "free" option can win every price comparison and get auto-booked). A bad seat count safely
+    floors to "no seats" (fails closed, not exploitable).
+  - **Bug 6 — the most serious finding: `dropFabricatedAlts()` was only wired into the
+    member-facing DISPLAY path.** `server/domain/views.ts` calls it before `altsForParty`; every
+    live DECISION-making call site (`server/pipeline/index.ts`, `server/engine/simulation.ts`, the
+    intent route) calls `altsForParty` directly on raw stored `Flight.candidates.alts` and never
+    filtered fabricated rows at all. Traced why this matters concretely: a stale fabricated
+    `fare:0/seats:99` row (from before the 2026-08-19 fix that removed the writer) only survives in
+    Postgres today if it's PINNED to an unresolved recovery (`altsCache.ts`'s `mergePinned` keeps
+    anything an active `RecoveryTask`/pre-auth still references) — which is exactly the
+    highest-risk case: a free-looking fabricated row that's the CURRENTLY CHOSEN option for an
+    in-flight recovery would be invisible on the member's screen while still being live-actionable
+    by the pipeline. Fixed by moving the fabricated-row check into `altsForParty` itself, so every
+    path is covered structurally rather than by remembering to call a separate filter first.
+  - **Bug 7 — `explore.ts`'s propensity tracking left the last element in an unswapped near-tie
+    pair stamped with a stale default.** The old loop only ever wrote `out[i].propensity` in its
+    "near-tie, not swapped" branch, never `out[i+1]`'s; an interior element got a correct value on
+    the NEXT iteration (re-visited as its own `out[i]`), but the array's last element has no next
+    iteration. Currently zero live impact (`epsilon: 0.0` by default — no swaps ever happen), but a
+    real latent bug in exactly the machinery an inverse-propensity-weighted offline evaluation
+    (discussed earlier this session as a legitimate way to borrow large-scale-recommender technique
+    at this product's actual data scale) would depend on being unbiased. Fixed by explicitly setting
+    both elements' propensity in the no-swap branch and initializing every element to a sentinel so
+    a future regression of this shape would fail loudly instead of silently.
+  - **Also fixed, a UX/trust bug found while writing the test for Bug 2**: `explain()`'s detail
+    sentence used to always show the first two notes in a FIXED axis order (arrival, then cost)
+    regardless of which criterion actually led the ranking — so a loyalty-led pick could say "we
+    picked this because it keeps you on an airline you hold status with" and then immediately
+    follow with arrival/cost detail that never mentioned the carrier at all. Notes are now tagged
+    internally by which criterion they're about (`TaggedNote`, not part of the public `OptionScore`
+    shape — `notes: string[]` is unchanged for anyone consuming it), and `explain()` prefers a note
+    that's actually about the leading criterion, falling back to the natural order only when the
+    leading criterion produced no note of its own.
+  - New/extended test files: `server/pipeline/score.test.ts` (new, 10 tests — `score.ts` had zero
+    coverage before), `server/domain/altsForParty.test.ts` (new, 15 tests — same), plus the fixes
+    above are exercised incidentally by the existing `ranker.test.ts` suite passing unchanged.
+  - **Verified clean throughout, at every step, not just at the end**: `tsc --noEmit` after every
+    edit, `npx vitest run` on the affected files after every fix, a final full `npm test` (310
+    passed / 8 pre-existing DB-gated failures / 5 skipped — up from 260 at the start of this
+    session), `node --experimental-strip-types server/pipeline/verify.ts` (33 executable checks,
+    all pass — this is the pipeline's own claims-as-code file, unchanged in behavior by any of the
+    fixes above), and a full `next build --webpack` production build.
+  - Explored, considered, and deliberately NOT pursued in this pass (a direct exploratory question
+    from the user, answered in-conversation rather than implemented): copying YouTube/Meta/Google's
+    deep two-tower ranking architecture. Wrong tool for this data scale (a handful of real
+    candidates per disruption, a member disrupted maybe once a year — fundamentally data-sparse) and
+    would sacrifice the explainability (`explain()`, the whole "why we picked this" trust story)
+    that's core to the product. What IS worth borrowing, flagged for a later pass if wanted: a
+    formal re-ranking/diversity stage, offline counterfactual (IPW) evaluation using the propensity
+    scores `explore.ts` already logs (bug 7 above is now a real blocker fixed in preparation for
+    exactly this), and a champion/challenger promotion pipeline before any new ranker model ships —
+    the held-out-promotion gating in `train.ts` already has the right shape for this.
+
 - 2026-08-21 (Tier 2, part 2) — **International hotel-search currency fix, and confirmed the LHR
   flagship persona was already a non-issue.** `tsc --noEmit` clean, `npm test` 285 passed (up from
   279) / 8 failed (pre-existing) / 5 skipped.
