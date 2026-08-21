@@ -12,6 +12,42 @@
 
 ## Recent work
 
+- 2026-08-21 (Tier 2, part 1) — **Wrote the P1–P5 persona regression suite the 2026-08-19 gap
+  audit called "the single highest-value test the repo is missing," and found + fixed a real bug
+  in `estimateRefund()` along the way.** `server/domain/personas.test.ts`, 11 new tests against the
+  real `lib/entitlement.ts`/`server/domain/refund.ts` core (not the live pipeline — see below).
+  Verified: `tsc --noEmit` clean, `npm test` 279 passed (up from 268) / 8 failed (same pre-existing
+  `ECONNREFUSED`, no Postgres this session) / 5 skipped.
+  - **The bug**: `estimateRefund()` derived `overnight` from `delayHours >= 8` with no way to
+    override it. P1 PRIYA's own spec numbers — 7h delay, explicitly overnight — fail that heuristic
+    (7 < 8), which would wrongly deny her hotel entitlement despite the delay clearing the 6h IN-DGCA
+    hotel threshold. Fixed by adding an optional `overnight?: boolean` to `RefundInput`, used
+    verbatim when a caller knows the real answer and falling back to the old heuristic only when
+    omitted — a test (`personas.test.ts`, "REGRESSION") proves the override changes the outcome, not
+    just that it's accepted, by computing both paths side by side.
+  - **A separate, larger finding, not fixed today**: both live call sites of `estimateRefund`
+    (`server/domain/views.ts`, `server/engine/simulation.ts`) hardcode `delayHours: 24` rather than
+    a flight's real delay — which happens to make today's `overnight`-heuristic bug moot in
+    practice (24 ≥ 8 always), but means the live pipeline currently grants full statutory duty of
+    care to every disruption regardless of how short the actual delay is. This is a more consequential
+    instance of exactly the "lazy `disruption ⇒ airline pays`" failure mode the persona test set
+    exists to catch — P2/P3's whole point is that a short delay should NOT clear every threshold.
+    Threading the real computed delay through to both call sites is a real, scoped follow-up;
+    flagged rather than attempted blind, since it changes live refund-display numbers and deserves
+    its own verification pass, not a rider on a test-writing session.
+  - **P3 FATIMA is the test that would have caught the bug class the audit warned about**: an
+    involuntary carrier cancellation (`cancelledBy: 'carrier'`) with a 5h delay — under the 6h
+    threshold — must NOT be `statutory: true`. A lazy implementation that sets `statutory` from
+    disposition alone, ignoring the threshold, fails this test; the real code passes it because
+    `estimateRefund` already ANDs `cancelledBy === 'carrier'` with `care.includes('alt-flight-or-refund')`
+    — confirmed correct, not just assumed correct.
+  - P1's own scenario also exercises `compensationFor('IN-DGCA', ...)` returning `null` — IN-DGCA
+    has no distance-banded cash figure encoded (DGCA bands by block-time/fare, which the current
+    type can't express), and the test asserts this returns `null`, not a guessed number, matching
+    the module's own documented refusal to invent one.
+  - Deliberately did not attempt to route these through the live pipeline end-to-end — that would
+    require also fixing the `delayHours: 24` hardcode above, which is out of scope for this entry.
+
 - 2026-08-21 (even later) — **Tier 1 of the post-review robustness pass: fixed the two stale
   detection-doc claims and six dangerously-stale checklist rows, removed three dead dependencies,
   and closed the learned ranker's continual-learning gap.** Verified throughout: `tsc --noEmit`

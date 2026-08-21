@@ -238,10 +238,16 @@ thresholds carry `deck` until primary CAR text is re-retrieved (unchanged from e
 - **`zkd-flutter/` is untracked** — if it's the actual demo client, it does not exist in any branch
   of this repository and cannot be recovered from git; also the server push limb still targets
   Expo, not FCM.
-- **P1–P5 canonical personas (identical across all four agent specs) have zero automated test
-  coverage** — flagged by the gap audit as "the single highest-value test the repo is missing,"
-  because P3 (FATIMA) is exactly the case a lazy `disruption ⇒ airline pays` default gets wrong,
-  and getting it wrong breaks the payment path silently rather than visibly.
+- ~~P1–P5 personas have zero automated test coverage~~ — **fixed 2026-08-21**:
+  `server/domain/personas.test.ts`, 11 tests against the real entitlement/refund core. Found and
+  fixed a real bug along the way — `estimateRefund()`'s `overnight` was hardcoded to
+  `delayHours >= 8`, which misclassifies P1's own 7h-but-overnight scenario; now accepts an
+  optional explicit override. **A separate, larger, NOT-yet-fixed finding surfaced by writing
+  these tests**: both live call sites of `estimateRefund` (`views.ts`, `simulation.ts`) hardcode
+  `delayHours: 24` rather than a flight's real delay — meaning the live pipeline currently grants
+  full statutory duty of care to every disruption regardless of actual delay length, the more
+  consequential version of the exact bug class P2/P3 exist to catch. Scoped out of this fix
+  deliberately (changes live refund numbers, deserves its own verification pass).
 - **International demo is four small fixes away, not a redesign** — billing currency/hotel search
   hardcode `INR`/`'IN'`; seed fixtures are Delhi-only; see `ZKD-Gap-Audit-Session-Report.md` §4.
 - DGCA duty-of-care thresholds still carry `deck` evidence tier.
