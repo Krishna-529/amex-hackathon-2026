@@ -61,7 +61,8 @@ assumed. What replaced it:
   `voluntary_under_autopilot`, `fare_class_ceiling`, `exposure_cap_exceeded`,
   `incoherent_bundle`, etc.), written as a 1:1 stand-in for the Rego canon specifies, because `opa`
   isn't available in this environment. **Confirmed today: `evaluatePolicy` has exactly one
-  importer in the whole repo — its own test file (`tests/policy.test.ts`).** No route, no pipeline
+  importer in the whole repo — its own test file (`server/policy/policy.test.ts`, moved from
+  `tests/policy.test.ts` 2026-08-21 so vitest actually reports its 79 assertions).** No route, no pipeline
   step calls it. It is real and tested, and it is inert.
 - The ₹25,000 per-transaction spend cap was **deliberately removed on 2026-08-19** (Dhawal's
   call — a stranded member seeing their only seat home greyed out as "over your cap" was judged a
@@ -70,19 +71,22 @@ assumed. What replaced it:
   refund, you have M minutes to stop us"* → booked. Silence now **proceeds** on every consent
   tier (this restores the frozen canon's own Tier A mechanics, which the app had drifted away
   from).
-- **A confirmed, still-open safety defect** (found by `ZKD-Gap-Audit-Session-Report.md`,
-  2026-08-19, and re-verified today — `grep 'delivered'` in `server/engine/simulation.ts` still
-  returns nothing): `server/notify/index.ts`'s `dispatch()` computes `delivered` (whether *any*
-  channel actually got through) and logs it, but **nothing in the consent path reads it.** A
-  member whose WhatsApp and push both fail is indistinguishable, to the system, from a member who
-  saw rung 3 and chose not to object — and is charged. Since the cap removal, notification
-  delivery is the **only** remaining control on an unattended spend, and it is currently unchecked.
+- **The `delivered` defect found by `ZKD-Gap-Audit-Session-Report.md` §3 is now fixed (2026-08-21,
+  `f71c7aa`).** `settleExpired()` in `server/engine/simulation.ts` now awaits rung 3's
+  `DispatchResult.delivered` before proceeding: undelivered gets exactly one fixed 5-minute grace
+  retry (`RecoveryTask.undeliveredGraceUsed` prevents a second one — this is a safety-net retry for
+  a transient provider failure, not a second negotiation), and if the retry also goes undelivered
+  the task halts to a human (`kind: 'handed-over'`) rather than booking on an amount nobody was
+  confirmably told about. New `server/engine/simulation.ts` test coverage (previously zero) drives
+  the real `detectDisruption()` entry point through the real timer chain with fake timers.
 
-**Net effect: today, on `demo`, nothing in the live code path stops an autonomous booking based on
-policy or amount.** The only backstops left are Amex's own card-issuer authorization declining the
-charge, and whatever a member actually reads and acts on. This is not a hypothetical — it is the
-literal current state of the code, confirmed by two independent audits (the 2026-08-19 one and
-today's).
+**Net effect: the notification-delivery half of the safety story is now real** — an unattended spend
+can no longer proceed past a rung-3 message nobody received. What is **still** true: there is no
+amount- or policy-based backstop at all (`server/policy/index.ts` remains unwired — see above), so
+a message that *does* deliver, to a member who simply doesn't respond, still proceeds to book
+whatever amount rung 3 named, exactly as designed. The only backstops beyond that are Amex's own
+card-issuer authorization declining the charge, and the member actually reading and acting on what
+they were sent.
 
 ## No-holds design (unchanged from the other lineage's understanding, confirmed still in force)
 
@@ -97,14 +101,15 @@ flight+hotel+ground *bundles* policy-passing and re-shopped ahead of the soonest
 | Topic | Commitment |
 |---|---|
 | Detection | **Three lanes, webhook-first**, real (not aspirational): `server/webhooks/` (Duffel + AeroDataBox adapters + an inert OAG stub, `server/webhooks/index.ts`), `server/engine/statusPoller.ts` (AviationStack fallback, 15/month ceiling — the free-tier ceiling is not tunable, AviationStack cannot push at all), `server/engine/memberReports.ts` (a report starts the *reporter's* own recovery immediately; corroborates for everyone else at 3 independent reporters, or a carrier feed, or an operator). `/ops` shows which lane is live; a dead feed is treated as a fault, not as a quiet week. |
-| Ranking | **Learned, not hand-tuned (2026-08-20).** `server/pipeline/ranker/` replaced ~35 hand-set weighted-sum constants with a conditional-logit (discrete-choice) model fitted on which alternative a member actually picked from each shown set. Smart init blends a strategy prior + MyCa warm start + learned global + learned per-member via empirical-Bayes shrinkage, gated by a hard minData floor; monotonicity enforced by clipping (cheaper/earlier is never ranked worse); bookability enters as a fixed log-offset, not a competing weight; each option's own carrier+route cancellation-model rate becomes a `stability` feature; near-tie exploration exists (`explore.ts`) but is **off by default** — no live experimentation on real members. `applyHardRules`, `OptionScore`, and `explain()` are unchanged, so nothing downstream moved. 23 ranker unit tests. `lib/ranking.ts` is **dead code** — no importers — the live ranker is `server/pipeline/score.ts` calling into `ranker/`. |
+| Ranking | **Learned, not hand-tuned (2026-08-20).** `server/pipeline/ranker/` replaced ~35 hand-set weighted-sum constants with a conditional-logit (discrete-choice) model fitted on which alternative a member actually picked from each shown set. Smart init blends a strategy prior + MyCa warm start + learned global + learned per-member via empirical-Bayes shrinkage, gated by a hard minData floor; monotonicity enforced by clipping (cheaper/earlier is never ranked worse); bookability enters as a fixed log-offset, not a competing weight; each option's own carrier+route cancellation-model rate becomes a `stability` feature; near-tie exploration exists (`explore.ts`) but is **off by default** (`epsilon: 0.0` in the live `model.json`) — no live experimentation on real members. `applyHardRules`, `OptionScore`, and `explain()` are unchanged, so nothing downstream moved. 23 ranker unit tests. `lib/ranking.ts` is **dead code** — no importers — the live ranker is `server/pipeline/score.ts` calling into `ranker/`. **Continual learning is now wired (2026-08-21), offline rather than in the live path.** `logShownSet` fires live on every ranking call; the label half was closed not by calling `logChoice` from the hot consent/spend path (deliberately avoided — that path was just hardened, see the delivery-check fix above, and adding more live call sites under time pressure was judged riskier than necessary), but by a new offline join, `server/pipeline/ranker/reconcile.ts`: `train.ts`'s CLI entrypoint now reads every resolved `RecoveryTask` from Postgres and matches each one's `chosenAltId` against the most recent shown-set logged before it resolved, producing real training pairs with no change to `simulation.ts`. 8 new unit tests (`reconcile.test.ts`), degrades to zero-observations (never throws) if Postgres is unreachable. **Still cold-started in practice** — `model.json` is v1 (`learnedByStrategy: {}`), and this branch has no accumulated resolved-task history yet to reconcile against; the mechanism is real, the training data isn't there until real recoveries resolve. Also fixed in passing: `server/domain/store.ts` imported `./db` without an extension, which is invisible under webpack but broke `train.ts` when run standalone via `node --experimental-strip-types` (its own documented invocation) — changed to `./db.ts`. |
+| Notifications, live-vs-code-ready status | **WhatsApp** (`server/notify/whatsapp.ts`) supports a Meta-approved template path (no join-code) alongside the Twilio sandbox path, but `TWILIO_WHATSAPP_CONTENT_SID` is unset in `.env.example` — **still sandbox-only today**, needs a real member join-code, not yet demo-verified on the template path. **Android push** (Expo) is wired (`POST /api/devices`) but `zkd-android/app.json` has no `eas.projectId`, so a standalone build silently falls back to local-only notifications — untested on a real device build. **Fast2SMS** (merged 2026-08-21 from `worktree-gap-audit-report`) is real, env-key-gated, degrades to `isConfigured():false` cleanly when unset. Telegram fully removed. |
 | Journey window / consent override (2026-08-20, explicitly labeled "temporary" in its own commit) | Before a booked flight is disrupted, a member can set — per flight, never written to their durable MyCa profile — the earliest a replacement may depart, the latest it may arrive, and whether rebooking should be autonomous or ask-first for *that flight only*. Stored one row per `(flightId, passengerId)` in a new `journey_prefs` table (migration `0003_journey_prefs.sql`). The window is applied as **hard rules** (filtered, not penalized) via a new `Flight.earliestDepartISO` mirroring the existing `hardDeadlineISO`. Consent resolves through one pure function, `resolveConsent(profileConsent, override)` — override wins, `null` means use the standing profile. |
 | Money shown to the member | Three figures, never one (2026-08-19, `bdbd5f4`): what the plan costs, what comes back (`server/domain/refund.ts`, **computed since 2026-08-19**, statutory entitlement overrides voluntary-cancellation fare rules when the *carrier* cancels), and the delta actually paid. Absent a recorded fare, refund reads **"not known yet"**, never ₹0. Refund scales by **party size** (fixed 2026-08-19, `8f1db4b` — was previously computed per-ticket and compared against a party-scaled replacement, understating a 6-person refund by ~32,250). A stale fabricated `fare:0/seats:99` "carrier owes you a free seat" row-type was deleted, but its **already-written rows survived in Postgres** until a read-path guard (`dropFabricatedAlts()`) was added — the lesson recorded in `memory.md`: deleting a writer is not the same job as purging what it already wrote. |
 | Currency | **Converts, doesn't refuse (2026-08-19).** `server/fx.ts` (Frankfurter/ECB daily rate, keyless, committed fallback table) replaced a `needsConversion` guard that had been silently emptying the option list on every EUR-priced Duffel offer — the flights side of this was live-breaking before the fix. Hotel FX is flagged as the remaining prerequisite for a genuinely international demo (see "International" below). |
 | Real bookings | **Booking is now the only way a flight is created** (2026-08-19) — `POST /api/flights` and the `/ops` create-flight form are gone; `POST /api/bookings` / `POST /api/bookings/hotel` do the real thing. A hardcoded `farePaid: 6500` invented on every booking was removed — OAG sells schedules, not fares, so no price exists at booking time; an absent fare now honestly reads `known:false` rather than a wrong number propagating through every alternative's delta. |
 | Suppliers (verified substantially more real than the stale audit trail claimed) | **Flights**: Duffel (real, search+write) + OAG (real, `flightInstancesByRoute` — the query-shape blocker resolved 2026-08-17) + Travelport (mock). **Hotels**: LiteAPI is a **registered, live-called** `HotelSupplier` (only the *legacy* `/api/hotels` route still uses seeded mock inventory). **Ground**: `server/ground/index.ts` is a **real Uber sandbox integration**, OAuth2 client-credentials, with an exercised cancel/rollback path — `mockCabs.ts` is the fallback, not the implementation. **Payment**: fully mocked, no live integration. |
 | International capability | Substantially further along than any doc states (per the 2026-08-19 gap audit, re-confirmed): a **5-regime jurisdiction engine** (`IN-DGCA`, `EU261`, `UK261`, `US-DOT`, `CARD-TERMS` fallback, correct EU/UK departure-vs-arrival attachment rules), a **6,072-airport worldwide table** (not an Indian subset), and a risk model trained on **real US DOT/BTS + Brazil ANAC data** (India is synthetic-only). What blocks an actual international demo is small: billing currency and hotel search hardcode `INR`/`'IN'`; seed fixtures are Delhi-only; `US-DOT`/`CARD-TERMS` entitlement bundles have no persona exercising them. See `ZKD-Gap-Audit-Session-Report.md` §4 for the itemized fix list. |
-| Risk model (**demo branch's own build — weaker than the sibling lineage's, see below**) | Self-trained XGBoost, real US DOT/BTS + Brazil ANAC data (7.9M rows: 5.53M train / 1.18M calib / 1.18M test), India synthetic-only. **ROC-AUC 0.804, PR-AUC 0.123, Brier 0.0097**, trained 2026-08-15. This is the **2-country** build — it does NOT include the other lineage's later UK/Australia/France expansion, India DGCA carrier-rate prior, or overfitting/underfitting diagnostics (ROC-AUC 0.829 there). Porting that better-trained model onto `demo` is a concrete, low-risk, high-value opportunity — see Known gaps. |
+| Risk model (**demo branch's own build — weaker than the sibling lineage's, see below**) | Self-trained XGBoost, real US DOT/BTS + Brazil ANAC data (7.9M rows: 5.53M train / 1.18M calib / 1.18M test), India synthetic-only. **ROC-AUC 0.804, PR-AUC 0.123, Brier 0.0097**, trained 2026-08-15. This is the **2-country** build — it does NOT include the other lineage's later UK/Australia/France expansion, India DGCA carrier-rate prior, or overfitting/underfitting diagnostics (ROC-AUC 0.829 there). Live score distribution (`reports/score_distribution.json`, n=168,000): min 1.64%, p50 3.22%, p90 6.45%, p99 9.74%, max 10.33%. `config/risk-thresholds.json`'s bands (`prepare:4/holdGate:6/preAuthorise:11`, floor `9`) are internally consistent with this distribution — `preAuthorise` is reachable by roughly the top 1%, not stale on this branch specifically (re-verify after any model swap). Porting the better-trained model onto `demo` is a concrete, low-risk, high-value opportunity — see Known gaps. |
 | Money-flow invariant | §10 of `documentation/design/03-action-policy.md`: every spend and every refund route through the same Amex card, so the balance can never go negative *by design* — but as stated above, the mechanism enforcing this is now informed-consent-by-delivery, not a hard ceiling, and delivery itself is unchecked. §10 states this trade explicitly; don't let a skim of the invariant's headline hide the trade underneath it. |
 | Continual learning | **Still not built**, same gap as the other lineage: `logOutcome()` in `server/decisionLedger.ts` has zero callers (found 2026-08-18) — predictions accumulate, outcomes never do, so no live accuracy claim about the deployed model is computable today. |
 | UI | Two themes in one stylesheet — `:root` in `app/globals.css` is a dark default; a complete, separately-scoped Amex light skin (`--amex-blue`, `--amex-bg`, ~105 override rules) lives under `.amex-page`, switched on per-route by `lib/amexRoutes.ts` (`/`, `/login`, `/flights`, everything under `/flights/`). **A token grep for `--bg` will report this app as dark-only — that is wrong for every member-facing flight screen**, and a session already made exactly that mistake on 2026-08-19 while the user was looking at the light theme. Read `amexRoutes.ts`, never grep the token declarations, when the question is "which theme is a screen using." |
@@ -181,13 +186,16 @@ flight+hotel+ground *bundles* policy-passing and re-shopped ahead of the soonest
 
 ## Active unmerged branches on `origin` (as of 2026-08-21 — check before assuming `demo` is final)
 
-Six branches exist beyond `demo` that are **not yet reflected in it**. Do not duplicate their work;
-merge or explicitly supersede it instead.
+**Update, same day, after this table was first written**: `worktree-gap-audit-report` and
+`worktree-live-risk-weights` (rows below) were merged into local `demo` (`e15c0b1`, `8cc2406`) —
+Fast2SMS and the live weather/NOTAM/GDELT ranker features are now real, present code on this
+branch, not aspirational. **Not yet pushed to `origin/demo`** — local `demo` is currently 8 commits
+ahead of `origin/demo` pending a review/push decision. Four branches remain genuinely unreconciled.
 
 | Branch | Contains | Status |
 |---|---|---|
-| `worktree-gap-audit-report` | `ZKD-Gap-Audit-Session-Report.md` (already read into this file, see above) + a real **Fast2SMS** notification channel ("give SMS a channel that can actually reach an Indian phone" — likely the real fix for India-reachable SMS, previously rejected as needing DLT registration). 2 commits ahead of `bdbd5f4`, predates the learned ranker/journey-window merge. | Report content already folded in above; the Fast2SMS code itself is **not yet on `demo`** — worth merging. |
-| `worktree-live-risk-weights` | `e06ad4f` "Add two live disruption-risk features to the alternate-flight ranker" — new `server/risk/` (`weatherRisk.ts`, `notam.ts`, `gdelt.ts`) feeding live weather/NOTAM/geopolitical signal into the ranker's `cancelRisk` feature. Branches from `9477b6f`, **before** the Aug-19 refund/FX/Amex-theme work and before `c562e0c` merged the ranker to `main` — needs a rebase onto `demo` tip before it can merge cleanly. | Not on `demo`. Real, additive capability — worth rebasing and merging. |
+| `worktree-gap-audit-report` | `ZKD-Gap-Audit-Session-Report.md` + a real **Fast2SMS** notification channel. | **Merged into local `demo`** (`e15c0b1`). |
+| `worktree-live-risk-weights` | `e06ad4f` — new `server/risk/` (`weatherRisk.ts`, `notam.ts`, `gdelt.ts`, both with `AbortSignal.timeout` guards, no hardcoded keys) feeding live weather/NOTAM/geopolitical signal into the ranker's `cancelRisk` feature. | **Merged into local `demo`** (`8cc2406`). |
 | `worktree-preference-refinement` | The free-text refine loop that collided with `intent.ts` (see `memory.md`'s 2026-08-19 "collision resolved" entry) — **superseded**. Its useful pieces (the `unsupported[]` reporting, the monetary-field question) were already manually resolved into `intent.ts` on `demo`. | **Do not merge as-is** — would reintroduce a resolved conflict. Safe to archive. |
 | `docs/meeting-2-kpis`, `worktree-intent-refund-detection`, `worktree-learned-alt-ranker` | Already merged into `demo` (`6db7977`, the intent/refund/webhook commits, and `7b24b8c`/`9477b6f`/`c562e0c` respectively). | Merged — stale branch refs, safe to delete once confirmed. |
 
@@ -198,14 +206,23 @@ thresholds carry `deck` until primary CAR text is re-retrieved (unchanged from e
 
 ## Known gaps (current, as of 2026-08-21, this branch)
 
-- **No enforced spend/policy gate anywhere in the live path** — `server/policy/index.ts` is real
-  and unwired; the ₹25,000 cap that used to backstop this was removed 2026-08-19. Highest-priority
-  open item on this branch.
-- **The one confirmed safety defect**: `dispatch()`'s `delivered` result is computed, logged, and
-  never read by the consent path. A member no channel reached is charged exactly as if they'd been
-  told and stayed silent. Fix is scoped and specific (feed `DispatchResult.delivered` into
-  `simulation.ts`; on a fully-undelivered notify, extend/retry or halt to `/ops` rather than
-  proceeding) — see `ZKD-Gap-Audit-Session-Report.md` §3.
+- **No enforced spend/policy gate anywhere in the live path** — `server/policy/index.ts` is real,
+  unit-tested (79 assertions across 12 rules, now properly reported by `npm test` since `1659e86`
+  moved it off `node:test` onto vitest), and **still unwired into any route or pipeline step.**
+  The ₹25,000 cap that used to backstop this was removed 2026-08-19. Deliberately left unwired
+  rather than faked: the live `execute()` path has no per-alt `Offer` cache carrying the
+  carriers/fareRules/supplierType fields the policy module's `Bundle` type expects, and there's no
+  real outstanding-exposure tracking to honestly feed `exposure_cap_exceeded` — forcing a wire-up
+  with synthesized inputs would make the gate rubber-stamp everything while looking enforced, which
+  is worse than an honestly-inert gate. Highest-priority real open item on this branch.
+- ~~The `dispatch().delivered` safety defect~~ — **fixed 2026-08-21** (`f71c7aa`): `settleExpired()`
+  now awaits rung-3 delivery, grants one 5-minute grace retry, and halts to a human rather than
+  booking blind if delivery still can't be confirmed. See "EXECUTE plane" section above.
+- ~~The learned ranker cannot learn~~ — **fixed 2026-08-21**: `train.ts` now reconciles resolved
+  `RecoveryTask`s against the shown-set log offline (`reconcile.ts`). Still cold-started in
+  practice — no accumulated resolution history exists yet on this branch to learn from.
+- ~~`@temporalio/client`/`@langchain/*` dead dependencies~~ — **removed 2026-08-21** (all three had
+  zero live references), `npm install` clean, `tsc` clean.
 - **Cross-lineage opportunity**: this branch's risk model (2-country, ROC-AUC 0.804) is measurably
   weaker than the sibling `feature/adaptive-forecast-and-bedrock-refinement` branch's model
   (5-country + India carrier prior, ROC-AUC 0.829, with real overfitting diagnostics). Porting the
@@ -229,4 +246,7 @@ thresholds carry `deck` until primary CAR text is re-retrieved (unchanged from e
   hardcode `INR`/`'IN'`; seed fixtures are Delhi-only; see `ZKD-Gap-Audit-Session-Report.md` §4.
 - DGCA duty-of-care thresholds still carry `deck` evidence tier.
 - Payment fully mocked; no live payment integration exists on either lineage.
-- Six branches on `origin` not yet reconciled into `demo` — see table above.
+- Four branches on `origin` not yet reconciled into `demo` (two more merged locally today, not yet
+  pushed) — see table above.
+- **Local `demo` is 8 commits ahead of `origin/demo`, nothing pushed yet** — review before pushing;
+  see `memory.md`'s 2026-08-21 entries for the full list and rationale.

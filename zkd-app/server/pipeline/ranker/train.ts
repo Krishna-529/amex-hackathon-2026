@@ -33,6 +33,8 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { FEATURES, type FeatureVector, type WeightVector, type RankerArtifact } from './types.ts';
 import { bookabilityOffset } from './bookability.ts';
+import type { ShownSetEntry } from './decisionLog.ts';
+import type { reconcileChoices } from './reconcile.ts';
 
 /** One presented choice set with the option the member actually took. */
 export type Observation = {
@@ -258,32 +260,90 @@ export function buildObservations(
   return obs;
 }
 
+/**
+ * Reads every resolved RecoveryTask from Postgres and reconciles it against
+ * the shown-set log via reconcile.ts — see that file's header for why this
+ * runs here, offline, rather than a live call site in simulation.ts.
+ * Returns [] (never throws) if the DB is unreachable, so a training run on a
+ * machine without DATABASE_URL degrades to whatever's in ranker-choices.jsonl
+ * instead of failing outright — matching this codebase's standing rule of
+ * degrading honestly rather than crashing a scheduled job over an optional input.
+ */
+async function loadResolvedChoicesFromDb(): Promise<ReturnType<typeof reconcileChoices>> {
+  try {
+    const [{ listFlights, getRecoveryTasksForFlight }, { reconcileChoices: reconcile }] = await Promise.all([
+      import('../../domain/store.ts'),
+      import('./reconcile.ts'),
+    ]);
+    const flights = await listFlights();
+    const resolved: import('./reconcile.ts').ResolvedChoice[] = [];
+    for (const f of flights) {
+      const tasks = await getRecoveryTasksForFlight(f.id);
+      for (const t of tasks) {
+        const r = t.resolution;
+        if (r && (r.kind === 'autopilot' || r.kind === 'approved') && r.altId) {
+          resolved.push({
+            flightId: f.id,
+            memberId: t.passengerId,
+            chosenAltId: r.altId,
+            resolvedAt: r.at,
+            kind: r.kind,
+          });
+        }
+      }
+    }
+    const shownDir = join(process.cwd(), 'server', '.state');
+    const shown = readJsonl<ShownSetEntry>(join(shownDir, 'ranker-shown.jsonl'));
+    return reconcile(shown, resolved);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message || (e as { code?: string }).code || e.constructor.name : String(e);
+    console.warn('[ranker/train] could not reconcile choices from Postgres, continuing without them:', detail);
+    return [];
+  }
+}
+
 // Run directly: `node --experimental-strip-types server/pipeline/ranker/train.ts`
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}` || process.argv[1]?.endsWith('train.ts')) {
-  const art = loadArtifactFrom();
-  const shownDir = join(process.cwd(), 'server', '.state');
-  const shown = readJsonl<any>(join(shownDir, 'ranker-shown.jsonl'));
-  const choices = readJsonl<any>(join(shownDir, 'ranker-choices.jsonl'));
-  const obs = buildObservations(shown, choices);
+  (async () => {
+    const art = loadArtifactFrom();
+    const shownDir = join(process.cwd(), 'server', '.state');
+    const shown = readJsonl<ShownSetEntry>(join(shownDir, 'ranker-shown.jsonl'));
+    const loggedChoices = readJsonl<{ decisionId: string; chosenAltId: string }>(join(shownDir, 'ranker-choices.jsonl'));
+    const reconciled = await loadResolvedChoicesFromDb();
 
-  const byStrategy = new Map<string, Observation[]>();
-  for (const o of obs) (byStrategy.get(o.strategy) ?? byStrategy.set(o.strategy, []).get(o.strategy)!).push(o);
+    // Merge, preferring a directly-logged choice over a reconciled one for the
+    // same decisionId (a real future live wiring would be more authoritative
+    // than an offline nearest-match heuristic) — dedupe on decisionId.
+    const byDecisionId = new Map<string, { decisionId: string; chosenAltId: string }>();
+    for (const c of reconciled) byDecisionId.set(c.decisionId, c);
+    for (const c of loggedChoices) byDecisionId.set(c.decisionId, c);
+    const choices = [...byDecisionId.values()];
 
-  const fits: StrategyFit[] = [];
-  for (const [strategy, os] of byStrategy) fits.push(fitStrategy(art, strategy, os));
+    const obs = buildObservations(shown, choices);
 
-  console.log(`observations: ${obs.length}`);
-  for (const f of fits) {
-    console.log(
-      `  ${f.strategy}: n=${f.n} held-out NLL ${f.heldOutNllChallenger.toFixed(4)} vs incumbent ${f.heldOutNllIncumbent.toFixed(4)} → ${f.promoted ? 'PROMOTE' : 'keep prior'}`,
-    );
-  }
+    const byStrategy = new Map<string, Observation[]>();
+    for (const o of obs) (byStrategy.get(o.strategy) ?? byStrategy.set(o.strategy, []).get(o.strategy)!).push(o);
 
-  if (fits.some((f) => f.promoted)) {
-    const next = updateArtifact(art, fits, {});
-    writeFileSync(ARTIFACT_PATH, JSON.stringify(next, null, 2) + '\n');
-    console.log(`wrote model.json v${next.version}`);
-  } else {
-    console.log('no promotion — model.json unchanged');
-  }
+    const fits: StrategyFit[] = [];
+    for (const [strategy, os] of byStrategy) fits.push(fitStrategy(art, strategy, os));
+
+    console.log(`observations: ${obs.length} (${reconciled.length} reconciled from Postgres, ${loggedChoices.length} directly logged)`);
+    for (const f of fits) {
+      console.log(
+        `  ${f.strategy}: n=${f.n} held-out NLL ${f.heldOutNllChallenger.toFixed(4)} vs incumbent ${f.heldOutNllIncumbent.toFixed(4)} → ${f.promoted ? 'PROMOTE' : 'keep prior'}`,
+      );
+    }
+
+    if (fits.some((f) => f.promoted)) {
+      const next = updateArtifact(art, fits, {});
+      writeFileSync(ARTIFACT_PATH, JSON.stringify(next, null, 2) + '\n');
+      console.log(`wrote model.json v${next.version}`);
+    } else {
+      console.log('no promotion — model.json unchanged');
+    }
+    process.exit(0);
+  })().catch((e) => {
+    console.error('[ranker/train] fatal:', e);
+    process.exit(1);
+  });
 }

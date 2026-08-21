@@ -27,7 +27,7 @@
  * `create*` function they already use is that persistence call, so no new
  * exported "update" methods were needed for those cases.
  */
-import { sql, ensureReady } from './db';
+import { sql, ensureReady } from './db.ts';
 import type {
   Passenger, Flight, Booking, Itinerary, PreAuthRecord, PastFlight,
   DisruptionEvent, RecoveryTask, Credential, Traveller, SeatAssignment,
