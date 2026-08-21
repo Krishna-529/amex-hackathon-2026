@@ -94,6 +94,14 @@ export type ScoreContext = {
   /** MyCa red-eye preference, a ranker feature (never a hard filter). Optional:
    *  absent → treated as no stated preference. */
   avoidRedEye?: boolean;
+  /** live disruption-risk maps (server/risk/), resolved once per recovery.
+   *  Optional: absent → weatherRisk/advisoryRisk are constant, ranking unaffected. */
+  weatherByAirport?: Map<string, number>;
+  advisoryByAirport?: Map<string, number>;
+  advisoryByCarrier?: Map<string, number>;
+  /** the member's "no matter what" override (set later by the LLM intent layer);
+   *  zeroes the advisoryRisk feature. Optional, default off. */
+  overrideSevereRisk?: boolean;
 };
 
 export type ScoredAlt = {
@@ -239,6 +247,12 @@ export function rankAlts(alts: PartyAlt[], ctx: ScoreContext): ScoredAlt[] {
       partyTotalById,
       cancelRiskById,
       baseCancelRate: BASE_CANCEL_RATE,
+      from: ctx.flight.from,
+      to: ctx.flight.to,
+      weatherByAirport: ctx.weatherByAirport,
+      advisoryByAirport: ctx.advisoryByAirport,
+      advisoryByCarrier: ctx.advisoryByCarrier,
+      overrideSevereRisk: ctx.overrideSevereRisk ?? false,
     },
     (ctx as ScoreContext & { rankOptions?: RankOptions }).rankOptions ?? {},
   );

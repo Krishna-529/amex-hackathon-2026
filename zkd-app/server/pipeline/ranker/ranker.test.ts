@@ -212,11 +212,55 @@ describe('the alternate flight cancellation model shapes the ranking', () => {
   });
 });
 
+// ── live disruption risk (weather + advisory) ────────────────────────────────
+
+describe('live weather and advisory risk shape the ranking', () => {
+  it('an equal option through a stormy hub ranks below one that is clear', () => {
+    // both connect, but via different hubs; one hub is in a storm
+    const viaStorm = alt({ id: 'storm', code: 'AI 1 + AI 2', why: 'Two legs via BOM, 90 min to connect.' });
+    const viaClear = alt({ id: 'clear', code: 'AI 3 + AI 4', why: 'Two legs via HYD, 90 min to connect.' });
+    const { order } = rankByModel(
+      baseInput([viaStorm, viaClear], { from: 'MAA', to: 'DEL', weatherByAirport: new Map([['BOM', 0.9]]) }),
+      noLog,
+    );
+    expect(order[0].altId).toBe('clear');
+  });
+
+  it('a candidate on a carrier under a severe advisory is heavily demoted', () => {
+    const striking = alt({ id: 'sg', code: 'SG 400', fare: 7000, partyFare: 7000 }); // cheaper
+    const clean = alt({ id: 'ai', code: 'AI 400', fare: 8000, partyFare: 8000 });
+    const { order } = rankByModel(
+      baseInput([striking, clean], { strategy: 'lowest_cost', from: 'MAA', to: 'DEL', advisoryByCarrier: new Map([['SG', 0.9]]) }),
+      noLog,
+    );
+    // even though SG is cheaper under lowest_cost, the severe advisory demotes it
+    expect(order[0].altId).toBe('ai');
+  });
+
+  it('the member override lifts the advisory penalty', () => {
+    const striking = alt({ id: 'sg', code: 'SG 400', fare: 7000, partyFare: 7000 });
+    const clean = alt({ id: 'ai', code: 'AI 400', fare: 8000, partyFare: 8000 });
+    const advisoryByCarrier = new Map([['SG', 0.9]]);
+    const withPenalty = rankByModel(baseInput([striking, clean], { strategy: 'lowest_cost', from: 'MAA', to: 'DEL', advisoryByCarrier }), noLog);
+    const overridden = rankByModel(baseInput([striking, clean], { strategy: 'lowest_cost', from: 'MAA', to: 'DEL', advisoryByCarrier, overrideSevereRisk: true }), noLog);
+    expect(withPenalty.order[0].altId).toBe('ai'); // penalty applied
+    expect(overridden.order[0].altId).toBe('sg');  // override → cheaper wins again
+  });
+
+  it('with no risk maps the ranking is unchanged (both features constant)', () => {
+    const a = alt({ id: 'a', code: '6E 1', fare: 8000, partyFare: 8000 });
+    const b = alt({ id: 'b', code: 'AI 1', fare: 8000, partyFare: 8000, arrivesAt: hrs(5) });
+    const withNone = rankByModel(baseInput([a, b], { from: 'MAA', to: 'DEL' }), noLog).order.map((o) => o.altId);
+    const withEmpty = rankByModel(baseInput([a, b], { from: 'MAA', to: 'DEL', weatherByAirport: new Map(), advisoryByCarrier: new Map() }), noLog).order.map((o) => o.altId);
+    expect(withNone).toEqual(withEmpty);
+  });
+});
+
 // ── shrinkage ────────────────────────────────────────────────────────────────
 
 describe('shrinkage keeps thin data from moving the model', () => {
-  const prior: WeightVector = { arrival: 3, cost: 0.6, cabin: 0.5, effort: 0.6, loyalty: 0.2, redeye: 0.6, seats: 0.3, stability: 1.2 };
-  const learned: WeightVector = { arrival: 0, cost: 6, cabin: 0, effort: 0, loyalty: 0, redeye: 0, seats: 0, stability: 0 };
+  const prior: WeightVector = { arrival: 3, cost: 0.6, cabin: 0.5, effort: 0.6, loyalty: 0.2, redeye: 0.6, seats: 0.3, stability: 1.2, weatherRisk: 1.0, advisoryRisk: 2.5 };
+  const learned: WeightVector = { arrival: 0, cost: 6, cabin: 0, effort: 0, loyalty: 0, redeye: 0, seats: 0, stability: 0, weatherRisk: 0, advisoryRisk: 0 };
 
   it('at n=0 the result is exactly the prior', () => {
     const w = shrinkToward(learned, prior, 0, 30);
@@ -234,7 +278,7 @@ describe('shrinkage keeps thin data from moving the model', () => {
   });
 
   it('enforceMonotone clips negatives on oriented features', () => {
-    const w = enforceMonotone({ arrival: -1, cost: -2, cabin: 1, effort: 0, loyalty: 5, redeye: -3, seats: 2, stability: -4 }, getArtifact());
+    const w = enforceMonotone({ arrival: -1, cost: -2, cabin: 1, effort: 0, loyalty: 5, redeye: -3, seats: 2, stability: -4, weatherRisk: -5, advisoryRisk: -6 }, getArtifact());
     expect(w.arrival).toBe(0);
     expect(w.cost).toBe(0);
     expect(w.redeye).toBe(0);
@@ -260,7 +304,7 @@ function syntheticObs(trueW: WeightVector, art: RankerArtifact, n: number, seed 
       features: {
         arrival: -rnd() * 1.5, cost: -rnd() * 1.2, cabin: -Math.floor(rnd() * 2),
         effort: -Math.floor(rnd() * 2), loyalty: rnd() < 0.4 ? 1 : 0,
-        redeye: rnd() < 0.2 ? -1 : 0, seats: rnd(), stability: -rnd() * 1.2,
+        redeye: rnd() < 0.2 ? -1 : 0, seats: rnd(), stability: -rnd() * 1.2, weatherRisk: -rnd() * 0.5, advisoryRisk: -rnd() * 0.5,
       },
       bookability: 0.9 + rnd() * 0.09,
     }));
@@ -282,7 +326,7 @@ describe('the trainer learns signal and refuses noise', () => {
     // penalty rightly keeps it there. The honest, recoverable claim is
     // directional: cost rises clearly above its own prior, and rises far more
     // than a criterion the member's choices are uncorrelated with (cabin).
-    const trueW: WeightVector = { arrival: 0.2, cost: 4, cabin: 0.1, effort: 0.1, loyalty: 0.1, redeye: 0.1, seats: 0.1, stability: 0.1 };
+    const trueW: WeightVector = { arrival: 0.2, cost: 4, cabin: 0.1, effort: 0.1, loyalty: 0.1, redeye: 0.1, seats: 0.1, stability: 0.1, weatherRisk: 0.1, advisoryRisk: 0.1 };
     const obs = syntheticObs(trueW, art, 600);
     const prior = art.priorByStrategy.earliest_arrival;
     const fitted = fitConditionalLogit(obs, prior, art, { lambda: art.shrink.l2ToPrior, monotone: new Set(art.monotoneNonNegative) });
@@ -295,7 +339,7 @@ describe('the trainer learns signal and refuses noise', () => {
   });
 
   it('every fitted weight stays non-negative (monotone projection)', () => {
-    const trueW: WeightVector = { arrival: 3, cost: 0.5, cabin: 0.5, effort: 0.5, loyalty: 0.5, redeye: 0.5, seats: 0.5, stability: 0.5 };
+    const trueW: WeightVector = { arrival: 3, cost: 0.5, cabin: 0.5, effort: 0.5, loyalty: 0.5, redeye: 0.5, seats: 0.5, stability: 0.5, weatherRisk: 0.5, advisoryRisk: 0.5 };
     const obs = syntheticObs(trueW, art, 300);
     const fitted = fitConditionalLogit(obs, art.priorByStrategy.earliest_arrival, art, {
       lambda: art.shrink.l2ToPrior, monotone: new Set(art.monotoneNonNegative),
@@ -304,14 +348,14 @@ describe('the trainer learns signal and refuses noise', () => {
   });
 
   it('does not promote when data is below minData (overfit guard)', () => {
-    const trueW: WeightVector = { arrival: 0.2, cost: 4, cabin: 0.1, effort: 0.1, loyalty: 0.1, redeye: 0.1, seats: 0.1, stability: 0.1 };
+    const trueW: WeightVector = { arrival: 0.2, cost: 4, cabin: 0.1, effort: 0.1, loyalty: 0.1, redeye: 0.1, seats: 0.1, stability: 0.1, weatherRisk: 0.1, advisoryRisk: 0.1 };
     const tiny = syntheticObs(trueW, art, 20); // below minDataGlobal (200)
     const fit = fitStrategy(art, 'earliest_arrival', tiny);
     expect(fit.promoted).toBe(false);
   });
 
   it('promotes only when it beats the incumbent on held-out choices', () => {
-    const trueW: WeightVector = { arrival: 0.2, cost: 4, cabin: 0.1, effort: 0.1, loyalty: 0.1, redeye: 0.1, seats: 0.1, stability: 0.1 };
+    const trueW: WeightVector = { arrival: 0.2, cost: 4, cabin: 0.1, effort: 0.1, loyalty: 0.1, redeye: 0.1, seats: 0.1, stability: 0.1, weatherRisk: 0.1, advisoryRisk: 0.1 };
     const plenty = syntheticObs(trueW, art, 800);
     const fit = fitStrategy(art, 'earliest_arrival', plenty);
     expect(fit.n).toBeGreaterThanOrEqual(art.shrink.minDataGlobal);
@@ -348,8 +392,15 @@ describe('day-one behaviour and determinism', () => {
   it('resolveWeights is pure and honours the strategy prior at zero history', () => {
     const art = getArtifact();
     const w = resolveWeights(art, { strategy: 'lowest_cost', preferredCarriers: [], avoidRedEye: false, premiumEntitled: false });
-    // lowest_cost prior weights cost the most
-    const maxFeature = FEATURES.reduce((a, b) => (w[a] > w[b] ? a : b));
-    expect(maxFeature).toBe('cost');
+    // Among the PREFERENCE features (the strategy-varying ones), lowest_cost
+    // weights cost the most. The safety features — stability and the two live
+    // risk channels — are deliberately weighted independently of strategy, and
+    // advisoryRisk is heavier still by design, so they are excluded here.
+    const PREF = ['arrival', 'cost', 'cabin', 'effort', 'loyalty', 'redeye', 'seats'] as const;
+    const maxPref = PREF.reduce((a, b) => (w[a] > w[b] ? a : b));
+    expect(maxPref).toBe('cost');
+    // and advisoryRisk really is the heaviest weight overall, on purpose
+    const maxAll = FEATURES.reduce((a, b) => (w[a] > w[b] ? a : b));
+    expect(maxAll).toBe('advisoryRisk');
   });
 });
