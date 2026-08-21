@@ -11,11 +11,21 @@
  * itself doesn't know or care who called it — a future live AviationStack-
  * status poller would call this exact same function. Only the caller differs.
  *
- * Long-running-process caveat (same tradeoff as server/cache.ts and
- * server/domain/store.ts): this only behaves correctly under `npm run dev` /
- * `npm start` as one continuous Node process. A serverless deployment would
- * spin up fresh isolates per request and these setTimeout chains would not
- * survive between invocations. Not solved here — acceptable for a prototype.
+ * Long-running-process caveat (same tradeoff as server/cache.ts): this only
+ * behaves correctly under `npm run dev` / `npm start` as one continuous Node
+ * process. A serverless deployment would spin up fresh isolates per request
+ * and these setTimeout chains would not survive between invocations.
+ *
+ * Partially addressed 2026-08-21: `reconcileStrandedTasks()` /
+ * `startReconciliationSweep()` (bottom of this file) resume a consent
+ * window a process restart abandoned — run once at startup and every 5 min
+ * thereafter (instrumentation.ts). This closes the worst consequence (a
+ * member permanently stuck with no path back to a decision) but is a
+ * sweep, not a real fix: `server/domain/store.ts`'s `pipelineRuns` (the
+ * actual pipeline state machine journal.ts drives) is STILL pure in-memory
+ * and still resets to nothing on every restart — a real fix needs that
+ * migrated to Postgres the same way every other domain aggregate already
+ * was, which this sweep does not attempt.
  */
 // ACT_STEPS is deliberately no longer imported: the act path is real work now,
 // narrated by server/pipeline/narrate.ts. Those constants remain exported from
@@ -393,18 +403,7 @@ async function createTaskForBooking(event: DisruptionEvent, flightArg: Flight, b
   //
   // Not awaited, for the same reason as rung 2: the window is already running
   // and a slow provider must not eat into the member's thinking time.
-  const spend = costOf(flight, task);
-  const chosenAlt = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
-  const refund = estimateRefund({
-    flight, booking, cancelledBy: 'carrier', delayHours: 24,
-  });
-  const delta = spend.total - (refund.known && refund.currency === spend.currency ? refund.total : 0);
-  const rung3Content = {
-    altCode: chosenAlt?.code ?? 'the best option we found',
-    altArrives: chosenAlt?.arr ?? '—',
-    deltaDisplay: money(Math.max(0, delta)),
-    free: delta <= 0,
-  };
+  const rung3Content = buildRung3Content(flight, booking, task);
   const rung3Dispatch = dispatch(
     aboutToBookAlert({
       flightId: flight.id,
@@ -427,6 +426,28 @@ type Rung3Outcome = {
   dispatch: Promise<DispatchResult>;
   content: { altCode: string; altArrives: string; deltaDisplay: string; free: boolean };
 };
+
+/**
+ * The rung-3 message content: what's about to be spent, and on what. Shared
+ * by the original dispatch (createTaskForBooking) and the reconciliation
+ * sweep's fresh re-dispatch (reconcileStrandedTasks) — extracted 2026-08-21
+ * so both compute the exact same delta from the same formula, rather than a
+ * second hand-copied version drifting from the first.
+ */
+function buildRung3Content(flight: Flight, booking: Booking, task: RecoveryTask) {
+  const spend = costOf(flight, task);
+  const chosenAlt = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
+  const refund = estimateRefund({
+    flight, booking, cancelledBy: 'carrier', delayHours: 24,
+  });
+  const delta = spend.total - (refund.known && refund.currency === spend.currency ? refund.total : 0);
+  return {
+    altCode: chosenAlt?.code ?? 'the best option we found',
+    altArrives: chosenAlt?.arr ?? '—',
+    deltaDisplay: money(Math.max(0, delta)),
+    free: delta <= 0,
+  };
+}
 
 /**
  * The window ran out with nobody having acted — resolves it on schedule
@@ -545,7 +566,81 @@ async function finalizeResolution(task: RecoveryTask, resolution: DisruptionReso
   void pipeline.execute(task, resolution);
 }
 
+/**
+ * Resumes every recovery a process restart abandoned mid-window.
+ *
+ * Added 2026-08-21, closing a real gap this session's audit found: the
+ * consent window is a `setTimeout` living only in process memory. Before
+ * this, a routine restart (a deploy, not even a crash) while ANY member had
+ * an open consent window left that task permanently stuck at
+ * `phase:'waiting'`, `resolution:null` — no timer left to act on the
+ * `windowExpiresAt` already written to Postgres, and nothing anywhere ever
+ * looked for one.
+ *
+ * Deliberately does NOT resolve a stranded task by assuming silence-equals-
+ * proceed. After a restart there is no way to know whether the ORIGINAL
+ * rung-3 notification was ever confirmed delivered before the process died
+ * — and skipping that check would reintroduce the exact defect the
+ * 2026-08-21 delivery-check fix closed (an unattended spend proceeding
+ * without confirmed delivery). Instead this sends a FRESH rung-3 message
+ * and routes through the SAME `settleExpired` delivery-check/grace-retry
+ * logic a live timer would have used, so the safety guarantee holds across
+ * a restart, not just within one process's uptime. A task that had already
+ * used its one grace retry before the restart goes straight to hand-over,
+ * matching what would have happened had the process never died.
+ *
+ * Call once at process startup (instrumentation.ts) to catch anything
+ * stranded by the PREVIOUS process's death, and periodically thereafter as
+ * a genuine reconciliation loop — a live timer failing to fire for some
+ * other reason (an uncaught exception swallowed somewhere in its chain)
+ * would otherwise strand a task just as permanently as a restart does, and
+ * only a recurring sweep catches that case.
+ */
+export async function reconcileStrandedTasks(): Promise<void> {
+  await ensureSeeded();
+  let stranded: RecoveryTask[];
+  try {
+    stranded = await store.listWaitingRecoveryTasks();
+  } catch (e) {
+    console.error('[simulation] reconcileStrandedTasks: could not query for stranded tasks:', e);
+    return;
+  }
 
+  const now = Date.now();
+  for (const task of stranded) {
+    if (task.windowExpiresAt > now) continue; // window genuinely still open — a live timer owns this one
+    try {
+      await reconcileOneStrandedTask(task.flightId, task.passengerId);
+    } catch (e) {
+      // One stranded task's own data problem (a vanished flight/booking,
+      // most likely) must never stop the sweep from resuming every other
+      // member's stuck recovery.
+      console.error(`[simulation] reconcileStrandedTasks: failed to resume ${task.flightId}:${task.passengerId}:`, e);
+    }
+  }
+}
+
+async function reconcileOneStrandedTask(flightId: string, passengerId: string): Promise<void> {
+  const task = await store.getRecoveryTask(flightId, passengerId);
+  const flight = await store.getFlight(flightId);
+  const passenger = await store.getPassenger(passengerId);
+  if (!task || !flight || !passenger || task.resolution || task.phase !== 'waiting') return;
+
+  const bookings = await store.getBookingsForFlight(flightId);
+  const booking = bookings.find((b) => b.passengerId === passengerId);
+  if (!booking) return; // nothing to recover without the booking this task is for
+
+  console.info(`[simulation] resuming a stranded consent window for ${flightId}:${passengerId}`);
+
+  const rung3Content = buildRung3Content(flight, booking, task);
+  const rung3Dispatch = dispatch(
+    aboutToBookAlert({
+      flightId, passengerId, code: flight.code, ...rung3Content,
+      minutes: Math.max(1, Math.round(UNDELIVERED_GRACE_SECONDS / 60)),
+    }),
+  );
+  await settleExpired(flightId, passengerId, { dispatch: rung3Dispatch, content: rung3Content });
+}
 
 /**
  * The last check before anything is spent.
@@ -708,4 +803,43 @@ export async function getRecoveryView(flightId: string, passengerId: string): Pr
     pipeline: summary,
     timings: summary?.timings ?? { decideSeconds: 0, actSeconds: 0 },
   };
+}
+
+// ── Reconciliation sweep, self-starting ─────────────────────────────────────
+//
+// Same globalThis-guard / recursive-setTimeout shape statusPoller.ts and
+// batchScorer.ts already use — idempotent against Next dev-mode HMR
+// re-invoking instrumentation.ts's register(), and self-rescheduling only
+// after each pass completes so a slow sweep can never overlap itself.
+
+const RECONCILE_INTERVAL_MS = 5 * 60 * 1000; // 5 min — frequent enough that a
+// restart-stranded member waits minutes, not hours, for a fresh notification;
+// infrequent enough that this never competes meaningfully with the real
+// per-task setTimeout chains for attention.
+
+const rg = globalThis as typeof globalThis & {
+  __zkdReconcileSweepStarted?: boolean;
+  __zkdReconcileSweepTimer?: ReturnType<typeof setTimeout>;
+};
+
+export function startReconciliationSweep(): void {
+  if (rg.__zkdReconcileSweepStarted) return;
+  rg.__zkdReconcileSweepStarted = true;
+
+  const schedule = () => {
+    rg.__zkdReconcileSweepTimer = setTimeout(async () => {
+      try {
+        await reconcileStrandedTasks();
+      } catch (e) {
+        console.error('[simulation] reconciliation sweep tick failed:', e);
+      } finally {
+        schedule();
+      }
+    }, RECONCILE_INTERVAL_MS);
+  };
+
+  // Run once immediately — this is what catches whatever the PREVIOUS
+  // process's death left stranded, not just future gaps.
+  void reconcileStrandedTasks().catch((e) => console.error('[simulation] initial reconciliation sweep failed:', e));
+  schedule();
 }

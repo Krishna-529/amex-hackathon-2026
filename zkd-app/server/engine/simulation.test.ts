@@ -49,6 +49,8 @@ vi.mock('../domain/store', () => ({
   partySize: (b: Booking) => b.travellerIds.length,
   getRecoveryTask: async (flightId: string, passengerId: string) => tasks.get(`${flightId}:${passengerId}`),
   setRecoveryTask: async (t: RecoveryTask) => { tasks.set(`${t.flightId}:${t.passengerId}`, t); },
+  listWaitingRecoveryTasks: async () =>
+    [...tasks.values()].filter((t) => t.phase === 'waiting' && t.resolution === null),
 }));
 
 const FLIGHT_ID = 'flt-delivery-test';
@@ -166,5 +168,103 @@ describe('settleExpired — the notification-delivery safety check', () => {
     expect(task?.resolution?.kind).toBe('autopilot');
     expect(task?.phase).toBe('acting');
     expect(pipelineExecute).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('reconcileStrandedTasks — resuming a consent window a restart abandoned', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    flights = new Map([[FLIGHT_ID, flight()]]);
+    bookings = new Map([[FLIGHT_ID, [booking()]]]);
+    passengers = new Map([[PASSENGER_ID, passenger()]]);
+    events = new Map();
+    tasks = new Map();
+    dispatchMock.mockClear();
+    pipelineExecute.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function strandedTask(overrides: Partial<RecoveryTask> = {}): RecoveryTask {
+    return {
+      id: 'task-1', flightId: FLIGHT_ID, passengerId: PASSENGER_ID,
+      phase: 'waiting', shown: [], note: null, resolution: null,
+      windowExpiresAt: Date.now() - 5 * 60_000, // already in the past — simulates a dead timer
+      windowBoundBy: 'ceiling', partySize: 1,
+      chosenAltId: '', chosenHotelId: '', chosenCabId: '', rejectedAltIds: [],
+      undeliveredGraceUsed: false,
+      ...overrides,
+    } as RecoveryTask;
+  }
+
+  it('sends a fresh rung-3 message and resolves once it is confirmed delivered', async () => {
+    tasks.set(`${FLIGHT_ID}:${PASSENGER_ID}`, strandedTask());
+    dispatchMock.mockImplementation(async () => ({ event: {} as never, results: [], delivered: true }));
+
+    const { reconcileStrandedTasks } = await import('./simulation');
+    await reconcileStrandedTasks();
+
+    expect(dispatchMock).toHaveBeenCalledTimes(1); // the fresh rung-3, nothing more
+    const task = tasks.get(`${FLIGHT_ID}:${PASSENGER_ID}`);
+    expect(task?.resolution?.kind).toBe('autopilot');
+    expect(pipelineExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT resolve blind if the fresh rung-3 fails to deliver — grants the grace retry instead', async () => {
+    tasks.set(`${FLIGHT_ID}:${PASSENGER_ID}`, strandedTask());
+    dispatchMock.mockImplementation(async () => ({ event: {} as never, results: [], delivered: false }));
+
+    const { reconcileStrandedTasks } = await import('./simulation');
+    await reconcileStrandedTasks();
+
+    const task = tasks.get(`${FLIGHT_ID}:${PASSENGER_ID}`);
+    expect(task?.resolution).toBeNull();
+    expect(task?.undeliveredGraceUsed).toBe(true);
+    expect(pipelineExecute).not.toHaveBeenCalled();
+  });
+
+  it('a task that already used its grace retry before the restart goes straight to hand-over on a second undelivered attempt', async () => {
+    tasks.set(`${FLIGHT_ID}:${PASSENGER_ID}`, strandedTask({ undeliveredGraceUsed: true }));
+    dispatchMock.mockImplementation(async () => ({ event: {} as never, results: [], delivered: false }));
+
+    const { reconcileStrandedTasks } = await import('./simulation');
+    await reconcileStrandedTasks();
+
+    const task = tasks.get(`${FLIGHT_ID}:${PASSENGER_ID}`);
+    expect(task?.resolution?.kind).toBe('handed-over');
+    expect(pipelineExecute).not.toHaveBeenCalled();
+  });
+
+  it('skips a task whose window has not actually expired yet', async () => {
+    tasks.set(`${FLIGHT_ID}:${PASSENGER_ID}`, strandedTask({ windowExpiresAt: Date.now() + 10 * 60_000 }));
+
+    const { reconcileStrandedTasks } = await import('./simulation');
+    await reconcileStrandedTasks();
+
+    expect(dispatchMock).not.toHaveBeenCalled();
+    const task = tasks.get(`${FLIGHT_ID}:${PASSENGER_ID}`);
+    expect(task?.resolution).toBeNull();
+    expect(task?.phase).toBe('waiting'); // untouched — a live timer still owns this one
+  });
+
+  it('skips a task that is not actually stranded (already resolved or not waiting)', async () => {
+    tasks.set(`${FLIGHT_ID}:${PASSENGER_ID}`, strandedTask({ phase: 'acting' }));
+
+    const { reconcileStrandedTasks } = await import('./simulation');
+    await reconcileStrandedTasks();
+
+    expect(dispatchMock).not.toHaveBeenCalled();
+  });
+
+  it('one stranded task with no matching booking does not stop the sweep from erroring loudly rather than silently', async () => {
+    // No booking in the `bookings` map for this flight/passenger.
+    bookings = new Map([[FLIGHT_ID, []]]);
+    tasks.set(`${FLIGHT_ID}:${PASSENGER_ID}`, strandedTask());
+
+    const { reconcileStrandedTasks } = await import('./simulation');
+    await expect(reconcileStrandedTasks()).resolves.not.toThrow();
+    expect(dispatchMock).not.toHaveBeenCalled(); // no booking to compute rung-3 content against
   });
 });

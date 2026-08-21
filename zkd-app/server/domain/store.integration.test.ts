@@ -124,4 +124,52 @@ describe.skipIf(!hasDb)('store.ts against real Postgres', () => {
     const ids = await Promise.all([store.nextTaskId(), store.nextTaskId(), store.nextTaskId()]);
     expect(new Set(ids).size).toBe(3);
   });
+
+  // 2026-08-21: listWaitingRecoveryTasks is the query the reconciliation
+  // sweep (server/engine/simulation.ts) depends on to resume anything a
+  // process restart stranded — it can only be validated against a real
+  // Postgres because it relies on a specific JSON-null-vs-SQL-null
+  // distinction (jsonb_typeof(...) = 'null', NOT `IS NULL`) that mocks
+  // cannot meaningfully exercise.
+  test('listWaitingRecoveryTasks finds a waiting/unresolved task and excludes a resolved one', async () => {
+    const flightId = `flt-waiting-${Date.now()}`;
+    const passengerId = `p-waiting-${Date.now()}`;
+    const waitingTask = {
+      id: `task-waiting-${Date.now()}`, disruptionEventId: 'evt-1', flightId, bookingId: 'bk-1', passengerId,
+      phase: 'waiting' as const, terminal: null, needsRebooking: true, partySize: 1,
+      windowExpiresAt: Date.now() - 60_000, windowBoundBy: 'ceiling' as const,
+      chosenAltId: '', chosenHotelId: '', chosenCabId: '', rejectedAltIds: [],
+      shown: [], note: null, resolution: null, undeliveredGraceUsed: false,
+    };
+    await store.setRecoveryTask(waitingTask);
+
+    const resolvedFlightId = `flt-resolved-${Date.now()}`;
+    const resolvedTask = {
+      ...waitingTask,
+      id: `task-resolved-${Date.now()}`, flightId: resolvedFlightId,
+      resolution: { kind: 'handed-over' as const, at: Date.now() },
+      phase: 'handed' as const,
+    };
+    await store.setRecoveryTask(resolvedTask);
+
+    const waiting = await store.listWaitingRecoveryTasks();
+    const ids = waiting.map((t) => t.id);
+    expect(ids).toContain(waitingTask.id);
+    expect(ids).not.toContain(resolvedTask.id);
+  });
+
+  test('getPreAuthsForFlight returns only that flight\'s pre-auths', async () => {
+    const flightA = `flt-preauth-a-${Date.now()}`;
+    const flightB = `flt-preauth-b-${Date.now()}`;
+    const passengerId = `p-preauth-${Date.now()}`;
+    await store.setPreAuth({ flightId: flightA, passengerId, altId: 'a1', hotelId: 'h1', cabId: 'c1', owed: 0, grantedAt: Date.now() });
+    await store.setPreAuth({ flightId: flightB, passengerId, altId: 'a2', hotelId: 'h2', cabId: 'c2', owed: 0, grantedAt: Date.now() });
+
+    const forA = await store.getPreAuthsForFlight(flightA);
+    expect(forA).toHaveLength(1);
+    expect(forA[0].altId).toBe('a1');
+
+    await store.clearPreAuth(flightA, passengerId);
+    await store.clearPreAuth(flightB, passengerId);
+  });
 });

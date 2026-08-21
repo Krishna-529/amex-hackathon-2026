@@ -50,5 +50,14 @@ export async function register() {
     // call, this just avoids the first request paying that latency.
     const { refreshThresholdConfigIfStale } = await import('./lib/thresholdConfig');
     refreshThresholdConfigIfStale();
+
+    // Resumes any consent window a PREVIOUS process's death abandoned
+    // mid-flight, then keeps sweeping for the same case periodically — see
+    // server/engine/simulation.ts's reconcileStrandedTasks() for why this
+    // exists: the consent-window timer lives only in process memory, so
+    // without this, a routine restart permanently strands every member with
+    // an open window at the moment of that restart.
+    const { startReconciliationSweep } = await import('./server/engine/simulation');
+    startReconciliationSweep();
   }
 }

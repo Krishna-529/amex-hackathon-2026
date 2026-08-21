@@ -304,6 +304,20 @@ export async function getPreAuth(flightId: string, passengerId: string): Promise
   return rows[0]?.data;
 }
 
+/**
+ * Every pre-auth for one flight, in one indexed query. Added 2026-08-21:
+ * `altsCache.ts`'s `mergePinned` used to find these by calling
+ * `listPassengers()` (the ENTIRE passenger table, system-wide) then issuing
+ * one `getPreAuth` per passenger — a true N+1 that ran on every alts refresh
+ * (which can fire every 20s during a real disruption). `pre_auths` already
+ * carries a `flight_id` column for exactly this query; nothing used it.
+ */
+export async function getPreAuthsForFlight(flightId: string): Promise<PreAuthRecord[]> {
+  const q = await db();
+  const rows = await q<{ data: PreAuthRecord }[]>`select data from pre_auths where flight_id = ${flightId}`;
+  return rows.map((r) => r.data);
+}
+
 export async function setPreAuth(rec: PreAuthRecord): Promise<void> {
   const q = await db();
   const key = `${rec.flightId}:${rec.passengerId}`;
@@ -419,6 +433,35 @@ export async function setRecoveryTask(task: RecoveryTask): Promise<void> {
 export async function getRecoveryTasksForFlight(flightId: string): Promise<RecoveryTask[]> {
   const q = await db();
   const rows = await q<{ data: RecoveryTask }[]>`select data from recovery_tasks where flight_id = ${flightId}`;
+  return rows.map((r) => r.data);
+}
+
+/**
+ * Every recovery task still waiting on a member with a window that has
+ * already lapsed — the input to `simulation.ts`'s reconciliation sweep.
+ * Added 2026-08-21: consent-window expiry has always been driven by a
+ * `setTimeout` that lives only in process memory (`RecoveryTask.windowExpiresAt`
+ * is persisted, the live timer that acts on it is not — see this file's own
+ * header on `pipelineRuns`/process-lifetime state for the same class of gap).
+ * Before this query existed, a process restart while any member had an open
+ * consent window meant nothing anywhere would ever resume it — the task sat
+ * at `phase:'waiting'`, `resolution:null` forever, with no automatic path
+ * back to a decision. A JSONB path filter, not an indexed column — acceptable
+ * for a periodic sweep at this table's current size; would want a real
+ * generated/indexed column (`phase`, `resolution_kind`) before this runs
+ * against a real member base.
+ */
+export async function listWaitingRecoveryTasks(): Promise<RecoveryTask[]> {
+  const q = await db();
+  // jsonb_typeof(...) = 'null', not `IS NULL` or `= 'null'::jsonb` — the `->`
+  // operator returns the JSONB scalar `null` for a stored JSON null, which is
+  // NOT the same thing as SQL NULL (a naive `IS NULL` here would silently
+  // match nothing). jsonb_typeof is the standard, unambiguous way to ask
+  // "is this JSON value actually null".
+  const rows = await q<{ data: RecoveryTask }[]>`
+    select data from recovery_tasks
+    where data->>'phase' = 'waiting' and jsonb_typeof(data->'resolution') = 'null'
+  `;
   return rows.map((r) => r.data);
 }
 
