@@ -130,7 +130,7 @@ export const kiwi: Supplier = {
         url.searchParams.set('max_stopovers', '1');
         url.searchParams.set('vehicle_type', 'aircraft');
 
-        const res = await fetch(url, { headers: { apikey: key }, cache: 'no-store' });
+        const res = await fetch(url, { headers: { apikey: key }, cache: 'no-store', signal: AbortSignal.timeout(10000) });
         if (!res.ok) return { offers: [], status: 'error' as SupplierStatus };
 
         const json = (await res.json()) as { data?: TequilaFlight[] };
@@ -172,7 +172,7 @@ export const kiwi: Supplier = {
         url.searchParams.set('pnum', '1');
         url.searchParams.set('currency', offer.price.currency);
 
-        const res = await fetch(url, { headers: { apikey: key }, cache: 'no-store' });
+        const res = await fetch(url, { headers: { apikey: key }, cache: 'no-store', signal: AbortSignal.timeout(10000) });
         if (res.status === 404 || res.status === 410) return { state: 'gone' };
         if (!res.ok) return { state: 'unknown' };
 

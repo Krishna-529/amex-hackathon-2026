@@ -116,6 +116,7 @@ export const duffelStays: HotelSupplier = {
             },
           }),
           cache: 'no-store',
+          signal: AbortSignal.timeout(10000),
         });
         if (!res.ok) {
           noteOutcome('duffel-stays', { ok: false, status: res.status });
@@ -148,6 +149,7 @@ export const duffelStays: HotelSupplier = {
           headers: duffelHeaders(token),
           body: JSON.stringify({ data: { rate_id: offer.supplierRateId } }),
           cache: 'no-store',
+          signal: AbortSignal.timeout(10000),
         });
         if (res.status === 404 || res.status === 410 || res.status === 422) return { state: 'gone' };
         if (!res.ok) return { state: 'unknown' };
@@ -189,6 +191,7 @@ export const duffelStays: HotelSupplier = {
           headers: duffelHeaders(token),
           body: JSON.stringify({ data: { rate_id: offer.supplierRateId } }),
           cache: 'no-store',
+          signal: AbortSignal.timeout(10000),
         });
         if (!res.ok) return null;
         const json = (await res.json()) as {
@@ -319,7 +322,7 @@ export async function marketContext(
       url.searchParams.set('cityid', cityId);
       url.searchParams.set('cur', currency);
 
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
       if (!res.ok) return null;
 
       const json = (await res.json()) as unknown;

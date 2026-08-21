@@ -90,10 +90,29 @@ export async function GET(req: NextRequest) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    // The two failures worth telling apart on stage: the trial allowance is
-    // gone, or replay was on and this route was never recorded. Both are
-    // operator problems with different fixes, and neither is "no flights".
-    const status = /budget exhausted|no fixture/i.test(message) ? 503 : 502;
-    return NextResponse.json({ error: message }, { status });
+    // Logged in full server-side — this is where the detail belongs. Never
+    // returned verbatim to the client: this route is deliberately
+    // unauthenticated (public, browse-before-signin), and the raw message can
+    // contain OAG's own upstream response body (server/oag.ts:336, up to 500
+    // chars of vendor error text) or, in OAG_REPLAY mode, this server's own
+    // absolute file path to the missing fixture (server/oag.ts's "no
+    // fixture" throw). Both are real information disclosure to an anonymous
+    // caller — fixed 2026-08-21. The two failures worth telling an operator
+    // apart on stage (trial allowance gone vs. replay mode missing a
+    // recording) still get their own clean, pre-written message and status;
+    // everything else collapses to one generic 502.
+    console.error('[search/flights] OAG lookup failed:', message);
+    const budgetExhausted = /budget exhausted/i.test(message);
+    const noFixture = /no fixture/i.test(message);
+    if (budgetExhausted) {
+      return NextResponse.json({ error: 'The flight-search trial allowance is exhausted for now.' }, { status: 503 });
+    }
+    if (noFixture) {
+      return NextResponse.json(
+        { error: 'This route is not available in replay mode — ask an operator to record it.' },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json({ error: 'Flight search is temporarily unavailable.' }, { status: 502 });
   }
 }
