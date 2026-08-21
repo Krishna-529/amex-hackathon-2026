@@ -12,6 +12,141 @@
 
 ## Recent work
 
+- 2026-08-21 (full-codebase security & robustness audit) — **On the user's explicit request to
+  find anything "not built up to the standards and scale of Amex," ran four parallel read-only
+  research passes (security/access-control, data layer/state machine, API route surface,
+  multi-instance/scale readiness) covering the whole codebase, then fixed the 9 highest-value
+  findings same-session, verified at every step.** `tsc --noEmit` clean throughout, `npm test` 329
+  passed (up from 260 at the start of this whole session) / 8 pre-existing DB-gated failures / 7
+  skipped (up from 5 — the 2 new integration tests for this session's new store queries self-skip
+  cleanly without `DATABASE_URL`, exactly as designed), `pipeline/verify.ts`'s 33 checks all pass,
+  full `next build --webpack` succeeds.
+  - **Process note, since this directly follows the earlier "runaway fork" incident this session**:
+    all four research agents this time were FRESH (`subagent_type: general-purpose`, not `fork`),
+    each given an explicit, self-contained, bounded prompt and told plainly "this is a READ-ONLY
+    research task... do not modify, create, or delete any file... do not commit or push anything."
+    None inherited this conversation's larger context, and none attempted to act beyond their
+    assigned research scope — the lesson from the earlier incident (a fork inherits the FULL
+    parent conversation, including a much bigger mandate, and can rationalize acting on it) held.
+  - **Most severe finding, confirmed independently by two of the four passes and then read
+    directly**: `POST /api/disruptions` had ZERO authentication. Any anonymous caller could
+    trigger `detectDisruption()` on any real flight id (itself discoverable from the also-
+    unauthenticated `GET /api/flights`), which fans out to every passenger booked on that flight
+    and, for anyone on autopilot consent or with an intact pre-authorization, acts IMMEDIATELY —
+    no confirmation window, no dollar ceiling (removed 2026-08-19 by design). `GET /api/disruptions`
+    also returned real passenger names and owed-dollar-amounts with no auth. The `/ops` mutation
+    routes (`mark-cancelled`, `demo-reset`) were only marginally better — gated on `requireSession`
+    ("any signed-in member"), not any operator concept, because **no operator-role concept existed
+    anywhere in this branch's auth code at all**.
+  - **Built a real operator-auth system rather than a quick patch**: `server/auth/opsSession.ts`,
+    mirroring `session.ts`'s exact conventions (HMAC-SHA256, own `OPS_SESSION_SECRET`, own
+    `zkd_ops_session` cookie, 8h expiry, refuses to boot in production without a real secret) but
+    deliberately a SEPARATE credential (`OPS_ACCESS_KEY`) from a member session — a member being
+    signed in must never double as operator access. New `requireOperator` guard
+    (`server/auth/guard.ts`), new `POST /api/auth/ops-login` / `ops-logout` / `GET ops-me` routes,
+    and a real login gate added to the `/ops` page itself (`app/ops/page.tsx`) — it previously had
+    NO gate at all; its own copy claimed "this console has no account of its own," true in a sense
+    that was actually the vulnerability, not a feature, and has been corrected. 9 new tests
+    (`opsSession.test.ts` — `server/auth/*` had zero coverage before this). Wired into: both verbs
+    on `/api/disruptions`, `ops/mark-cancelled`, `ops/demo-reset`, and `flights/[id]/demo-risk`
+    (a presenter-only control with no per-member ownership concept, so operator-gating is the
+    correct fix there, unlike the two below).
+  - **Two routes needed an ownership check instead** (they're legitimate member self-service, not
+    ops-only): `flights/[id]/warm` and `flights/[id]/reverify` let any signed-in member force a
+    real, budget-consuming supplier search/re-score against ANY flight id, not just their own.
+    Fixed by reusing the exact pattern `report-cancellation` already established (does the caller
+    have a real booking on this flight — 403 if not), with an operator session still passing
+    through unconditionally since `/ops` itself calls both for demo purposes.
+  - **The real double-booking bug, and why it's worse than it sounds**: `journal.ts`'s
+    `transition()` had `if (from === to && to !== 'HOLD_PENDING') return {ok:true, run}` — an
+    "already there" short-circuit that did NOT exclude `CONFIRMED`. `pipeline/index.ts`'s
+    `execute()` is reachable from two independent async paths for the same task
+    (`settleExpired`'s window-expiry timer, and `resolveTask`'s member-action handler), each
+    working from its OWN separately-fetched snapshot of the task. If a member's "Approve" click
+    lands in the same tick as their own window naturally expiring — genuinely plausible, since the
+    UI shows a live countdown to zero — both paths see `task.resolution === null`, both call
+    `execute()`, and the second `transition(run, 'CONFIRMED', ...)` call returned `{ok:true}`
+    purely because the run was ALREADY at `CONFIRMED`, which `execute()` reads as "proceed" and
+    ran `runSaga()` a full second time — a real duplicate hotel hold (`holdHotel()` is a genuine
+    Duffel Stays call even with mutations off) and a duplicate "you're rebooked" notification,
+    both live today, and would be a real double-booked/double-charged seat the instant live
+    ticketing is implemented (which the code already anticipates in a comment). Fixed by excluding
+    `CONFIRMED` from the short-circuit exactly like `HOLD_PENDING` already was — a repeat
+    `CONFIRMED` now correctly fails `canTransition` (`LEGAL_TRANSITIONS` only permits
+    `HOLD_PENDING→CONFIRMED`) and routes into `execute()`'s existing `!ok` strand path, which was
+    already written and just previously unreachable for this specific case. New `journal.test.ts`
+    (zero coverage before this) — 4 tests, including one proving `HOLD_PENDING`'s own re-entry
+    semantics are unchanged by the fix (a regression-of-the-fix guard, not just a test of it).
+  - **Traced the hotel/authorise/flight saga compensators to the bottom, and the fix turned out to
+    be different from what the audit initially assumed.** The audit found these claiming
+    "cancelled/voided/released" for refs with no real API call behind them, and suspected a
+    missing real cancel-hold integration needed to be built. Reading `holdHotel()`
+    (`server/hotels/index.ts`) and Duffel Stays' `hold()` (`server/hotels/providers.ts`) directly
+    showed something different: a Duffel Stays "quote" is a stateless repriced-rate check with an
+    expiry — the code's OWN comment says "letting it lapse costs nothing" — not a persistent
+    booking, and no provider in the registry implements a cancel/release endpoint because none of
+    their holds are real bookings to begin with (a real booking only exists after `stays/bookings`,
+    which this saga never calls while `PIPELINE_ALLOW_MUTATIONS` is off, the default). So the real
+    bug wasn't a missing API integration — it was that the compensator's WORDING claimed an active
+    cancellation that never needed to happen, exactly the "claims a release that did not happen"
+    anti-pattern `fallbackNote.test.ts`/`verify.ts` already test against elsewhere in this
+    codebase. Fixed all three compensators (hotel/authorise/flight) to say plainly that nothing
+    real was ever committed, rather than claiming an action. Left a clear comment on the hotel one:
+    if a future provider DOES implement a real, billable hold, its own `hold()` must grow a
+    matching `release()` and THIS compensator must call it for real before claiming success again.
+  - **Consent-window reconciliation, the biggest architectural addition this session**: process
+    restarts have always permanently stranded any open consent window (the `setTimeout` driving it
+    lives only in memory; `RecoveryTask.windowExpiresAt` is persisted, nothing that acts on it is).
+    Built a real, safety-preserving sweep rather than the unsafe shortcut of just resolving
+    stranded tasks blind: new `store.listWaitingRecoveryTasks()` (a `jsonb_typeof(...) = 'null'`
+    query, deliberately not `IS NULL` — the `->` operator returns a JSONB null scalar for a stored
+    JSON null, which is NOT the same thing as SQL NULL, and a naive `IS NULL` would have silently
+    matched nothing; also added the `pre_auths`/`journey_prefs` `flight_id` indexes neither had
+    despite both having the column, migration `0004_preauth_flight_index.sql`), and
+    `simulation.ts`'s `reconcileStrandedTasks()`/`startReconciliationSweep()`, wired into
+    `instrumentation.ts` to run once at startup (catches whatever the PREVIOUS process's death
+    stranded) and every 5 minutes thereafter (catches a live timer that failed to fire for some
+    other reason, e.g. a swallowed exception). Extracted `buildRung3Content()` as a shared helper
+    (previously duplicated logic) so the sweep computes the exact same delta formula the original
+    dispatch does. **Deliberately does NOT assume silence-equals-proceed for a stranded task** —
+    that would reintroduce the exact delivery-check defect fixed earlier the same day. Instead it
+    sends a FRESH rung-3 message and routes through the same `settleExpired` delivery-check/
+    grace-retry logic a live timer would have used, so the safety guarantee holds across a
+    restart, at the cost of the member waiting for a fresh notification rather than an instant
+    resolution — the conservative, correct tradeoff. 6 new tests in the existing
+    `simulation.test.ts` (confirmed-delivered resolves; undelivered grants grace; already-used-
+    grace goes straight to hand-over; a still-open window is left alone; an already-resolved/non-
+    waiting task is skipped; a task with no matching booking fails loud, not silent) plus 2 new
+    real-Postgres integration tests (self-skip without `DATABASE_URL`, matching the codebase's
+    existing pattern) validating the actual SQL. **Still not a complete fix, and said so in both
+    the code and this entry**: `store.ts`'s `pipelineRuns` — the actual pipeline state machine
+    `journal.ts` drives, underneath the consent decision this sweep resumes — remains pure
+    in-memory and still resets to nothing on restart. The sweep resumes the MEMBER'S decision, not
+    the PIPELINE's execution state; a real fix needs `pipelineRuns` migrated to Postgres the same
+    way every other domain aggregate already was. Flagged as the top remaining architectural gap,
+    not attempted this session (a genuine multi-hour migration, not a fix to rush).
+  - **Fixed, smaller**: `search/flights/route.ts` used to return `e.message` verbatim to the
+    client — a deliberately unauthenticated route — which could be OAG's own raw upstream error
+    body (up to 500 chars) or, in `OAG_REPLAY` mode, this server's absolute file path to a missing
+    fixture. Now logs the real message server-side and returns one of three clean, pre-written
+    client messages. `altsCache.ts`'s `mergePinned()` (can run every 20s during a real disruption)
+    used to load the ENTIRE passenger table and issue one `getPreAuth` call per passenger just to
+    find one flight's pre-auths — a true N+1 — fixed with the new indexed `getPreAuthsForFlight()`.
+    Five external-call sites had no request timeout at all (Kiwi search+revalidate, Skyscanner,
+    Uber's OAuth token fetch + every authenticated Uber request, Makcorps, and — found while
+    checking the others, not originally flagged by the audit — all three Duffel *Stays* hotel
+    calls, a separate client from the already-guarded Duffel *flights* client) — all now carry
+    `AbortSignal.timeout(10000)`.
+  - **Documented, not fixed — real, larger efforts, flagged rather than rushed under time
+    pressure**: rate limiting and CSRF defense do not exist ANYWHERE on this branch (verified
+    directly — `find` for `ratelimit`/`csrf` across the whole tree returns nothing); a real
+    implementation of both already exists on a sibling branch and porting it is the right fix, not
+    writing a second implementation from scratch. Several `globalThis`-scoped counters (supplier
+    budget ledgers, the status-poller's monthly spend counter, the webhook-subscription registry)
+    don't share across multiple instances — real for an actual multi-instance Amex deployment, not
+    relevant to this single-process demo, so left as a documented finding rather than infrastructure
+    work with no way to test it in this environment.
+
 - 2026-08-21 (alt-flight ranking hardening) — **Full correctness/edge-case audit of the alt-flight
   ranking pipeline, on the user's own explicit request that this specific component — "the most
   important component of our entire pipeline" — be made flagship-robust. Found and fixed 7 real

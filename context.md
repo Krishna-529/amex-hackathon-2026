@@ -205,17 +205,117 @@ ahead of `origin/demo` pending a review/push decision. Four branches remain genu
 `verified` · `calc` · `sim` · `assumed` · `budget` · `deck`. Known gap: DGCA duty-of-care
 thresholds carry `deck` until primary CAR text is re-retrieved (unchanged from every prior audit).
 
+## Full-codebase security & robustness audit (2026-08-21)
+
+On the user's explicit request to find anything "not built up to the standards and scale of Amex,"
+four parallel read-only research passes covered security/access-control, the data layer/state
+machine, the full API route surface, and multi-instance/scale readiness — cross-verified against
+each other and, for the two most severe claims, against the code directly. **11 real, verified
+issues found; 9 fixed same-session, 2 documented as genuine larger efforts (see below).**
+
+**Fixed:**
+- **`POST /api/disruptions` had NO authentication at all** (confirmed independently by two of the
+  four passes, then read directly) — any anonymous caller could trigger a real disruption on any
+  flight, cascading into an immediate, uncapped autopilot/pre-auth spend with no confirmation
+  window (the ₹25,000 cap was already removed by design). `GET /api/disruptions` also leaked real
+  passenger names + owed amounts with zero auth. **Fixed**: new `server/auth/opsSession.ts` (a
+  real, separate HMAC-signed operator credential, mirroring `session.ts`'s exact conventions —
+  own secret, own cookie, own 8h expiry), a new `requireOperator` guard, and a real login gate
+  added to the `/ops` page itself (it used to have none — the page's own copy claimed "no account
+  of its own," which was true in a way that was actually a gap, not a feature). Both verbs on
+  `/api/disruptions`, plus `ops/mark-cancelled`, `ops/demo-reset`, and `flights/[id]/demo-risk`,
+  now require it.
+- **`/ops` mutation routes (`mark-cancelled`, `demo-reset`) checked only `requireSession`** — "is
+  ANY member signed in," not an operator check — meaning any of the publicly-listed demo accounts
+  could wipe the whole demo state or manufacture "confirmed" cancellation corroboration for an
+  arbitrary flight. **Fixed** — same `requireOperator` fix as above.
+- **Three routes missing per-flight ownership checks**: `flights/[id]/warm` and
+  `flights/[id]/reverify` let any signed-in member force a real, budget-consuming supplier
+  search/re-score against ANY flight id, not only their own. **Fixed** — both now check the caller
+  has a real booking on the flight (reusing the exact pattern `report-cancellation` already
+  established), with an operator session still passing through unconditionally since `/ops` itself
+  calls these for demo purposes.
+- **A real double-booking race in `journal.ts`'s `transition()`**: a member's own "Approve" click
+  and their consent window's own expiry timer firing within the same tick both independently call
+  `pipeline.execute()`; the "already there" short-circuit (`from === to → {ok:true}`) let a
+  SECOND `CONFIRMED` transition silently succeed, which `execute()` read as "go ahead" and ran the
+  **entire booking saga twice** — a real duplicate hotel hold and a duplicate "you're rebooked"
+  notification today, and would be a real double-booked/double-charged seat the moment live
+  ticketing lands. **Fixed**: `CONFIRMED` excluded from the short-circuit, matching the existing
+  `HOLD_PENDING` exclusion exactly — a repeat `CONFIRMED` now correctly fails `canTransition` and
+  routes into `execute()`'s existing (previously unreachable for this case) strand path. New
+  `journal.test.ts` (journal.ts had zero coverage before this).
+- **Consent-window timers are 100% in-memory with zero reconciliation** — a routine process
+  restart (a deploy, not a crash) while any member had an open consent window permanently stranded
+  that recovery: the timer that would call `settleExpired` dies with the process, and nothing
+  anywhere ever looked for a `RecoveryTask` with a lapsed `windowExpiresAt` and no resolution.
+  **Partially fixed**: new `store.listWaitingRecoveryTasks()` + `simulation.ts`'s
+  `reconcileStrandedTasks()`/`startReconciliationSweep()`, wired into `instrumentation.ts` to run
+  once at startup and every 5 minutes thereafter. Deliberately does NOT resolve a stranded task by
+  assuming silence-equals-proceed (that would reintroduce the delivery-check defect fixed earlier
+  the same day) — it sends a FRESH rung-3 notification and routes through the same
+  delivery-check/grace-retry logic a live timer would have used, so the safety guarantee holds
+  across a restart. **Still not a full fix**: `store.ts`'s `pipelineRuns` (the actual pipeline
+  state-machine journal `journal.ts` drives) remains pure in-memory and still resets to nothing on
+  restart — the sweep resumes the CONSENT decision, not the pipeline execution state underneath
+  it. A real fix needs `pipelineRuns` migrated to Postgres the same way every other domain
+  aggregate already was; flagged, not attempted (see "not fixed" below).
+- **Two saga compensators claimed an action that never happens**: `hotel`'s compensator said
+  `cancelled ${ref} inside the free-cancellation window` for a REAL Duffel Stays hold
+  (`holdHotel()` is a genuine third-party call), but no provider in the registry implements a
+  real cancel/release endpoint — traced why: a Duffel Stays "quote" is a stateless repriced rate
+  check that simply expires unclaimed at no cost (the code's own comment says so), not a real
+  booking, so there was never anything to actively cancel. `authorise`/`flight`'s compensators
+  similarly claimed "voided"/"released" for refs that are never real (no live payment integration
+  exists; live ticketing is deliberately unimplemented, not stubbed). **Fixed**: all three now say
+  honestly that nothing real was ever committed, matching the exact "never claim a release that
+  did not happen" standard `fallbackNote.test.ts`/`verify.ts` already enforce elsewhere in this
+  codebase — this was the one place still violating it.
+- **Raw third-party errors and an internal file path leaked to API clients**: `search/flights`
+  returned OAG's own upstream error body (up to 500 chars) and, in replay mode, this server's
+  absolute file path to a missing fixture, verbatim in the JSON error response of a deliberately
+  unauthenticated route. **Fixed** — logged in full server-side, client gets one of three clean,
+  pre-written messages (budget exhausted / replay-mode gap / generic unavailable).
+- **An N+1 query pattern on a hot path**: `altsCache.ts`'s `mergePinned` (can run every 20s during
+  a real disruption) loaded the ENTIRE passenger table, then issued one `getPreAuth` call per
+  passenger just to find one flight's pre-auths. **Fixed**: new indexed `getPreAuthsForFlight()` +
+  migration `0004_preauth_flight_index.sql` (neither `pre_auths` nor `journey_prefs` had a
+  `flight_id` index despite both having the column).
+- **Five external-call sites had no request timeout** (a hung upstream could hang the caller
+  indefinitely): Kiwi (both search+revalidate), Skyscanner, Uber's OAuth token fetch + every
+  authenticated Uber request, Makcorps, and — found while checking, not originally flagged — all
+  three Duffel *Stays* hotel calls (a separate client from the already-timeout-guarded Duffel
+  *flights* client). **Fixed** — all now carry `AbortSignal.timeout(10000)`, matching every other
+  supplier client in the codebase.
+
+**Documented, not fixed this session** (real, larger efforts — flagged rather than rushed):
+- **`pipelineRuns` (the pipeline state machine itself) is still pure in-memory** — see the
+  reconciliation-sweep entry above. A real fix is a genuine Postgres migration, not a quick patch.
+- **Rate limiting and CSRF defense do not exist anywhere on this branch** — verified directly
+  (`find` for `ratelimit`/`csrf` across the whole tree returns nothing). A real implementation of
+  both already exists on a sibling branch and was simply never merged here; porting it is the
+  right fix, not writing a second implementation from scratch. Concretely exploitable today as a
+  cost-abuse/availability risk against budget-capped suppliers (OAG's 100-call TOTAL trial
+  allowance, AviationStack's 100/month) and as a password-guessing surface on login — not a
+  fund-theft risk on its own, but a real threat to demo-day availability.
+- Several `globalThis`-scoped counters (governor.ts's supplier ledgers, statusPoller's monthly
+  spend counter, webhooks/subscriptions.ts's registration map) don't share across multiple
+  instances — real for a genuine multi-instance Amex deployment, not relevant to this single-process
+  demo. `server/decisionLedger.ts` and `ranker/decisionLog.ts`'s local JSONL files have the same
+  shape of gap (both already say in their own headers this is where they're headed).
+
 ## Known gaps (current, as of 2026-08-21, this branch)
 
-- **No enforced spend/policy gate anywhere in the live path** — `server/policy/index.ts` is real,
-  unit-tested (79 assertions across 12 rules, now properly reported by `npm test` since `1659e86`
-  moved it off `node:test` onto vitest), and **still unwired into any route or pipeline step.**
-  The ₹25,000 cap that used to backstop this was removed 2026-08-19. Deliberately left unwired
-  rather than faked: the live `execute()` path has no per-alt `Offer` cache carrying the
+- ~~No enforced spend/policy gate anywhere in the live path~~ — **the highest-leverage exploit path
+  closed 2026-08-21** (`requireOperator` on `POST /api/disruptions` and the ops routes — see the
+  audit section above). `server/policy/index.ts` itself (12 rules, default-deny) is STILL unwired
+  into `execute()` — deliberately: the live path has no per-alt `Offer` cache carrying the
   carriers/fareRules/supplierType fields the policy module's `Bundle` type expects, and there's no
   real outstanding-exposure tracking to honestly feed `exposure_cap_exceeded` — forcing a wire-up
-  with synthesized inputs would make the gate rubber-stamp everything while looking enforced, which
-  is worse than an honestly-inert gate. Highest-priority real open item on this branch.
+  with synthesized inputs would make the gate rubber-stamp everything while looking enforced. Real
+  remaining gap: a member who legitimately sees rung 3 and stays silent still has no amount-based
+  backstop, only informed consent — that trade was a deliberate 2026-08-19 product decision, not
+  an oversight, and is documented as such in `documentation/design/03-action-policy.md` §10.
 - ~~The `dispatch().delivered` safety defect~~ — **fixed 2026-08-21** (`f71c7aa`): `settleExpired()`
   now awaits rung-3 delivery, grants one 5-minute grace retry, and halts to a human rather than
   booking blind if delivery still can't be confirmed. See "EXECUTE plane" section above.
