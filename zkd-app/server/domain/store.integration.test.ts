@@ -226,6 +226,40 @@ describe.skipIf(!hasDb)('store.ts against real Postgres', () => {
     expect(leg2?.booking.legIndex).toBe(1);
   });
 
+  // 2026-08-21: pipelineRuns was the one piece of domain state left fully
+  // in-memory when everything else moved to Postgres. setPipelineRun now
+  // fire-and-forget mirrors to a real pipeline_runs table (same pattern
+  // journal.ts's mirrorToTask already used); hydratePipelineRunsFromDb
+  // reads it back at startup. This proves the actual round trip, not just
+  // that it typechecks — a `void (async () => {...})()` fire-and-forget
+  // write racing this test's own read is exactly the kind of bug that only
+  // shows up against a real database.
+  test('setPipelineRun mirrors to Postgres, and hydratePipelineRunsFromDb reads it back into a fresh Map', async () => {
+    const flightId = `test-pr-flight-${Date.now()}`;
+    const passengerId = `test-pr-passenger-${Date.now()}`;
+    const run = {
+      id: `pr-${flightId}:${passengerId}`, flightId, passengerId,
+      state: 'TRIGGERED' as const, startedAt: Date.now(), changedAt: Date.now(),
+      replans: 0, plan: null, sources: {}, committed: [], orphans: [],
+      mutationsEnabled: false, journal: [],
+    };
+    store.setPipelineRun(run);
+
+    // The mirror is fire-and-forget — give it a real tick to land before
+    // asserting against the database it wrote to, rather than racing it.
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Simulate what a restart looks like: a Map with nothing in it yet.
+    store.pipelineRuns.clear();
+    expect(store.getPipelineRun(flightId, passengerId)).toBeUndefined();
+
+    await store.hydratePipelineRunsFromDb();
+    const rehydrated = store.getPipelineRun(flightId, passengerId);
+    expect(rehydrated).toBeDefined();
+    expect(rehydrated?.state).toBe('TRIGGERED');
+    expect(rehydrated?.flightId).toBe(flightId);
+  });
+
   test('getPreAuthsForFlight returns only that flight\'s pre-auths', async () => {
     const flightA = `flt-preauth-a-${Date.now()}`;
     const flightB = `flt-preauth-b-${Date.now()}`;

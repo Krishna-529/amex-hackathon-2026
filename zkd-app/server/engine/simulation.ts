@@ -16,16 +16,20 @@
  * process. A serverless deployment would spin up fresh isolates per request
  * and these setTimeout chains would not survive between invocations.
  *
- * Partially addressed 2026-08-21: `reconcileStrandedTasks()` /
+ * Addressed 2026-08-21, two ways: `reconcileStrandedTasks()` /
  * `startReconciliationSweep()` (bottom of this file) resume a consent
  * window a process restart abandoned — run once at startup and every 5 min
- * thereafter (instrumentation.ts). This closes the worst consequence (a
- * member permanently stuck with no path back to a decision) but is a
- * sweep, not a real fix: `server/domain/store.ts`'s `pipelineRuns` (the
- * actual pipeline state machine journal.ts drives) is STILL pure in-memory
- * and still resets to nothing on every restart — a real fix needs that
- * migrated to Postgres the same way every other domain aggregate already
- * was, which this sweep does not attempt.
+ * thereafter (instrumentation.ts) — and separately, `server/domain/store.ts`'s
+ * `pipelineRuns` (the actual pipeline state machine journal.ts drives) now
+ * mirrors every write to a real `pipeline_runs` Postgres table
+ * (fire-and-forget, the same pattern journal.ts's own `mirrorToTask`
+ * already used) and rehydrates from it at startup — so a restart resumes
+ * both the member's consent decision AND the pipeline's own execution
+ * state, not just the former. Deliberately NOT a full async conversion of
+ * `getPipelineRun`/`setPipelineRun` (that would cascade `await` through
+ * 24+ call sites in this hot path, including the one this session already
+ * found and fixed a real double-booking race in) — the Map stays the
+ * synchronous primary read/write path, Postgres is a durability mirror.
  */
 // ACT_STEPS is deliberately no longer imported: the act path is real work now,
 // narrated by server/pipeline/narrate.ts. Those constants remain exported from

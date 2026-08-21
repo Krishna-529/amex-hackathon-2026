@@ -41,11 +41,23 @@ async function db() {
 }
 
 /**
- * Pipeline runs stay in-memory (not Postgres-backed like everything else in
- * this file) — they're per-process orchestration state for one rebooking
- * attempt, not a durable booking record, so they inherit the same
- * process-lifetime caveat the rest of this store used to have before the
- * Postgres migration, rather than needing a new migration of their own.
+ * Pipeline runs — the in-memory Map is the PRIMARY, synchronous read/write
+ * path, unchanged since journal.ts/pipeline/index.ts's 24+ call sites all
+ * depend on `getPipelineRun`/`setPipelineRun` being synchronous (converting
+ * them to real async Postgres calls would cascade `await` through the
+ * entire pipeline state machine — the exact hot path this session already
+ * found and fixed a real double-booking race in, and not a refactor to risk
+ * rushing on top of that).
+ *
+ * Durability added 2026-08-21 instead, via the SAME fire-and-forget mirror
+ * pattern journal.ts's own `mirrorToTask` already established for an
+ * analogous concern: `setPipelineRun` below also persists to the
+ * `pipeline_runs` table, off the synchronous path. `hydratePipelineRunsFromDb`
+ * reads it all back into this Map once at process startup
+ * (instrumentation.ts) — so a restart resumes every in-flight pipeline run
+ * instead of silently losing it, closing the real gap the previous version
+ * of this comment left open, without touching the hot path's call sites at
+ * all.
  */
 export const pipelineRuns = new Map<string, PipelineRun>(); // key: `${flightId}:${passengerId}`
 
@@ -106,6 +118,10 @@ export async function clearDisruptionState(): Promise<void> {
     await tx`delete from recovery_tasks`;
     await tx`delete from disruption_events`;
     await tx`delete from pre_auths`;
+    // pipeline_runs added 2026-08-21 alongside its durability mirror — a
+    // demo reset must clear the persisted mirror too, not just the
+    // in-memory Map, or a stale run would come back on the next restart.
+    await tx`delete from pipeline_runs`;
   });
   pipelineRuns.clear();
 }
@@ -508,6 +524,7 @@ export function getPipelineRun(flightId: string, passengerId: string): PipelineR
 
 export function setPipelineRun(run: PipelineRun) {
   pipelineRuns.set(`${run.flightId}:${run.passengerId}`, run);
+  mirrorPipelineRunToDb(run);
 }
 
 export function getPipelineRunsForFlight(flightId: string): PipelineRun[] {
@@ -516,6 +533,55 @@ export function getPipelineRunsForFlight(flightId: string): PipelineRun[] {
 
 export function listPipelineRuns(): PipelineRun[] {
   return [...pipelineRuns.values()].sort((a, b) => b.startedAt - a.startedAt);
+}
+
+/**
+ * Fire-and-forget mirror to Postgres — same shape as journal.ts's own
+ * `mirrorToTask`. Deliberately swallows its own errors: `setPipelineRun` is
+ * called from deep inside the saga's synchronous step-execution loop, and a
+ * transient DB hiccup on the DURABILITY mirror must never surface as a
+ * failure in the actual booking flow, which the in-memory Map already
+ * satisfies on its own. Logged, not silent — a mirror that's failing
+ * without anyone knowing would defeat the point.
+ */
+function mirrorPipelineRunToDb(run: PipelineRun): void {
+  void (async () => {
+    try {
+      const q = await db();
+      const key = `${run.flightId}:${run.passengerId}`;
+      await q`
+        insert into pipeline_runs (key, flight_id, passenger_id, data)
+        values (${key}, ${run.flightId}, ${run.passengerId}, ${q.json(run)})
+        on conflict (key) do update set data = excluded.data
+      `;
+    } catch (e) {
+      console.error(`[store] failed to mirror pipeline run ${run.flightId}:${run.passengerId} to Postgres:`, e);
+    }
+  })();
+}
+
+/**
+ * Resumes every pipeline run a PREVIOUS process's death would otherwise have
+ * silently discarded. Call once at startup (instrumentation.ts) — reads
+ * every row this table has and hydrates the in-memory Map from it, before
+ * any request can observe an empty pipelineRuns that should have real
+ * in-flight runs in it. Best-effort: a failure here degrades to the
+ * pre-2026-08-21 behaviour (starts with no memory of prior runs) rather
+ * than blocking the process from booting.
+ */
+export async function hydratePipelineRunsFromDb(): Promise<void> {
+  try {
+    const q = await db();
+    const rows = await q<{ data: PipelineRun }[]>`select data from pipeline_runs`;
+    for (const row of rows) {
+      pipelineRuns.set(`${row.data.flightId}:${row.data.passengerId}`, row.data);
+    }
+    if (rows.length > 0) {
+      console.info(`[store] hydrated ${rows.length} pipeline run(s) from Postgres`);
+    }
+  } catch (e) {
+    console.error('[store] failed to hydrate pipeline runs from Postgres — starting with none:', e);
+  }
 }
 
 /* ── Stays and rides ───────────────────────────────────────────────────────
