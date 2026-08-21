@@ -1,4 +1,14 @@
-import { test, beforeEach } from 'node:test';
+// Ported from tests/policy.test.ts (2026-08-21) — that copy was written for
+// Node's own test runner (`node:test`) while the rest of this suite is
+// vitest, and `tests/**` is excluded from vitest's `include` glob (see
+// vitest.config.ts's own comment: vitest actually ran and passed these 79
+// assertions, it just couldn't recognise node:test's registration style as a
+// suite, so `npm test` reported false "No test suite found" failures over
+// genuinely passing coverage). Moving it into server/policy/ — the codebase's
+// normal co-located-test convention — makes it a real, reported vitest file
+// instead of unreported-but-passing dead weight. Only the two registration
+// imports changed; `node:assert/strict` runs fine under vitest unmodified.
+import { beforeEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
 import { compose } from '@/lib/bundle';
