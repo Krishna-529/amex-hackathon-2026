@@ -10,7 +10,7 @@
  * (the saga, the journal, the member UI) is untouched.
  */
 
-export const FEATURES = ['arrival', 'cost', 'cabin', 'effort', 'loyalty', 'redeye', 'seats', 'stability'] as const;
+export const FEATURES = ['arrival', 'cost', 'cabin', 'effort', 'loyalty', 'redeye', 'seats', 'stability', 'weatherRisk', 'advisoryRisk'] as const;
 export type FeatureName = (typeof FEATURES)[number];
 
 /** A candidate expressed as its raw, signed "goodness" features (higher = more preferred). */

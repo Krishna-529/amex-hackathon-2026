@@ -41,6 +41,16 @@ export type RankInput = {
   cancelRiskById?: Map<string, number>;
   /** base cancellation rate for alts absent from the map. Optional. */
   baseCancelRate?: number;
+  /** journey endpoints, for resolving a candidate's touched airports. */
+  from?: string;
+  to?: string;
+  /** live disruption-risk maps (server/risk/). Optional: empty → the weatherRisk
+   *  and advisoryRisk features are constant and ranking is unaffected. */
+  weatherByAirport?: Map<string, number>;
+  advisoryByAirport?: Map<string, number>;
+  advisoryByCarrier?: Map<string, number>;
+  /** the member's "no matter what" override; zeroes advisoryRisk. Default false. */
+  overrideSevereRisk?: boolean;
 };
 
 export type RankOutput = {
@@ -69,6 +79,12 @@ export function rankByModel(input: RankInput, opts: RankOptions = {}): RankOutpu
     partySize: input.partySize,
     cancelRiskById: input.cancelRiskById ?? new Map(),
     baseCancelRate: input.baseCancelRate ?? 0.02,
+    from: input.from ?? '',
+    to: input.to ?? '',
+    weatherByAirport: input.weatherByAirport ?? new Map(),
+    advisoryByAirport: input.advisoryByAirport ?? new Map(),
+    advisoryByCarrier: input.advisoryByCarrier ?? new Map(),
+    overrideSevereRisk: input.overrideSevereRisk ?? false,
   };
 
   const sig: MemberSignals = {
