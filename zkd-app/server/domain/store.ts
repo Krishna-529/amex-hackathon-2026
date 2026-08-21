@@ -34,6 +34,7 @@ import type {
   Stay, Ride, JourneyPrefs,
 } from './types';
 import type { PipelineRun } from '../pipeline/types';
+import type { IntentConversation } from '../preferences/intent';
 
 async function db() {
   await ensureReady();
@@ -404,6 +405,32 @@ export async function setJourneyPrefs(rec: JourneyPrefs): Promise<void> {
 export async function clearJourneyPrefs(flightId: string, passengerId: string): Promise<void> {
   const q = await db();
   await q`delete from journey_prefs where key = ${`${flightId}:${passengerId}`}`;
+}
+
+// ------------------------------------------------------ intent conversations --
+// The member's running free-text chat about one flight. Same storage shape as
+// journey_prefs above (one row per flight+passenger, JSON blob) — the same kind
+// of temporary, per-flight state, discarded with the flight and never merged
+// into the durable MyCa profile.
+
+export async function getIntentConversation(flightId: string, passengerId: string): Promise<IntentConversation | undefined> {
+  const q = await db();
+  const rows = await q<{ data: IntentConversation }[]>`select data from intent_conversations where key = ${`${flightId}:${passengerId}`}`;
+  return rows[0]?.data;
+}
+
+export async function setIntentConversation(rec: IntentConversation): Promise<void> {
+  const q = await db();
+  const key = `${rec.flightId}:${rec.passengerId}`;
+  await q`
+    insert into intent_conversations (key, flight_id, passenger_id, data) values (${key}, ${rec.flightId}, ${rec.passengerId}, ${q.json(rec)})
+    on conflict (key) do update set data = excluded.data
+  `;
+}
+
+export async function clearIntentConversation(flightId: string, passengerId: string): Promise<void> {
+  const q = await db();
+  await q`delete from intent_conversations where key = ${`${flightId}:${passengerId}`}`;
 }
 
 // ------------------------------------------------------------ past flights --
