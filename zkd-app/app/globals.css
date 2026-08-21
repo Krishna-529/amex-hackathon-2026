@@ -9,9 +9,12 @@
   --glass-2:rgba(255,255,255,.055);
   --edge:rgba(255,255,255,.09);
   --edge-2:rgba(255,255,255,.16);
+  --edge-strong:rgba(255,255,255,.28);   /* hover/active outline */
   --text:#eef1f6;
   --mist:rgba(228,234,244,.62);
   --mist2:rgba(228,234,244,.38);
+  --mist3:rgba(228,234,244,.28);          /* faint text */
+  --hairline:rgba(228,234,244,.06);       /* faint divider */
 
   --iris:#2f7ff0;          /* the single accent */
   --iris-soft:rgba(47,127,240,.13);
@@ -25,6 +28,28 @@
 
   --blur:saturate(120%) blur(22px);
   --lift:0 10px 30px -14px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.055);
+}
+
+/* ── LIGHT theme ─────────────────────────────────────────────────────
+   Re-values the ground tokens above so the default/"dark" pages
+   (/ops, /recovery, /history, /profile, /settings, /how-it-works) render
+   light. Only the colour tokens flip; fonts/blur carry over. The Amex-skinned
+   member pages already run on the --amex-* palette below and stay light here.
+   Set on <html data-theme='light'> by the toggle / pre-hydration script. */
+:root[data-theme='light']{
+  --bg:#f2f4f7;
+  --glass:#ffffff;
+  --glass-2:#f6f8fb;
+  --edge:rgba(20,26,40,.12);
+  --edge-2:rgba(20,26,40,.20);
+  --edge-strong:rgba(20,26,40,.30);
+  --text:#1b1b2f;
+  --mist:rgba(27,32,48,.66);
+  --mist2:rgba(27,32,48,.46);
+  --mist3:rgba(27,32,48,.34);
+  --hairline:rgba(20,26,40,.08);
+  --iris-soft:rgba(1,111,208,.10);
+  --lift:0 8px 24px -14px rgba(20,30,60,.28), inset 0 1px 0 rgba(255,255,255,.7);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{scroll-behavior:smooth}
@@ -145,7 +170,7 @@ body{
 .pill.low{color:var(--safe);background:rgba(75,171,124,.1);border-color:rgba(75,171,124,.26)}
 .pill.mid{color:var(--warn);background:rgba(211,160,63,.1);border-color:rgba(211,160,63,.26)}
 .pill.high{color:var(--risk);background:rgba(217,97,90,.1);border-color:rgba(217,97,90,.28)}
-.pill.done{color:var(--mist2);background:rgba(255,255,255,.05);border-color:var(--edge)}
+.pill.done{color:var(--mist2);background:var(--glass-2);border-color:var(--edge)}
 .pill.done .d{box-shadow:none}
 
 .foot{display:flex;align-items:center;gap:10px;margin-top:18px;padding-top:15px;border-top:1px solid var(--edge)}
@@ -156,7 +181,7 @@ body{
 .tbl{width:100%;border-collapse:separate;border-spacing:0;overflow:hidden}
 .tbl th{text-align:left;font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;
   color:var(--mist2);font-weight:500;padding:14px 20px;border-bottom:1px solid var(--edge)}
-.tbl td{padding:15px 20px;border-bottom:1px solid rgba(255,255,255,.055);font-size:14px}
+.tbl td{padding:15px 20px;border-bottom:1px solid var(--glass-2);font-size:14px}
 .tbl tbody tr:last-child td{border-bottom:0}
 .tbl tbody tr{cursor:pointer;transition:background .18s}
 .tbl tbody tr:hover{background:var(--glass-2)}
@@ -200,7 +225,7 @@ body{
 .fac .fh{display:flex;align-items:baseline;gap:10px;margin-bottom:9px}
 .fac .fn{font-size:13.5px;flex:1;min-width:0}
 .fac .fv{font-family:var(--mono);font-size:12px;color:var(--mist2);flex:none;font-variant-numeric:tabular-nums}
-.fac .track{height:6px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;
+.fac .track{height:6px;border-radius:99px;background:var(--edge);overflow:hidden;
   box-shadow:inset 0 1px 2px rgba(0,0,0,.4)}
 .fac .fill{height:100%;border-radius:99px;transition:width .6s cubic-bezier(.2,.8,.3,1)}
 .fac .fill.low{background:var(--safe)}
@@ -209,7 +234,7 @@ body{
 .fac .note{font-size:11.5px;color:var(--mist2);margin-top:8px;line-height:1.5}
 
 .kv{display:flex;justify-content:space-between;gap:14px;padding:11px 0;
-  border-top:1px solid rgba(255,255,255,.055);font-size:13.5px}
+  border-top:1px solid var(--glass-2);font-size:13.5px}
 .kv:first-of-type{border-top:0;padding-top:0}
 .kv .k{color:var(--mist)}
 .kv .v{font-family:var(--mono);font-size:12.5px;text-align:right;flex:none;max-width:60%}
@@ -235,7 +260,7 @@ body{
 .gate.stopped .gate-h .lbl{color:var(--risk)}
 .gate-h .cd{margin-left:auto;font-family:var(--mono);font-size:20px;font-weight:600;
   font-variant-numeric:tabular-nums;color:var(--iris)}
-.gate .bar{height:4px;border-radius:99px;background:rgba(255,255,255,.09);overflow:hidden;margin-bottom:14px}
+.gate .bar{height:4px;border-radius:99px;background:var(--edge);overflow:hidden;margin-bottom:14px}
 .gate .bar i{display:block;height:100%;background:var(--iris);border-radius:99px;
   transition:width .95s linear}
 .gate p{margin:0 0 14px;font-size:13.5px;color:var(--mist);line-height:1.6}
@@ -244,7 +269,7 @@ body{
 .acts button{font:inherit;font-size:13px;font-weight:500;padding:10px 15px;border-radius:11px;
   cursor:pointer;border:1px solid var(--edge-2);background:transparent;color:var(--text);
   transition:background .18s,border-color .18s}
-.acts button:hover{background:var(--glass-2);border-color:rgba(255,255,255,.28)}
+.acts button:hover{background:var(--glass-2);border-color:var(--edge-strong)}
 .acts button.go{background:var(--iris);border-color:var(--iris);color:#fff}
 .acts button.go:hover{filter:brightness(1.08)}
 
@@ -299,7 +324,7 @@ footer p{margin:0;max-width:70ch}
   padding:18px 20px;border-radius:16px;transition:background .18s;position:relative;
 }
 .uprow + .uprow::before{content:'';position:absolute;top:0;left:20px;right:20px;height:1px;
-  background:rgba(255,255,255,.055)}
+  background:var(--glass-2)}
 .uprow:hover,.uprow.on{background:var(--glass-2)}
 .uprow.on::after{content:'';position:absolute;left:0;top:14px;bottom:14px;width:3px;
   border-radius:99px;background:var(--iris)}
@@ -368,7 +393,7 @@ footer p{margin:0;max-width:70ch}
 .ev.warm::before{border-color:var(--mist2);background:var(--mist2)}
 .ev.warm::after{color:#0b0f18}
 .ev.warm .n{color:var(--mist)}
-.tl:has(.ev.warm)::before{background:linear-gradient(180deg,rgba(228,234,244,.28),rgba(228,234,244,.06))}
+.tl:has(.ev.warm)::before{background:linear-gradient(180deg,var(--mist3),var(--hairline))}
 .tl{position:relative;padding-left:32px}
 .tl::before{content:'';position:absolute;left:9px;top:6px;bottom:16px;width:2px;
   background:linear-gradient(180deg,var(--iris),rgba(47,127,240,.12))}
@@ -416,7 +441,7 @@ footer p{margin:0;max-width:70ch}
 
 /* itinerary diff */
 .diff{display:flex;align-items:center;gap:16px;padding:15px 0;
-  border-top:1px solid rgba(255,255,255,.055)}
+  border-top:1px solid var(--glass-2)}
 .diff .was,.diff .now{min-width:0}
 .diff .v{overflow-wrap:anywhere}
 .diff:first-of-type{border-top:0;padding-top:0}
@@ -459,14 +484,14 @@ a{color:inherit;text-decoration:none}
 .choice .tag.live{color:var(--iris);border-color:rgba(47,127,240,.4);background:rgba(47,127,240,.1)}
 .choice .p{font-size:13.5px;color:var(--mist);line-height:1.6}
 .choice .best{font-size:12.5px;color:var(--mist2);line-height:1.55;padding-top:10px;
-  border-top:1px solid rgba(255,255,255,.055)}
+  border-top:1px solid var(--glass-2)}
 @media (max-width:900px){ .choices{grid-template-columns:1fr} }
 
 
 /* ══════════════ profile ══════════════ */
-.panel .why{margin:14px 0 0;padding-top:13px;border-top:1px solid rgba(255,255,255,.055);
+.panel .why{margin:14px 0 0;padding-top:13px;border-top:1px solid var(--glass-2);
   font-size:12.5px;color:var(--mist2);line-height:1.6}
-.bk{padding:13px 0;border-top:1px solid rgba(255,255,255,.055)}
+.bk{padding:13px 0;border-top:1px solid var(--glass-2)}
 .bk:first-of-type{border-top:0;padding-top:0}
 .bk-h{display:flex;align-items:baseline;gap:11px}
 .bk-h .fc{font-family:var(--mono);font-size:12px;color:var(--mist);flex:none;min-width:56px}
@@ -516,10 +541,10 @@ a{color:inherit;text-decoration:none}
 .hiw-band.act{border-color:rgba(47,127,240,.4);background:rgba(47,127,240,.07)}
 .hiw-band.act .p{color:var(--iris)}
 
-.wt{display:flex;align-items:center;gap:14px;padding:12px 0;border-top:1px solid rgba(255,255,255,.055)}
+.wt{display:flex;align-items:center;gap:14px;padding:12px 0;border-top:1px solid var(--glass-2)}
 .wt:first-of-type{border-top:0}
 .wt .nm{flex:1;min-width:0;font-size:13.5px}
-.wt .bar{width:150px;height:7px;border-radius:99px;background:rgba(255,255,255,.07);
+.wt .bar{width:150px;height:7px;border-radius:99px;background:var(--edge);
   overflow:hidden;flex:none}
 .wt .bar i{display:block;height:100%;border-radius:99px;background:var(--iris)}
 .wt .pc{font-family:var(--mono);font-size:12.5px;color:var(--mist);width:36px;text-align:right;flex:none}
@@ -543,13 +568,53 @@ a{color:inherit;text-decoration:none}
   --amex-line2:#eef0f4;
   --amex-bg:#f2f4f7;
   --amex-card:#ffffff;
+  --amex-surf:#f5f8fc;      /* subtle raised surface / hover */
   --amex-serif:Georgia,'Iowan Old Style','Palatino Linotype',serif;
 }
 
+/* Dark variant of the Amex skin, so the member pages (/, /login, /flights,
+   /flights/[id]) also respond to the light/dark toggle instead of being locked
+   light. Only the palette tokens flip; the component rules under .amex-page all
+   reference these, so headings/body invert and card/surface backgrounds go dark.
+   (A couple of semantic status tints, e.g. the amber #fffbeb chip, are not yet
+   tokenised and stay light — cosmetic, on tiny alert chips.) */
+:root[data-theme='dark']{
+  --amex-blue:#3b8ae6;
+  --amex-blue-dark:#0a1a3a;
+  --amex-ink:#eaf0f8;
+  --amex-text:#eef1f6;
+  --amex-mist:rgba(228,234,244,.66);
+  --amex-mist2:rgba(228,234,244,.44);
+  --amex-line:rgba(255,255,255,.12);
+  --amex-line2:rgba(255,255,255,.07);
+  --amex-bg:#0b0f17;
+  --amex-card:#141a26;
+  --amex-surf:#0f1420;
+}
+
 /* The shared dark background glow and dark footer (app/layout.tsx) don't
-   belong on a light page — hidden here, not in layout.tsx, so those stay
-   untouched and every other route keeps them exactly as before. */
+   belong on a light page — hidden on the Amex skin, and on ANY page when the
+   light theme is active (the glow is a dark-navy field with no place on a light
+   ground). Kept here, not in layout.tsx, so the markup stays untouched. */
 body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
+:root[data-theme='light'] .mesh{display:none}
+
+/* Floating light/dark toggle (components/ThemeToggle.tsx), mounted once in the
+   root layout so it rides above every page and both header skins. Deliberately
+   self-coloured (accent circle, white glyph) rather than token-driven, so it
+   stays legible whatever the page/theme underneath it. */
+.theme-toggle{
+  position:fixed;right:16px;bottom:16px;z-index:1000;
+  width:42px;height:42px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--iris);border:1px solid rgba(255,255,255,.28);color:#fff;
+  cursor:pointer;font-size:18px;line-height:1;
+  box-shadow:0 8px 22px -8px rgba(0,0,0,.55);
+  transition:transform .15s ease,filter .2s ease;
+}
+.theme-toggle:hover{transform:translateY(-1px);filter:brightness(1.08)}
+.theme-toggle:active{transform:translateY(0)}
+.theme-toggle:focus-visible{outline:2px solid #fff;outline-offset:2px}
 
 .amex-page{
   position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;width:100vw;
@@ -559,7 +624,7 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 .amex-inner{max-width:1160px;margin:0 auto;padding:0 32px}
 
 /* ── header ────────────────────────────────────────────────────────────── */
-.amex-header{background:#fff}
+.amex-header{background:var(--amex-card)}
 .amex-topbar{display:flex;align-items:center;gap:26px;padding:14px 32px;max-width:1160px;margin:0 auto}
 .amex-mark{display:flex;align-items:center;gap:10px;flex:none;color:inherit;text-decoration:none}
 .amex-mark .box{width:34px;height:34px;border-radius:7px;background:var(--amex-blue);
@@ -573,7 +638,7 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
   padding:10px 22px;border-radius:22px;cursor:pointer;white-space:nowrap;font-family:inherit}
 .amex-signin:hover{filter:brightness(1.06)}
 .amex-who{display:flex;align-items:center;gap:12px;font-size:13.5px;color:var(--amex-mist);white-space:nowrap}
-.amex-who button{font:inherit;font-size:12.5px;background:#fff;border:1px solid var(--amex-line);
+.amex-who button{font:inherit;font-size:12.5px;background:var(--amex-card);border:1px solid var(--amex-line);
   color:var(--amex-mist);padding:7px 14px;border-radius:99px;cursor:pointer}
 .amex-who button:hover{border-color:var(--amex-mist2);color:var(--amex-text)}
 .amex-subbar{background:var(--amex-blue)}
@@ -588,13 +653,13 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 
 /* ── hero + search ─────────────────────────────────────────────────────── */
 .amex-hero-wrap{padding:56px 32px 8px;max-width:1160px;margin:0 auto}
-.amex-hero{background:#fff;border-radius:18px;box-shadow:0 12px 34px -18px rgba(20,30,60,.25);
+.amex-hero{background:var(--amex-card);border-radius:18px;box-shadow:0 12px 34px -18px rgba(20,30,60,.25);
   padding:40px 44px 36px}
 .amex-hero h1{font-family:var(--amex-serif);font-weight:400;font-size:32px;color:var(--amex-ink);
   margin:0 0 26px;text-align:center}
 .amex-tabs{display:flex;justify-content:center;gap:10px;margin-bottom:30px;flex-wrap:wrap}
 .amex-tab{display:flex;align-items:center;gap:8px;padding:11px 18px;border-radius:10px;
-  border:1px solid var(--amex-line);background:#fff;color:var(--amex-mist2);font-size:14px;
+  border:1px solid var(--amex-line);background:var(--amex-card);color:var(--amex-mist2);font-size:14px;
   cursor:pointer;font-family:inherit}
 .amex-tab.on{background:#eaf3fd;border-color:var(--amex-blue);color:var(--amex-blue);font-weight:600}
 .amex-tab:disabled{cursor:not-allowed;opacity:.55}
@@ -603,11 +668,11 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 .amex-field{display:flex;flex-direction:column;gap:6px}
 .amex-field label{font-size:12.5px;color:var(--amex-mist)}
 .amex-field input,.amex-field select{font:inherit;font-size:14px;padding:11px 13px;border-radius:8px;
-  border:1px solid var(--amex-line);color:var(--amex-text);background:#fff;min-width:0}
+  border:1px solid var(--amex-line);color:var(--amex-text);background:var(--amex-card);min-width:0}
 .amex-field input:focus,.amex-field select:focus{outline:2px solid var(--amex-blue);outline-offset:1px}
 .amex-seg{display:inline-flex;border:1px solid var(--amex-line);border-radius:8px;overflow:hidden;
   width:fit-content}
-.amex-seg button{font:inherit;font-size:13.5px;padding:10px 16px;border:0;background:#fff;
+.amex-seg button{font:inherit;font-size:13.5px;padding:10px 16px;border:0;background:var(--amex-card);
   color:var(--amex-mist);cursor:pointer;border-right:1px solid var(--amex-line)}
 .amex-seg button:last-child{border-right:0}
 .amex-seg button.on{background:#eaf3fd;color:var(--amex-blue);font-weight:600}
@@ -622,7 +687,7 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 .amex-section{max-width:1160px;margin:0 auto;padding:38px 32px 0}
 .amex-section h2{font-size:20px;font-weight:600;color:var(--amex-ink);margin:0 0 18px}
 .amex-cardrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}
-.amex-promo{background:#fff;border-radius:12px;overflow:hidden;
+.amex-promo{background:var(--amex-card);border-radius:12px;overflow:hidden;
   box-shadow:0 8px 20px -14px rgba(20,30,60,.2)}
 .amex-promo .ph{height:120px;background:linear-gradient(135deg,var(--amex-blue),#5aa9ec)}
 .amex-promo .b{padding:16px}
@@ -631,7 +696,7 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 
 /* ── login card ────────────────────────────────────────────────────────── */
 .amex-login-wrap{display:flex;justify-content:center;padding:64px 20px}
-.amex-login-card{background:#fff;border-radius:14px;box-shadow:0 14px 40px -20px rgba(20,30,60,.3);
+.amex-login-card{background:var(--amex-card);border-radius:14px;box-shadow:0 14px 40px -20px rgba(20,30,60,.3);
   width:100%;max-width:420px;padding:38px 36px}
 .amex-login-card h1{font-family:var(--amex-serif);font-weight:400;font-size:26px;color:var(--amex-ink);
   margin:0 0 6px}
@@ -654,15 +719,15 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 .amex-page .page-h p{color:var(--amex-mist)}
 .amex-page .sect{color:var(--amex-mist2)}
 .amex-page .sect::after{background:linear-gradient(90deg,var(--amex-line),transparent)}
-.amex-page .g.alert{background:#fff;border:1px solid var(--amex-line);
+.amex-page .g.alert{background:var(--amex-card);border:1px solid var(--amex-line);
   box-shadow:0 8px 20px -16px rgba(20,30,60,.18)}
 .amex-page .g.alert .tt{color:var(--amex-text)}
 .amex-page .g.alert .bd{color:var(--amex-mist)}
-.amex-page .up{background:#fff;border:1px solid var(--amex-line);border-radius:14px;
+.amex-page .up{background:var(--amex-card);border:1px solid var(--amex-line);border-radius:14px;
   box-shadow:0 8px 20px -16px rgba(20,30,60,.18)}
 .amex-page .uprow{color:var(--amex-text)}
 .amex-page .uprow+.uprow::before{background:var(--amex-line2)}
-.amex-page .uprow:hover,.amex-page .uprow.on{background:#f5f8fc}
+.amex-page .uprow:hover,.amex-page .uprow.on{background:var(--amex-surf)}
 .amex-page .uprow.on::after{background:var(--amex-blue)}
 .amex-page .code{color:var(--amex-mist)}
 .amex-page .when{color:var(--amex-mist2)}
@@ -673,16 +738,16 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 .amex-page .mid .dur{color:var(--amex-mist2)}
 .amex-page .mid .line{background:linear-gradient(90deg,transparent,var(--amex-line) 18%,var(--amex-line) 82%,transparent)}
 .amex-page .mid .line::after{background:var(--amex-blue)}
-.amex-page .pred{border-left-color:var(--amex-line);background:#fafbfd}
+.amex-page .pred{border-left-color:var(--amex-line);background:var(--amex-surf)}
 .amex-page .pred .eyebrow{color:var(--amex-mist2)}
 .amex-page .pred .lb{color:var(--amex-mist2)}
 .amex-page .pred .say{color:var(--amex-mist)}
 .amex-page .pred .go{color:var(--amex-blue)}
-.amex-page .back{background:#fff;border-color:var(--amex-line);color:var(--amex-blue)}
+.amex-page .back{background:var(--amex-card);border-color:var(--amex-line);color:var(--amex-blue)}
 .amex-page .back:hover{border-color:var(--amex-blue)}
 .amex-page .tbl th{color:var(--amex-mist2);border-bottom-color:var(--amex-line)}
 .amex-page .tbl td{border-bottom-color:var(--amex-line2);color:var(--amex-text)}
-.amex-page .tbl tbody tr:hover{background:#f5f8fc}
+.amex-page .tbl tbody tr:hover{background:var(--amex-surf)}
 .amex-page .tbl .rt,.amex-page .tbl .dt{color:var(--amex-mist)}
 .amex-page .tbl .dt .exact{color:var(--amex-mist2)}
 .amex-page a{color:inherit}
@@ -706,7 +771,7 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
   --amex-blue: #0017a5;
   --amex-blue-dark: #001275;
   --amex-blue-bg: #00175a;
-  --amex-cyan: #006fcf;
+  --amex-cyan: var(--amex-blue);
   --amex-ink: #111827;
   --amex-muted: #596170;
   --amex-bg: #f2f4f7;
@@ -742,7 +807,7 @@ body:has(.amex-page) footer {
 
 /* ── Amex Two-tier Header ── */
 .amex-topbar {
-  background: #ffffff;
+  background:var(--amex-card);
   border-bottom: 1px solid var(--amex-border);
   padding: 10px 24px;
 }
@@ -776,7 +841,7 @@ body:has(.amex-page) footer {
 .amex-brand-name {
   font-size: 18px;
   font-weight: 700;
-  color: #0017a5;
+  color:var(--amex-ink);
   letter-spacing: -0.02em;
 }
 .amex-top-nav {
@@ -795,7 +860,7 @@ body:has(.amex-page) footer {
   color: var(--amex-ink);
 }
 .amex-btn-login {
-  background: #006fcf;
+  background: var(--amex-blue);
   color: #ffffff !important;
   padding: 7px 20px;
   border-radius: 99px;
@@ -850,7 +915,7 @@ body:has(.amex-page) footer {
 .amex-sub-nav a:hover,
 .amex-sub-nav a.on {
   color: #ffffff;
-  border-bottom-color: #006fcf;
+  border-bottom-color: var(--amex-blue);
 }
 .amex-sub-right {
   font-size: 13.5px;
@@ -877,7 +942,7 @@ body:has(.amex-page) footer {
   padding: 36px 0 24px;
 }
 .amex-hero-card {
-  background: #ffffff;
+  background:var(--amex-card);
   border-radius: 16px;
   padding: 32px 36px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
@@ -887,7 +952,7 @@ body:has(.amex-page) footer {
   font-family: var(--amex-serif);
   font-size: 32px;
   font-weight: 400;
-  color: #00175a;
+  color:var(--amex-ink);
   margin: 0 0 24px;
 }
 .amex-service-tabs {
@@ -904,7 +969,7 @@ body:has(.amex-page) footer {
   font-size: 14px;
   font-weight: 500;
   border: 1px solid var(--amex-border);
-  background: #ffffff;
+  background:var(--amex-card);
   color: var(--amex-muted);
   cursor: pointer;
   white-space: nowrap;
@@ -912,7 +977,7 @@ body:has(.amex-page) footer {
 .amex-tab-pill.active {
   background: #00175a;
   color: #ffffff;
-  border-color: #00175a;
+  border-color:var(--amex-ink);
 }
 .amex-tab-pill.disabled {
   opacity: 0.5;
@@ -929,7 +994,7 @@ body:has(.amex-page) footer {
 }
 .amex-seg {
   display: inline-flex;
-  background: #f1f5f9;
+  background: var(--amex-surf);
   padding: 3px;
   border-radius: 8px;
   border: 1px solid var(--amex-border);
@@ -945,7 +1010,7 @@ body:has(.amex-page) footer {
   cursor: pointer;
 }
 .amex-seg-btn.active {
-  background: #ffffff;
+  background:var(--amex-card);
   color: var(--amex-ink);
   font-weight: 600;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -980,12 +1045,12 @@ body:has(.amex-page) footer {
   border: 1px solid var(--amex-border-dark);
   font-size: 14px;
   color: var(--amex-ink);
-  background: #ffffff;
+  background:var(--amex-card);
   width: 100%;
 }
 .amex-field input:focus,
 .amex-field select:focus {
-  outline: 2px solid #006fcf;
+  outline: 2px solid var(--amex-blue);
   border-color: transparent;
 }
 .amex-swap-btn {
@@ -993,21 +1058,21 @@ body:has(.amex-page) footer {
   height: 36px;
   border-radius: 50%;
   border: 1px solid var(--amex-border-dark);
-  background: #ffffff;
+  background:var(--amex-card);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   margin-bottom: 4px;
-  color: #006fcf;
+  color: var(--amex-blue);
   font-weight: bold;
 }
 .amex-swap-btn:hover {
-  background: #f8fafc;
+  background: var(--amex-surf);
 }
 
 .amex-btn-search {
-  background: #006fcf;
+  background: var(--amex-blue);
   color: #ffffff;
   border: none;
   border-radius: 8px;
@@ -1029,7 +1094,7 @@ body:has(.amex-page) footer {
 .amex-promos h2 {
   font-family: var(--amex-serif);
   font-size: 24px;
-  color: #00175a;
+  color:var(--amex-ink);
   margin-bottom: 16px;
   font-weight: 400;
 }
@@ -1044,7 +1109,7 @@ body:has(.amex-page) footer {
   }
 }
 .amex-promo-card {
-  background: #ffffff;
+  background:var(--amex-card);
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--amex-border);
@@ -1052,7 +1117,7 @@ body:has(.amex-page) footer {
 }
 .amex-promo-img {
   height: 140px;
-  background: linear-gradient(135deg, #00175a, #006fcf);
+  background: linear-gradient(135deg, #00175a, var(--amex-blue));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1086,7 +1151,7 @@ body:has(.amex-page) footer {
   padding: 48px 20px;
 }
 .amex-login-card {
-  background: #ffffff;
+  background:var(--amex-card);
   border: 1px solid var(--amex-border);
   border-radius: 16px;
   padding: 36px 40px;
@@ -1098,7 +1163,7 @@ body:has(.amex-page) footer {
 .amex-login-card h2 {
   font-family: var(--amex-serif);
   font-size: 26px;
-  color: #00175a;
+  color:var(--amex-ink);
   margin: 0 0 8px;
   font-weight: 400;
 }
@@ -1111,7 +1176,7 @@ body:has(.amex-page) footer {
 
 /* Scoped Overrides for /flights inside .amex-page */
 .amex-page .page-h h1 {
-  color: #00175a;
+  color:var(--amex-ink);
   font-family: var(--amex-serif);
   font-weight: 400;
 }
@@ -1125,7 +1190,7 @@ body:has(.amex-page) footer {
   background: linear-gradient(90deg, var(--amex-border), transparent);
 }
 .amex-page .up {
-  background: #ffffff;
+  background:var(--amex-card);
   border: 1px solid var(--amex-border);
   border-radius: 16px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
@@ -1138,10 +1203,10 @@ body:has(.amex-page) footer {
 }
 .amex-page .uprow:hover,
 .amex-page .uprow.on {
-  background: #f8fafc;
+  background: var(--amex-surf);
 }
 .amex-page .uprow .code {
-  color: #00175a;
+  color:var(--amex-ink);
   font-weight: 600;
 }
 .amex-page .uprow .when {
@@ -1152,12 +1217,12 @@ body:has(.amex-page) footer {
   color: var(--amex-muted);
 }
 .amex-page .uprow .tag.next {
-  color: #006fcf;
-  border-color: #006fcf;
+  color: var(--amex-blue);
+  border-color: var(--amex-blue);
   background: rgba(0, 111, 207, 0.08);
 }
 .amex-page .port .ap {
-  color: #00175a;
+  color:var(--amex-ink);
 }
 .amex-page .port .tm {
   color: var(--amex-muted);
@@ -1169,11 +1234,11 @@ body:has(.amex-page) footer {
   background: linear-gradient(90deg, transparent, var(--amex-border-dark) 18%, var(--amex-border-dark) 82%, transparent);
 }
 .amex-page .mid .line::after {
-  background: #006fcf;
+  background: var(--amex-blue);
 }
 .amex-page .pred {
   border-left: 1px solid var(--amex-border);
-  background: #fafbfc;
+  background: var(--amex-surf);
 }
 .amex-page .pred .eyebrow {
   color: var(--amex-muted);
@@ -1185,12 +1250,12 @@ body:has(.amex-page) footer {
   color: var(--amex-ink);
 }
 .amex-page .pred .go {
-  color: #006fcf;
+  color: var(--amex-blue);
   font-weight: 600;
 }
 
 .amex-page .tbl {
-  background: #ffffff;
+  background:var(--amex-card);
   border: 1px solid var(--amex-border);
   border-radius: 16px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
@@ -1204,7 +1269,7 @@ body:has(.amex-page) footer {
   color: var(--amex-ink);
 }
 .amex-page .tbl tbody tr:hover {
-  background: #f8fafc;
+  background: var(--amex-surf);
 }
 .amex-page .tbl .rt {
   color: var(--amex-ink);
@@ -1217,19 +1282,19 @@ body:has(.amex-page) footer {
 }
 
 .amex-page .back {
-  background: #ffffff;
+  background:var(--amex-card);
   border: 1px solid var(--amex-border-dark);
-  color: #00175a;
+  color:var(--amex-ink);
   font-weight: 500;
 }
 .amex-page .back:hover {
-  background: #f8fafc;
-  border-color: #006fcf;
-  color: #006fcf;
+  background: var(--amex-surf);
+  border-color: var(--amex-blue);
+  color: var(--amex-blue);
 }
 
 .amex-page .alert {
-  background: #fff;
+  background:var(--amex-card);
   border: 1px solid var(--amex-border);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
 }
@@ -1250,9 +1315,9 @@ body:has(.amex-page) footer {
    rest of it, so nothing here can reach the dark theme on other routes. */
 
 .amex-notice {
-  background: #fff;
+  background:var(--amex-card);
   border: 1px solid var(--amex-line, #d3d3d3);
-  border-left: 4px solid var(--amex-blue, #006fcf);
+  border-left: 4px solid var(--amex-blue, var(--amex-blue));
   border-radius: 6px;
   padding: 14px 18px;
   margin: 20px 0;
@@ -1265,7 +1330,7 @@ body:has(.amex-page) footer {
 
 .amex-results,
 .amex-booking {
-  background: #fff;
+  background:var(--amex-card);
   border: 1px solid var(--amex-line, #d3d3d3);
   border-radius: 10px;
   padding: 26px 28px;
@@ -1299,7 +1364,7 @@ body:has(.amex-page) footer {
   align-items: center;
   width: 100%;
   text-align: left;
-  background: #fff;
+  background:var(--amex-card);
   border: 1px solid var(--amex-line, #d3d3d3);
   border-radius: 8px;
   padding: 14px 18px;
@@ -1309,12 +1374,12 @@ body:has(.amex-page) footer {
   transition: border-color .15s, box-shadow .15s;
 }
 .amex-flight-row:hover:not(:disabled) {
-  border-color: var(--amex-blue, #006fcf);
+  border-color: var(--amex-blue, var(--amex-blue));
   box-shadow: 0 1px 6px rgba(0, 111, 207, .15);
 }
 .amex-flight-row.selected {
-  border-color: var(--amex-blue, #006fcf);
-  box-shadow: inset 0 0 0 1px var(--amex-blue, #006fcf);
+  border-color: var(--amex-blue, var(--amex-blue));
+  box-shadow: inset 0 0 0 1px var(--amex-blue, var(--amex-blue));
 }
 .amex-flight-row:disabled {
   opacity: .55;
@@ -1327,7 +1392,7 @@ body:has(.amex-page) footer {
   text-align: right;
   font-size: 13px;
   font-weight: 600;
-  color: var(--amex-blue, #006fcf);
+  color: var(--amex-blue, var(--amex-blue));
 }
 
 .amex-booking-grid {
@@ -1359,8 +1424,8 @@ body:has(.amex-page) footer {
   cursor: pointer;
 }
 .amex-consent > label.active {
-  border-color: var(--amex-blue, #006fcf);
-  box-shadow: inset 0 0 0 1px var(--amex-blue, #006fcf);
+  border-color: var(--amex-blue, var(--amex-blue));
+  box-shadow: inset 0 0 0 1px var(--amex-blue, var(--amex-blue));
 }
 .amex-consent span {
   display: block;
@@ -1405,7 +1470,7 @@ body:has(.amex-page) footer {
 .amex-page,
 .amex-header {
   --sk-base: #e3e7ee;
-  --sk-hi: #f5f7fa;
+  --sk-hi: var(--amex-surf);
 }
 /* ...but the blue sub-bar nested inside that header is dark ground again. */
 .amex-subbar {
@@ -1568,7 +1633,7 @@ body:has(.amex-page) footer {
 .amex-page .g,
 .amex-page .g.panel,
 .amex-page .g.plan {
-  background: #fff;
+  background:var(--amex-card);
   border: 1px solid var(--amex-line);
   border-radius: 14px;
   box-shadow: 0 1px 3px rgba(0, 23, 90, .06);
