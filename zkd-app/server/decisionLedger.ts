@@ -6,30 +6,53 @@
  * (README.md / documentation/design/05-cancellation-risk-model.md §2) is
  * true in this environment too, not only in unapplied Terraform.
  *
+ * Postgres-backed since 2026-08-21 (migration 0006, one generic
+ * `decision_ledger` table with a `kind` discriminator) — previously six
+ * local JSONL files under `server/.state/`, which made the "every
+ * prediction gets logged" claim true on one process instance and silently
+ * false the moment a second one existed (each instance's disk only held
+ * what it logged). Every public function here keeps its exact original
+ * synchronous-looking signature (`void`, not `Promise<void>`) — none of
+ * their ~6 call sites across the codebase ever awaited them (this is
+ * observability, not the critical path, same reasoning as before), so
+ * fixing the storage layer needed zero changes at any call site. The
+ * Postgres write is fire-and-forget underneath, matching the exact pattern
+ * `journal.ts`'s `mirrorToTask` and `store.ts`'s pipeline-run mirror
+ * already established for the same class of concern.
+ *
  * Reconciliation (joining a flight's logged predictions against its
  * eventually-observed outcome, to measure real accuracy on LIVE: entities
  * as they accumulate) is intentionally NOT built here — that's an offline
- * read over both JSONL files below, and belongs in the retrain pipeline
- * (zkd-risk-model/) once there's enough real outcome volume to be worth
- * running, not duplicated as a second implementation in the Node app.
+ * read over the ledger, and belongs in the retrain pipeline (zkd-risk-model/)
+ * once there's enough real outcome volume to be worth running, not
+ * duplicated as a second implementation in the Node app.
  */
-import { appendFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { sql, ensureReady } from './domain/db';
 import type { ModelScore } from './engine/riskModel';
 import type { Thresholds } from '@/lib/thresholds';
 import type { Band } from '@/lib/thresholds';
 
-const STATE_DIR = join(process.cwd(), 'server', '.state');
-const PREDICTIONS_PATH = join(STATE_DIR, 'predictions.jsonl');
-const OUTCOMES_PATH = join(STATE_DIR, 'outcomes.jsonl');
-const THRESHOLDS_PATH = join(STATE_DIR, 'threshold-evaluations.jsonl');
-const NOTIFICATIONS_PATH = join(STATE_DIR, 'notifications.jsonl');
-const INTENTS_PATH = join(STATE_DIR, 'member-intents.jsonl');
-const REPORTS_PATH = join(STATE_DIR, 'member-reports.jsonl');
+async function insertEntry(kind: string, flightId: string | undefined, data: Record<string, unknown>): Promise<void> {
+  await ensureReady();
+  // Every entry type in this file is a plain, JSON-serializable interface
+  // (strings/numbers/booleans/arrays of the same) — the same guarantee
+  // store.ts's own `q.json(...)` calls rely on for Flight/RecoveryTask/etc.
+  // `postgres`'s JSONValue type just can't structurally verify a generic
+  // Record<string, unknown> the way it can a concrete named type.
+  await sql`
+    insert into decision_ledger (kind, flight_id, data)
+    values (${kind}, ${flightId ?? null}, ${sql.json(data as never)})
+  `;
+}
 
-function appendLine(path: string, obj: unknown): void {
-  if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
-  appendFileSync(path, JSON.stringify(obj) + '\n');
+/** Fire-and-forget, logging its own failure rather than throwing — every
+ *  caller in this file is a `void`-returning function that must never make
+ *  a ledger write failure look like the real operation it's logging
+ *  alongside failed. */
+function logAsync(kind: string, flightId: string | undefined, data: Record<string, unknown>, whatFailed: string): void {
+  void insertEntry(kind, flightId, data).catch((e) => {
+    console.error(`[decisionLedger] failed to log ${whatFailed}:`, e);
+  });
 }
 
 export type PredictionLedgerEntry = {
@@ -52,13 +75,7 @@ export function logPrediction(flightId: string, score: ModelScore): void {
     source: score.source,
     loggedAt: Date.now(),
   };
-  try {
-    appendLine(PREDICTIONS_PATH, entry);
-  } catch (e) {
-    // Never let ledger I/O break a real forecast — logging is observability,
-    // not the critical path.
-    console.error('[decisionLedger] failed to log prediction:', e);
-  }
+  logAsync('prediction', flightId, entry, 'prediction');
 }
 
 export type OutcomeLedgerEntry = {
@@ -73,11 +90,7 @@ export type OutcomeLedgerEntry = {
  *  plane observed it. */
 export function logOutcome(flightId: string, outcome: OutcomeLedgerEntry['outcome']): void {
   const entry: OutcomeLedgerEntry = { flightId, outcome, observedAt: Date.now() };
-  try {
-    appendLine(OUTCOMES_PATH, entry);
-  } catch (e) {
-    console.error('[decisionLedger] failed to log outcome:', e);
-  }
+  logAsync('outcome', flightId, entry, 'outcome');
 }
 
 export type ThresholdEvaluationLedgerEntry = {
@@ -96,11 +109,8 @@ export type ThresholdEvaluationLedgerEntry = {
  * alongside logPrediction — same moment, same flight, same real inputs.
  */
 export function logThresholdEvaluation(entry: Omit<ThresholdEvaluationLedgerEntry, 'loggedAt'>): void {
-  try {
-    appendLine(THRESHOLDS_PATH, { ...entry, loggedAt: Date.now() } satisfies ThresholdEvaluationLedgerEntry);
-  } catch (e) {
-    console.error('[decisionLedger] failed to log threshold evaluation:', e);
-  }
+  const full = { ...entry, loggedAt: Date.now() } satisfies ThresholdEvaluationLedgerEntry;
+  logAsync('threshold-evaluation', entry.flightId, full, 'threshold evaluation');
 }
 
 export type NotificationLedgerEntry = {
@@ -124,11 +134,8 @@ export type NotificationLedgerEntry = {
  * and the provider rejected it" are different failures needing different fixes.
  */
 export function logNotification(entry: Omit<NotificationLedgerEntry, 'loggedAt'>): void {
-  try {
-    appendLine(NOTIFICATIONS_PATH, { ...entry, loggedAt: Date.now() } satisfies NotificationLedgerEntry);
-  } catch (e) {
-    console.error('[decisionLedger] failed to log notification:', e);
-  }
+  const full = { ...entry, loggedAt: Date.now() } satisfies NotificationLedgerEntry;
+  logAsync('notification', entry.flightId, full, 'notification');
 }
 
 export type MemberIntentLedgerEntry = {
@@ -162,11 +169,8 @@ export type MemberIntentLedgerEntry = {
  * structured changes instead of the original sentence.
  */
 export function logMemberIntent(entry: Omit<MemberIntentLedgerEntry, 'loggedAt'>): void {
-  try {
-    appendLine(INTENTS_PATH, { ...entry, loggedAt: Date.now() } satisfies MemberIntentLedgerEntry);
-  } catch (e) {
-    console.error('[decisionLedger] failed to log member intent:', e);
-  }
+  const full = { ...entry, loggedAt: Date.now() } satisfies MemberIntentLedgerEntry;
+  logAsync('member-intent', entry.flightId, full, 'member intent');
 }
 
 export type MemberReportLedgerEntry = {
@@ -192,9 +196,6 @@ export type MemberReportLedgerEntry = {
  * terminal telling us the truth. `evidence` carries the reasoning either way.
  */
 export function logMemberReport(entry: Omit<MemberReportLedgerEntry, 'loggedAt'>): void {
-  try {
-    appendLine(REPORTS_PATH, { ...entry, loggedAt: Date.now() } satisfies MemberReportLedgerEntry);
-  } catch (e) {
-    console.error('[decisionLedger] failed to log member report:', e);
-  }
+  const full = { ...entry, loggedAt: Date.now() } satisfies MemberReportLedgerEntry;
+  logAsync('member-report', entry.flightId, full, 'member report');
 }
