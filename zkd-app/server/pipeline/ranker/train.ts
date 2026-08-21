@@ -29,11 +29,10 @@
  * toward the prior until its strategy has real volume behind it.
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { FEATURES, type FeatureVector, type WeightVector, type RankerArtifact } from './types.ts';
 import { bookabilityOffset } from './bookability.ts';
-import type { ShownSetEntry } from './decisionLog.ts';
 import type { reconcileChoices } from './reconcile.ts';
 
 /** One presented choice set with the option the member actually took. */
@@ -230,14 +229,6 @@ export function updateArtifact(
 
 // ── main: read logs, fit, write ──────────────────────────────────────────────
 
-function readJsonl<T>(path: string): T[] {
-  if (!existsSync(path)) return [];
-  return readFileSync(path, 'utf8')
-    .split('\n')
-    .filter((l) => l.trim())
-    .map((l) => JSON.parse(l) as T);
-}
-
 /** Reconstruct observations by joining shown-sets to choices on decisionId. */
 export function buildObservations(
   shown: { decisionId: string; strategy: string; memberId: string; candidates: { altId: string; features: FeatureVector; bookability: number }[] }[],
@@ -261,20 +252,22 @@ export function buildObservations(
 }
 
 /**
- * Reads every resolved RecoveryTask from Postgres and reconciles it against
- * the shown-set log via reconcile.ts — see that file's header for why this
- * runs here, offline, rather than a live call site in simulation.ts.
- * Returns [] (never throws) if the DB is unreachable, so a training run on a
- * machine without DATABASE_URL degrades to whatever's in ranker-choices.jsonl
- * instead of failing outright — matching this codebase's standing rule of
- * degrading honestly rather than crashing a scheduled job over an optional input.
+ * Reads every resolved RecoveryTask AND the shown-set log itself from
+ * Postgres, and reconciles them via reconcile.ts — see that file's header
+ * for why this runs here, offline, rather than a live call site in
+ * simulation.ts. Returns [] (never throws) if the DB is unreachable, so a
+ * training run on a machine without DATABASE_URL degrades to whatever
+ * loadChoicesFromDb separately returns instead of failing outright —
+ * matching this codebase's standing rule of degrading honestly rather than
+ * crashing a scheduled job over an optional input.
  */
 async function loadResolvedChoicesFromDb(): Promise<ReturnType<typeof reconcileChoices>> {
   try {
-    const [{ listFlights, getRecoveryTasksForFlight }, { reconcileChoices: reconcile }] = await Promise.all([
-      import('../../domain/store.ts'),
-      import('./reconcile.ts'),
-    ]);
+    const [
+      { listFlights, getRecoveryTasksForFlight },
+      { reconcileChoices: reconcile },
+      { loadShownSetsFromDb },
+    ] = await Promise.all([import('../../domain/store.ts'), import('./reconcile.ts'), import('./decisionLog.ts')]);
     const flights = await listFlights();
     const resolved: import('./reconcile.ts').ResolvedChoice[] = [];
     for (const f of flights) {
@@ -292,8 +285,7 @@ async function loadResolvedChoicesFromDb(): Promise<ReturnType<typeof reconcileC
         }
       }
     }
-    const shownDir = join(process.cwd(), 'server', '.state');
-    const shown = readJsonl<ShownSetEntry>(join(shownDir, 'ranker-shown.jsonl'));
+    const shown = await loadShownSetsFromDb();
     return reconcile(shown, resolved);
   } catch (e) {
     const detail = e instanceof Error ? e.message || (e as { code?: string }).code || e.constructor.name : String(e);
@@ -306,9 +298,9 @@ async function loadResolvedChoicesFromDb(): Promise<ReturnType<typeof reconcileC
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}` || process.argv[1]?.endsWith('train.ts')) {
   (async () => {
     const art = loadArtifactFrom();
-    const shownDir = join(process.cwd(), 'server', '.state');
-    const shown = readJsonl<ShownSetEntry>(join(shownDir, 'ranker-shown.jsonl'));
-    const loggedChoices = readJsonl<{ decisionId: string; chosenAltId: string }>(join(shownDir, 'ranker-choices.jsonl'));
+    const { loadShownSetsFromDb, loadChoicesFromDb } = await import('./decisionLog.ts');
+    const shown = await loadShownSetsFromDb();
+    const loggedChoices = await loadChoicesFromDb();
     const reconciled = await loadResolvedChoicesFromDb();
 
     // Merge, preferring a directly-logged choice over a reconciled one for the

@@ -17,26 +17,51 @@
  *   - `logChoice`    — the outcome. Exposed for a future one-line wiring at the
  *                      point the member resolves (see the note on logChoice); the
  *                      offline job can equally reconstruct the label from the
- *                      persisted RecoveryTask without any write here, which is why
- *                      this file adds no dependency on the saga.
+ *                      persisted RecoveryTask without any write here (see
+ *                      reconcile.ts), which is why this file adds no dependency
+ *                      on the saga.
  *
- * Storage mirrors server/decisionLedger.ts exactly — append-only JSONL under
- * server/.state, which is gitignored and process-local. That is the honest
- * minimum of a feature store at this scale; a real deployment points these at
- * the same Postgres the rest of the app now uses.
+ * Postgres-backed since 2026-08-21 (migration 0007, one generic
+ * `ranker_decision_log` table with a `kind` discriminator) — previously two
+ * local JSONL files under `server/.state/`, same "true on one instance, false
+ * the moment a second one exists" gap as decisionLedger.ts had before
+ * migration 0006, and fixed the same way: exact original synchronous `void`
+ * signatures kept (the ranker's serve path, ranker/index.ts, never awaited
+ * `logShownSet`), fire-and-forget Postgres write underneath.
  */
 
-import { appendFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { sql, ensureReady } from '../../domain/db.ts';
 import type { FeatureVector, WeightVector } from './types.ts';
 
-const STATE_DIR = join(process.cwd(), 'server', '.state');
-const SHOWN_PATH = join(STATE_DIR, 'ranker-shown.jsonl');
-const CHOICE_PATH = join(STATE_DIR, 'ranker-choices.jsonl');
+async function insertEntry(
+  kind: 'shown' | 'choice',
+  decisionId: string,
+  flightId: string,
+  memberId: string | undefined,
+  data: Record<string, unknown>,
+): Promise<void> {
+  await ensureReady();
+  // Same JSONValue-typing note as decisionLedger.ts's insertEntry: every
+  // entry here is a plain JSON-serializable interface, `as never` sidesteps
+  // `postgres`'s JSONValue only structurally verifying concretely-typed
+  // named interfaces, not a generic Record.
+  await sql`
+    insert into ranker_decision_log (kind, decision_id, flight_id, member_id, data)
+    values (${kind}, ${decisionId}, ${flightId}, ${memberId ?? null}, ${sql.json(data as never)})
+  `;
+}
 
-function appendLine(path: string, obj: unknown): void {
-  if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
-  appendFileSync(path, JSON.stringify(obj) + '\n');
+function logAsync(
+  kind: 'shown' | 'choice',
+  decisionId: string,
+  flightId: string,
+  memberId: string | undefined,
+  data: Record<string, unknown>,
+  whatFailed: string,
+): void {
+  void insertEntry(kind, decisionId, flightId, memberId, data).catch((e) => {
+    console.error(`[ranker] failed to log ${whatFailed}:`, e);
+  });
 }
 
 export type ShownCandidate = {
@@ -63,11 +88,8 @@ export type ShownSetEntry = {
 /** Called by the ranker every time a choice set is presented to a member. This
  *  is the training-data write, and the whole reason the trainer can ever run. */
 export function logShownSet(entry: Omit<ShownSetEntry, 'loggedAt'>): void {
-  try {
-    appendLine(SHOWN_PATH, { ...entry, loggedAt: Date.now() } satisfies ShownSetEntry);
-  } catch (e) {
-    console.error('[ranker] failed to log shown set:', e);
-  }
+  const full = { ...entry, loggedAt: Date.now() } satisfies ShownSetEntry;
+  logAsync('shown', entry.decisionId, entry.flightId, entry.memberId, full, 'shown set');
 }
 
 export type ChoiceEntry = {
@@ -90,15 +112,34 @@ export type ChoiceEntry = {
  * changes nothing outside itself. A production deployment does ONE of two things:
  * call this from the single point where a RecoveryTask resolves, or — with no
  * code change at all — have the offline job read `resolution.chosenAltId` from
- * the persisted recovery task and join it to the shown-set log by decisionId.
- * The trainer supports both; its tests synthesise choices directly.
+ * the persisted recovery task and join it to the shown-set log by decisionId
+ * (see reconcile.ts, which is how train.ts actually does it today). The trainer
+ * supports both; its tests synthesise choices directly.
  */
 export function logChoice(entry: Omit<ChoiceEntry, 'loggedAt'>): void {
-  try {
-    appendLine(CHOICE_PATH, { ...entry, loggedAt: Date.now() } satisfies ChoiceEntry);
-  } catch (e) {
-    console.error('[ranker] failed to log choice:', e);
-  }
+  const full = { ...entry, loggedAt: Date.now() } satisfies ChoiceEntry;
+  logAsync('choice', entry.decisionId, entry.flightId, entry.memberId, full, 'choice');
 }
 
-export const PATHS = { SHOWN_PATH, CHOICE_PATH, STATE_DIR };
+/** Every logged shown-set, oldest first. Read path for train.ts's CLI
+ *  entrypoint — offline, out of the request path, same as the rest of this
+ *  file's writes. */
+export async function loadShownSetsFromDb(): Promise<ShownSetEntry[]> {
+  await ensureReady();
+  const rows = await sql<{ data: ShownSetEntry }[]>`
+    select data from ranker_decision_log where kind = 'shown' order by logged_at asc
+  `;
+  return rows.map((r) => r.data);
+}
+
+/** Every directly-logged choice, oldest first. See the note on logChoice —
+ *  this is currently unpopulated in production since nothing calls
+ *  logChoice yet; train.ts merges this with reconcile.ts's DB-derived
+ *  choices, preferring a direct log entry when both exist for a decisionId. */
+export async function loadChoicesFromDb(): Promise<ChoiceEntry[]> {
+  await ensureReady();
+  const rows = await sql<{ data: ChoiceEntry }[]>`
+    select data from ranker_decision_log where kind = 'choice' order by logged_at asc
+  `;
+  return rows.map((r) => r.data);
+}
