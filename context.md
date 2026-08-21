@@ -289,20 +289,46 @@ issues found; 9 fixed same-session, 2 documented as genuine larger efforts (see 
   supplier client in the codebase.
 
 **Documented, not fixed this session** (real, larger efforts — flagged rather than rushed):
-- **`pipelineRuns` (the pipeline state machine itself) is still pure in-memory** — see the
-  reconciliation-sweep entry above. A real fix is a genuine Postgres migration, not a quick patch.
-- **Rate limiting and CSRF defense do not exist anywhere on this branch** — verified directly
-  (`find` for `ratelimit`/`csrf` across the whole tree returns nothing). A real implementation of
-  both already exists on a sibling branch and was simply never merged here; porting it is the
-  right fix, not writing a second implementation from scratch. Concretely exploitable today as a
-  cost-abuse/availability risk against budget-capped suppliers (OAG's 100-call TOTAL trial
-  allowance, AviationStack's 100/month) and as a password-guessing surface on login — not a
-  fund-theft risk on its own, but a real threat to demo-day availability.
-- Several `globalThis`-scoped counters (governor.ts's supplier ledgers, statusPoller's monthly
-  spend counter, webhooks/subscriptions.ts's registration map) don't share across multiple
-  instances — real for a genuine multi-instance Amex deployment, not relevant to this single-process
-  demo. `server/decisionLedger.ts` and `ranker/decisionLog.ts`'s local JSONL files have the same
-  shape of gap (both already say in their own headers this is where they're headed).
+- ~~`pipelineRuns` is still pure in-memory~~ — **fixed 2026-08-21**: migration `0005_pipeline_runs.sql`
+  + `mirrorPipelineRunToDb`/`hydratePipelineRunsFromDb` in `store.ts`, wired into `instrumentation.ts`.
+  All 24+ existing sync call sites (`journal.ts`, `pipeline/index.ts`, the pipeline API route)
+  unchanged — the Map stays the hot-path read/write surface, Postgres is a fire-and-forget mirror
+  behind it, same pattern as `mirrorToTask`.
+- ~~Rate limiting and CSRF defense do not exist anywhere on this branch~~ — **fixed 2026-08-21**
+  (`c86b640`): ported `rateLimit.ts` and `auth/csrf.ts` byte-for-byte from
+  `origin/feature/adaptive-forecast-and-bedrock-refinement` (both already existed there, fully
+  built — porting was the right fix, not a second implementation). Wired into every mutating route
+  and every OAG/AviationStack-adjacent search route.
+- ~~`server/decisionLedger.ts` and `ranker/decisionLog.ts`'s local JSONL files~~ — **both fixed
+  2026-08-21**: migration `0006_decision_ledger.sql` (one generic `decision_ledger` table, `kind`
+  discriminator) and migration `0007_ranker_decision_log.sql` (same shape, `kind` = 'shown'|'choice',
+  `decision_id` pulled out as a real column since `reconcile.ts`/`train.ts` join on it). Both kept
+  every original synchronous `void` public signature — neither had an awaiting call site — so the
+  fix needed zero changes at any call site except `train.ts`'s own read path, which now calls
+  `loadShownSetsFromDb`/`loadChoicesFromDb` instead of reading the local files directly.
+- **Deliberately NOT converted, and this is a judgment call, not an oversight**:
+  - `server/oag.ts`'s trial-budget counter (`server/.state/oag-trial-usage.json`) stays local-file.
+    Its own header's stated goal is "process-crash-surviving," which a local file already satisfies
+    in full — the real gap (sharing one 100-call/14-day allowance across *multiple concurrent
+    instances*) doesn't apply to this single-process demo. Converting it would mean writing a real
+    atomic check-and-increment (`SELECT ... FOR UPDATE` or an equivalent single-statement guard)
+    against a scarce, unrecoverable external quota, for a benefit that isn't real here — the wrong
+    place to introduce new complexity right before a demo.
+  - `server/notify/push.ts`'s device registry (`server/.state/devices.json`) stays local-file for a
+    sharper reason: `tokensFor()` is a **synchronous read that gates `send()`**, and `push.send()`
+    runs inside `notify/index.ts`'s `dispatch()`, which `forecast.ts`'s `applyScore` calls under an
+    explicit, written invariant — "NOTIFYING MUST NEVER BREAK PREDICTING." Making that read
+    Postgres-backed would put a real network dependency (with `db.ts`'s own documented history of
+    exhausted connection slots) directly on a path whose entire design point is that it cannot be
+    allowed to fail via an external dependency. `wiring.test.ts` also exists specifically to prove
+    the notify path resolves cleanly with **zero external config** ("the state a fresh checkout and
+    CI are in") — a DB-backed `isConfigured()` would quietly break that guarantee's premise, not
+    just its current pass/fail state. Multi-instance token sharing is real for a genuine Amex
+    deployment; it isn't the risk that matters for this demo.
+  - `globalThis`-scoped counters (`governor.ts`'s supplier ledgers, `statusPoller`'s monthly spend
+    counter, `webhooks/subscriptions.ts`'s registration map) — unchanged from the original
+    assessment: real for a genuine multi-instance deployment, not relevant to this single-process
+    demo.
 
 ## Known gaps (current, as of 2026-08-21, this branch)
 
@@ -359,5 +385,5 @@ issues found; 9 fixed same-session, 2 documented as genuine larger efforts (see 
 - Payment fully mocked; no live payment integration exists on either lineage.
 - Four branches on `origin` not yet reconciled into `demo` (two more merged locally today, not yet
   pushed) — see table above.
-- **Local `demo` is 8 commits ahead of `origin/demo`, nothing pushed yet** — review before pushing;
-  see `memory.md`'s 2026-08-21 entries for the full list and rationale.
+- **Local `demo` is several commits ahead of `origin/demo` as of the latest session** — see
+  `memory.md`'s 2026-08-21 entries for the full list and rationale; pushed once validated.

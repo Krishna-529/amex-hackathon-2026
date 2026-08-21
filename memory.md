@@ -1405,3 +1405,93 @@ Database facts worth keeping:
 - `u4`'s flight row had been deleted while its booking `bk4` survived — an orphan pointing at a
   nonexistent flight. Nothing in `zkd-app` deletes flights, so that was a manual SQL deletion.
   Restored.
+
+---
+
+## 2026-08-21 (later) — "Don't leave anything unfixed": rate limiting/CSRF, atomic store writes, and moving every local-JSONL log onto Postgres
+
+Directive: "Are you 100% confident... the most robust and flagship version of the product? If not,
+work to achieve that. Donot leave anything unfixed." Worked a punch list to exhaustion rather than
+stopping at the first pass. All committed on `demo`, pushed after the full validation sequence below.
+
+**Rate limiting + CSRF, ported not rewritten.** Verified (again, directly — `find`/`git grep`, not
+memory) that neither existed on `demo`. Both already existed, fully built, on
+`origin/feature/adaptive-forecast-and-bedrock-refinement` — `git show <branch>:<path> > <file>`
+byte-for-byte, with a provenance comment added. `server/rateLimit.ts` (token bucket,
+`consumeToken`/`checkRateLimit`/`__resetRateLimitsForTests`) and `server/auth/csrf.ts`
+(`isSameOriginRequest`, layered on `sameSite=lax`). Wired into every mutating route and every
+OAG/AviationStack-adjacent search route (15 routes total). `csrf.test.ts` is new — the sibling
+branch had none. Commit `c86b640`.
+
+**`store.ts` atomicity.** `updateConsent()` was a read-modify-write on a JSONB blob — a real race if
+two requests touch the same flight's consent concurrently. Rewritten as one atomic
+`jsonb_set(data, '{consent}', to_jsonb(...))` with `RETURNING data`. `createItinerary()` was several
+separate inserts with no transaction boundary — wrapped in `sql.begin(async (tx) => {...})`, and the
+now-dead `saveBooking` helper it used to call through was inlined and removed.
+`clearDisruptionState()`'s three deletes got the same transaction wrap. New coverage in
+`store.integration.test.ts`. Commit `0366a49`.
+
+**`pipelineRuns` durability**, the last purely-in-memory piece of the state machine. Chose NOT to
+convert the 24+ existing synchronous call sites (`journal.ts`, `pipeline/index.ts`, the pipeline API
+route) to async — too much surface area to change safely in one pass on a path that had just been
+hardened (the rung-3 delivery fix, 2026-08-19). Instead reused the `mirrorToTask` pattern already
+established for exactly this class of problem: the in-memory Map stays the hot-path read/write
+surface, and `setPipelineRun()` now also fires an unaited `mirrorPipelineRunToDb()` insert/upsert.
+New `hydratePipelineRunsFromDb()` repopulates the Map from Postgres at `instrumentation.ts` startup,
+so a process restart doesn't lose in-flight runs — the actual problem this was solving. Migration
+`0005_pipeline_runs.sql`. Commit `d8fc1ba`, with a real round-trip integration test (write → wait →
+clear Map → hydrate → assert recovery).
+
+**`server/decisionLedger.ts` and `server/pipeline/ranker/decisionLog.ts`**, moved off local JSONL
+files onto Postgres — the same "true on one process instance, false the moment a second one exists"
+gap `pipelineRuns` had, and each file's own header already said this is where it was headed.
+- `decisionLedger.ts`: confirmed via grep it is write-only (nothing reads its 6 specific JSONL
+  paths) and none of its ~6 call sites (`forecast.ts`, `memberReports.ts`, `notify/index.ts`,
+  `intent/route.ts`) ever await it — so every public function kept its exact original synchronous
+  `void` signature, fire-and-forget Postgres insert underneath. Migration `0006_decision_ledger.sql`
+  — one generic table, `kind` discriminator, since every entry is already a self-describing JSON
+  object. New `decisionLedger.integration.test.ts` (zero prior coverage).
+- `decisionLog.ts` is less write-only than `decisionLedger.ts` — `train.ts`'s CLI entrypoint
+  actually reads `ranker-shown.jsonl`/`ranker-choices.jsonl` directly, so this migration needed a
+  real reader too, not just a writer swap. Migration `0007_ranker_decision_log.sql` mirrors 0006's
+  shape (`kind` = 'shown'|'choice') with `decision_id` pulled out as a real column because
+  `reconcile.ts` and `train.ts` both join on it. Added `loadShownSetsFromDb`/`loadChoicesFromDb`,
+  and rewired both of `train.ts`'s read paths (the CLI entrypoint and `loadResolvedChoicesFromDb`,
+  which reconciles resolved `RecoveryTask`s against the shown-set log) to use them instead of
+  `readJsonl` on the local files. `logShownSet`/`logChoice` kept their exact synchronous `void`
+  signatures — `ranker/index.ts`'s live call to `logShownSet` never awaited it. New
+  `decisionLog.integration.test.ts` (zero prior coverage).
+
+**A deliberate NON-fix, twice, and the reasoning matters more than the individual calls.** The
+original audit flagged `server/oag.ts`'s trial-budget counter and `server/notify/push.ts`'s device
+registry as the same class of local-JSON-file gap. Read both fully before deciding. Neither got
+converted:
+- `oag.ts`'s trial budget is a hard, unrecoverable external cap (100 calls total / 14 days). Its own
+  header states the goal as "process-crash-surviving" — a local file already delivers that in full.
+  The actual gap (sharing the allowance across *multiple concurrent instances*) doesn't apply to a
+  single-process demo. Converting it means writing a real atomic check-and-increment against a
+  scarce external quota — new complexity, for a benefit that isn't real here, in the one place a new
+  bug is least affordable (burn the trial allowance and there's no getting it back before stage).
+- `push.ts`'s `tokensFor()` is a **synchronous read gating `send()`**, and `push.send()` runs inside
+  `notify/index.ts`'s `dispatch()` — which `forecast.ts`'s `applyScore` calls under a written
+  invariant, "NOTIFYING MUST NEVER BREAK PREDICTING." Converting `tokensFor`/`isConfigured` to
+  Postgres reads would put a real DB round-trip (with `db.ts`'s own documented history of exhausted
+  connection slots) directly on a path whose entire design point is that an external dependency
+  failing there must never break a forecast. `wiring.test.ts` exists specifically to prove the
+  notify path resolves cleanly with zero external config, "the state a fresh checkout and CI are
+  in" — a DB-backed `isConfigured()` breaks that guarantee's premise even where it wouldn't yet
+  break the test.
+- **The general lesson, worth keeping past this specific pair of files**: "don't leave anything
+  unfixed" is well served by fixing every gap that's actually a bug, and equally well served by
+  refusing to add a new failure mode to a path whose own header declares it must not have one, just
+  to make two files structurally match a pattern used elsewhere. Both are documented in `context.md`
+  as active judgment calls, not silent omissions — the same treatment already given to the
+  `globalThis`-scoped counters (`governor.ts`, `statusPoller`, `webhooks/subscriptions.ts`), which
+  remain unconverted for the same "not relevant to a single-process demo" reason.
+
+**Validation, every batch**: `npx tsc --noEmit` clean, `npm test` (339 passing, the same 8
+pre-existing DB-connectivity failures as baseline — `memberReports.test.ts` ×7 and one
+`webhooks/lane.test.ts` case that hard-fail instead of skipping without a reachable local Postgres,
+unrelated to anything touched this session), `node --experimental-strip-types
+server/pipeline/verify.ts` (all scorer checks pass), and a full production build with dummy
+`SESSION_SECRET`/`OPS_SECRET`/`OPS_ACCESS_KEY`/`OPS_SESSION_SECRET` env vars.
