@@ -616,6 +616,32 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 .theme-toggle:active{transform:translateY(0)}
 .theme-toggle:focus-visible{outline:2px solid #fff;outline-offset:2px}
 
+/* In-app confirm/result modal — our own dialog in place of window.confirm(), for
+   the "this flight was cancelled" report flow (app/flights/[id]/page.tsx). Styled
+   on the Amex palette (the flight page is Amex-skinned), so it follows the toggle
+   into dark too. */
+.zkd-modal-scrim{
+  position:fixed;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;
+  padding:20px;background:rgba(8,12,20,.55);backdrop-filter:blur(3px);
+  animation:fadein .18s ease both;
+}
+.zkd-modal{
+  width:100%;max-width:440px;background:var(--amex-card);color:var(--amex-text);
+  border:1px solid var(--amex-line);border-radius:16px;padding:24px 24px 20px;
+  box-shadow:0 24px 60px -20px rgba(0,0,0,.5);
+}
+.zkd-modal h3{margin:0 0 10px;font-size:19px;color:var(--amex-ink);font-family:var(--amex-serif);font-weight:600}
+.zkd-modal p{margin:0 0 14px;color:var(--amex-mist);font-size:14px;line-height:1.6}
+.zkd-modal .zkd-help{color:var(--amex-text);font-weight:600}
+.zkd-modal .zkd-help a{color:var(--amex-blue);text-decoration:none}
+.zkd-modal-acts{display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.zkd-btn{border-radius:10px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer;
+  text-decoration:none;display:inline-flex;align-items:center;line-height:1;border:1px solid transparent}
+.zkd-btn.primary{background:var(--amex-blue);color:#fff;border-color:var(--amex-blue)}
+.zkd-btn.ghost{background:transparent;color:var(--amex-mist);border-color:var(--amex-line)}
+.zkd-btn:disabled{opacity:.6;cursor:default}
+.zkd-btn.primary:hover{filter:brightness(1.06)}
+
 .amex-page{
   position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;width:100vw;
   min-height:100vh;background:var(--amex-bg);color:var(--amex-text);padding-bottom:60px;
