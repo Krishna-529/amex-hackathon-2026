@@ -17,6 +17,8 @@ const KEYS = [
   'TWILIO_AUTH_TOKEN',
   'TWILIO_WHATSAPP_FROM',
   'TWILIO_WHATSAPP_TO',
+  'FAST2SMS_API_KEY',
+  'FAST2SMS_TO',
 ];
 
 let saved: Record<string, string | undefined>;
@@ -36,7 +38,7 @@ afterEach(() => {
 describe('notify wiring (real modules, no credentials)', () => {
   it('reports every channel unconfigured rather than pretending', () => {
     const status = channelStatus('p-1');
-    expect(status.map((s) => s.channel).sort()).toEqual(['push', 'whatsapp']);
+    expect(status.map((s) => s.channel).sort()).toEqual(['push', 'sms', 'whatsapp']);
     expect(status.every((s) => s.configured === false)).toBe(true);
   });
 

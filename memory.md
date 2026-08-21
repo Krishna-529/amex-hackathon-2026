@@ -90,6 +90,51 @@
   surgery, not silent unilateral rewrites of a branch three other people are actively pushing to.
   That roadmap follows in the same conversation turn as this entry; check the conversation, not this
   log, for its content — it wasn't necessarily committed as a file.
+- 2026-08-19 — **Gap audit: the standing feature audit had drifted from the code, in both directions.**
+
+  Checked a written audit claim-by-claim against `main` at `8f1db4b`. Six conclusions were stale.
+  Three understated the build — FX conversion for flights is live (`server/fx.ts`), LiteAPI is a
+  registered `HotelSupplier` called by the recovery pipeline rather than orphaned, and ground is a
+  real Uber sandbox integration rather than `mockCabs`. Two were checklist rows: row 15 understates
+  the refund path (`estimateRefund` now drives a delta, not a gross fare), and **row 9 overstates a
+  safety control — it claims a ₹25,000 per-transaction cap that was removed on 2026-08-19.** Sixth,
+  §1 of `design/02-data-sources-and-apis.md` still says there is no poller or webhook anywhere in
+  `server/`; there are now three detection lanes.
+
+  **An overstating checklist is the dangerous direction.** Row 9 tells a reader a spend ceiling is
+  enforced. Nothing blocks spend on amount any more.
+
+  **Confirmed defect, and it compounds with that.** `dispatch()` computes `delivered`
+  (`server/notify/index.ts:50`), logs it, warns on it — and nothing in the consent path reads it.
+  Under notify-then-proceed, a member no channel reached is indistinguishable from one who read the
+  message and did not object, and is charged without seeing the stop window. The ladder was what
+  replaced the removed cap, so delivery is now the only control on an unattended spend, and it is
+  unchecked. Fix is to feed `DispatchResult.delivered` into `simulation.ts` and refuse to expire a
+  window into "proceed" when nothing was delivered.
+
+  **International is much further along than any document says.** The jurisdiction engine already
+  covers `IN-DGCA`/`EU261`/`UK261`/`US-DOT`/`CARD-TERMS` with the attachment rules right,
+  `airports.json` holds 6,072 airports worldwide, and the risk model is trained on 7.9 M rows of
+  real US BTS + Brazil ANAC data at ROC-AUC 0.804 — India is the synthetic part. Four small
+  blockers stand in the way of an international demo: `BILLING_CURRENCY`/`guestNationality`
+  hardcoded to India, Delhi-only seed fixtures, hotel search still pinned to INR, and no persona
+  exercising the US/card-terms bundles. **India is the launch market, not the ceiling** — worth
+  saying out loud, because the current framing undersells what is built.
+
+  Also established: **AeroDataBox Flight Alert PUSH is the answer to "which third party triggers the
+  cancellation"** — already implemented at `server/webhooks/aerodatabox.ts`, subscribes per flight
+  number so it watches tickets bought anywhere (unlike Duffel, which only sees orders we booked, and
+  this app books none), priced at 1 credit per flight item charged when SENT not delivered. The rate
+  itself was deliberately left as a vendor lookup rather than invented.
+
+  Scope changes taken: Android owned elsewhere, Expo dropped for Flutter (`zkd-flutter/` is
+  untracked, and `server/notify/push.ts` still targets Expo — a mismatch), theme is light.
+
+  Findings written up in `ZKD-Gap-Audit-Session-Report.md`. No source modified.
+
+  **Process note worth keeping:** the worktree for this branched from `origin/main`, two commits
+  behind local `main`, and one of those two was the refund commit being cited. Rebased onto
+  `8f1db4b` before writing. In this repo "this exists" is only meaningful against a named branch.
 
 - 2026-08-19 — **A wrong answer given confidently, and the rule that should stop the next one.**
 
