@@ -12,6 +12,36 @@
 
 ## Recent work
 
+- 2026-08-21 (Tier 2, part 2) — **International hotel-search currency fix, and confirmed the LHR
+  flagship persona was already a non-issue.** `tsc --noEmit` clean, `npm test` 285 passed (up from
+  279) / 8 failed (pre-existing) / 5 skipped.
+  - **`app/api/search/hotels/route.ts` hardcoded `currency: 'INR'` and `guestNationality: 'IN'`
+    regardless of destination.** `guestNationality: 'IN'` turns out to be correct as-is — it
+    describes the GUEST (an Indian Amex cardholder), not the destination, so a London search
+    correctly asking for international-guest rates was never wrong. `currency: 'INR'` was:
+    searching for a London hotel while asking a supplier to quote in rupees is asking for
+    something most suppliers don't naturally have. New `currencyForCountry()` in `server/fx.ts` (a
+    small, deliberately narrow country→currency map covering the currencies `FALLBACK_RATES`
+    already prices) now derives the right currency from the destination airport's country; the
+    route batches ONE rate lookup per distinct response currency (not one per offer — same
+    reasoning the flights side already applies) and attaches a converted
+    `totalInBillingCurrency` alongside the supplier's untouched original quote. 6 new tests
+    (`fx.test.ts`, this module's first — it had zero coverage before today).
+  - **Checked whether P1 PRIYA's MAA→DEL→LHR flagship itinerary needed seeding (the gap audit's
+    I2) — it didn't.** `u1`/`u2` in `server/domain/seed.ts` already are exactly this itinerary
+    (`u1`: AI 2803 MAA→DEL, the disrupted flight the whole walkthrough is built around; `u2`: AI
+    2201 DEL→LHR, the connecting international leg). Whatever gap the audit saw on 2026-08-19 no
+    longer exists — recorded here so nobody re-does this seeding believing it's still missing.
+  - **Deliberately did NOT fix the live recovery-flow hotel search** (`server/pipeline/index.ts`'s
+    `arrangeOvernight`, called from inside an actual booking flow) — it still hardcodes
+    `BILLING_CURRENCY`. This matters only when a disrupted flight's own departure airport is
+    itself international (e.g. a return LHR→DEL flight, not today's u1/u2 direction), and fixing
+    it responsibly means first verifying `applyHotelRules`/`affordabilityVeto`/the ground-cap
+    comparison all handle a non-INR total correctly — not confirmed in the time available this
+    session. Flagged in `context.md` rather than changed on a guess, consistent with this
+    session's standing rule of not touching a spend-adjacent hot path without full downstream
+    verification.
+
 - 2026-08-21 (Tier 2, part 1) — **Wrote the P1–P5 persona regression suite the 2026-08-19 gap
   audit called "the single highest-value test the repo is missing," and found + fixed a real bug
   in `estimateRefund()` along the way.** `server/domain/personas.test.ts`, 11 new tests against the
