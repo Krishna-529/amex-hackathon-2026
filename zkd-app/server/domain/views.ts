@@ -5,7 +5,8 @@ import { altsForParty } from './altsForParty';
 import { costFor } from './pricing';
 import { estimateRefund } from './refund';
 import { BILLING_CURRENCY } from '../myca';
-import type { Flight, Booking } from './types';
+import { getRate, convertWith, type Rate } from '../fx';
+import type { Flight, Booking, Alt } from './types';
 import type { FlightSummary, FlightDetail, DisruptionOpsView } from '@/lib/apiTypes';
 
 async function travellerSummary(b: Booking) {
@@ -61,6 +62,71 @@ export async function toFlightSummary(
 }
 
 /**
+ * Drops rows that no live supplier could have quoted.
+ *
+ * This is not a business rule — it is a guard against our own history. Until
+ * 2026-08-19 a function called `carrierProtectedAlt()` cloned the cheapest real
+ * offer and overwrote it with `fare: 0, seats: 99` to stand for "the airline
+ * owes you a seat". The function is gone and `AltKind` no longer has that
+ * member, but `altsCache` only rewrites a flight's alts on refresh, so rows it
+ * wrote sit in Postgres until something touches them. One survived on `f-multi`
+ * — the flight the demo runs on — and rendered as a free option that also paid
+ * the member back, because `altsForParty` reads `seats: 99` as "fits everyone"
+ * and `fare: 0` as "costs nothing".
+ *
+ * The equivalent guards in server/pipeline/verify.ts were deleted along with
+ * the kind, on the assumption that removing the writer was enough. It was not:
+ * removing a writer does not remove what it wrote. This runs on the read path
+ * so a stale row is inert wherever it came from.
+ *
+ * Matched on the signature rather than on `kind` alone, because rows exist that
+ * predate the `kind` field — but a row is only dropped when it is impossible on
+ * its face (free, or more seats than an aircraft has), never merely unusual.
+ */
+export function dropFabricatedAlts(alts: Alt[]): Alt[] {
+  return alts.filter(
+    (a) => a.kind !== ('carrier-protected' as Alt['kind']) && a.fare > 0 && a.seats < 99,
+  );
+}
+
+export async function convertAltsToBillingCurrency(alts: Alt[]): Promise<Alt[]> {
+  const target = BILLING_CURRENCY.toUpperCase();
+  const foreignCurrencies = [...new Set(alts.map((a) => (a.currency || 'INR').toUpperCase()).filter((c) => c !== target))];
+  if (foreignCurrencies.length === 0) return alts;
+
+  const rates = new Map<string, Rate>();
+  await Promise.all(
+    foreignCurrencies.map(async (c) => {
+      rates.set(c, await getRate(c, target));
+    }),
+  );
+
+  return alts.map((alt) => {
+    const cur = (alt.currency || 'INR').toUpperCase();
+    if (cur === target) return alt;
+    const rate = rates.get(cur);
+    if (!rate || rate.source === 'identity') return alt;
+
+    const originalAmount = alt.quoted ? alt.quoted.amount : alt.fare;
+    const originalCurrency = alt.quoted ? alt.quoted.currency : alt.currency;
+    const fare = convertWith(alt.fare, rate);
+
+    return {
+      ...alt,
+      fare,
+      currency: target,
+      quoted: alt.quoted ?? {
+        amount: originalAmount,
+        currency: originalCurrency,
+        rate: rate.rate,
+        rateAsOf: rate.asOf,
+        rateSource: rate.source,
+      },
+    };
+  });
+}
+
+/**
  * `viewerPassengerId` is required, not optional: this is what makes the
  * response both party-aware (alts are projected through altsForParty for the
  * VIEWER's own party size) and privacy-correct (bookings is filtered to the
@@ -101,11 +167,17 @@ export async function toFlightDetail(flight: Flight, viewerPassengerId: string):
       })
     : null;
 
+  // Order matters: drop what was never real, then convert what is left, then
+  // project onto the viewer's party. Converting first would spend a rate
+  // lookup on a fabricated row.
+  const liveAlts = dropFabricatedAlts(flight.candidates.alts);
+  const convertedAlts = await convertAltsToBillingCurrency(liveAlts);
+
   return {
     ...summary,
     candidates: {
       ...flight.candidates,
-      alts: altsForParty(flight.candidates.alts, partySize),
+      alts: altsForParty(convertedAlts, partySize),
     },
     refund,
     connectionSlackMinutes: flight.connectionSlackMinutes,

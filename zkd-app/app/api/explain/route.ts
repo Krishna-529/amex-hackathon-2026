@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { explain } from '@/server/gemini';
 import type { ExplainRequest, ExplainResponse } from '@/lib/apiTypes';
 import { parseJsonBody, isNonEmptyString } from '@/server/jsonBody';
+import { checkRateLimit } from '@/server/rateLimit';
 
 // Every string interpolated into the LLM prompt below is client-controlled —
 // cap length and strip control/prompt-injection-friendly characters before
@@ -57,6 +58,15 @@ function promptFor(req: ExplainRequest): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Added 2026-08-21: this route is deliberately unauthenticated (a member
+  // reads an explanation before or after signing in) and calls a real, real-
+  // money LLM on every request — previously open to unlimited-volume cost
+  // abuse from a single anonymous client.
+  const limited = checkRateLimit(req, 'explain', { capacity: 20, refillPerMinute: 10 });
+  if (!limited.allowed) {
+    return NextResponse.json({ error: 'too many requests, try again shortly' }, { status: 429 });
+  }
+
   const parsed = await parseJsonBody(req, isExplainBody);
   if ('response' in parsed) return parsed.response;
   const text = await explain(promptFor(parsed.body));

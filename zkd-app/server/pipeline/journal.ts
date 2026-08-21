@@ -160,7 +160,24 @@ export type TransitionResult =
  */
 export function transition(run: PipelineRun, to: PipelineState, why: string): TransitionResult {
   const from = run.state;
-  if (from === to && to !== 'HOLD_PENDING') return { ok: true, run };
+  // CONFIRMED excluded from the "already there" short-circuit alongside
+  // HOLD_PENDING — fixed 2026-08-21, a real double-booking bug. Before this,
+  // a second call to transition(run, 'CONFIRMED', ...) — reachable when a
+  // member's own "Approve" click and their consent window's own expiry timer
+  // both fire within the same tick (pipeline/index.ts's execute() is called
+  // from two independent async paths, settleExpired and resolveTask, each
+  // working from its own separately-fetched task snapshot) — returned
+  // {ok:true} purely because from===to, which execute() reads as "go ahead"
+  // and ran the ENTIRE saga a second time: a second hotel hold
+  // (holdHotel() is a real third-party call even in intent mode) and a
+  // duplicate "you're rebooked" notification, both live today, and a real
+  // double-booked/double-charged seat the moment real ticketing lands.
+  // Falling through to canTransition below now correctly rejects a repeat
+  // CONFIRMED as illegal (LEGAL_TRANSITIONS only permits HOLD_PENDING→
+  // CONFIRMED), so execute()'s existing `!ok` strand path — already
+  // written, just previously unreachable for this specific case — now
+  // actually runs.
+  if (from === to && to !== 'HOLD_PENDING' && to !== 'CONFIRMED') return { ok: true, run };
 
   if (!canTransition(from, to)) {
     append(run, {

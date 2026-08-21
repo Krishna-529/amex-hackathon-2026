@@ -392,53 +392,54 @@ anything refunded comes back to the same card."*
 Raised in mentor meeting 2. Everything above §11 describes the system **from detection onward**.
 This section is about the step before that, which is the one the member actually experiences first.
 
-### Today: reactive. The member is the detector.
+### As of 2026-08-19: proactive, on three lanes. Superseded the "reactive" shape below.
 
 ```
 flight is cancelled
       ↓
-member finds out (airline SMS, gate announcement, app)
+a push webhook (Duffel/AeroDataBox), the AviationStack poll fallback, or a
+corroborated member report tells us within seconds-to-minutes
       ↓
-member contacts Amex
-      ↓
-Amex begins to rebook
-```
-
-That is not a description of a demo shortcut, it is the production shape. In the code,
-`detectDisruption` — the single entry point for "we caught a disruption signal" — has exactly one
-production caller, `POST /api/disruptions`, and the only thing that reaches it is a human pressing
-a button in the `/ops` console. There is no poller, cron, webhook or worker anywhere in
-`zkd-app/server/`.
-
-The consequence is that **the whole latency budget in §4 starts from the wrong moment.** The
-system's measured clock begins when somebody tells us, and the member has already spent the
-expensive minutes — noticing, queueing, explaining — before any of it starts. Optimising the
-seconds after that point, while the minutes before it are unmeasured, is optimising the cheap half.
-
-Note what this does *not* say: the risk model is real and runs ahead of time (§2, and
-`05-cancellation-risk-model.md`). Prediction and detection are different capabilities. We have a
-forecast that a flight is *likely* to be cancelled; we do not have a signal that it *has been*.
-
-### Target: proactive. We notice, we act, then we tell them.
-
-```
-flight is cancelled
-      ↓
-status feed tells us within seconds
-      ↓
-pipeline is already warm - options ranked against their preferences
+pipeline is already warm — options ranked against their preferences
       ↓
 member's phone tells them, with a plan already attached
 ```
 
-The warm path that makes this credible already exists: risk crosses a threshold, alternatives are
-pre-cached, the plan is composed and parked at the consent gate with nothing spent. What is missing
-is the trigger — one supplier feed, not an architecture change.
+`detectDisruption` (`zkd-app/server/engine/simulation.ts`) is now reachable from `server/webhooks/`
+(push — Duffel and AeroDataBox adapters live, OAG deliberately stubbed inert pending a
+subscription), `server/engine/statusPoller.ts` (poll — AviationStack, a budget-capped fallback that
+stands down whenever a live webhook already covers a flight), and `server/engine/memberReports.ts`
+(the member — acts for the reporter immediately, corroborates for everyone else at three
+independent reports), in addition to the `/ops` console's manual trigger (kept for rehearsal and
+for a flight none of the three lanes covers). **`A1` (detection lead time,
+`06-experience-kpis.md`) is still undefined** — the lanes exist and are tested, but nobody has yet
+measured minutes-before-vs-after against a real cancellation outside a demo trigger.
 
-Which feed, and what it costs, is the open decision in §1 of
-[`02-data-sources-and-apis.md`](02-data-sources-and-apis.md). OAG can express a cancellation and is
-already integrated, but our trial key allows 100 calls per 14 days, which cannot support continuous
-watching.
+### The procedure this superseded — kept for the record, not current
+
+```
+flight is cancelled → member finds out → member contacts Amex → Amex begins to rebook
+```
+
+This used to be the literal production shape: `detectDisruption` had exactly one production
+caller, a human pressing a button in `/ops`, and the whole latency budget in §4 measured from the
+wrong moment — the member's own noticing-and-queueing minutes were unmeasured and unoptimised.
+Fixed 2026-08-19; do not cite this shape as current.
+
+Note what the fix does **not** change: the risk model is real and runs ahead of time (§2, and
+`05-cancellation-risk-model.md`) — prediction and detection remain different capabilities. A
+forecast that a flight is *likely* to be cancelled is not the same signal as knowing it *has been*,
+and the three lanes above are what closes that second gap.
+
+### What's still genuinely a gap, not just an unmeasured target
+
+The warm path that makes this credible was already real before the three lanes landed: risk
+crosses a threshold, alternatives are pre-cached, the plan is composed and parked at the consent
+gate with nothing spent. What remains open is **OAG specifically** — it can express a cancellation
+and is already integrated, but the trial key allows 100 calls per 14 days, which cannot support
+continuous watching, so it stays deliberately stubbed inert rather than silently under-covering.
+That is a budget decision to revisit, not an architecture gap — see §1 of
+[`02-data-sources-and-apis.md`](02-data-sources-and-apis.md).
 
 ### What does not change
 
@@ -452,7 +453,9 @@ more time to decide, not less.
 
 The measure is `A1` (detection lead time) in
 [`06-experience-kpis.md`](06-experience-kpis.md) — minutes between the cancellation becoming
-knowable and us knowing it, negative when we knew before the member did. It is undefined today,
-which is precisely the point.
+knowable and us knowing it, negative when we knew before the member did. **The mechanism exists
+now; the measurement still doesn't** — no session has yet logged a real cancellation's lead time
+against this metric outside a demo trigger. Wiring `A1` off the real webhook/poll/report timestamps
+already in the decision ledger is a small follow-up, not a new capability.
 
 ---

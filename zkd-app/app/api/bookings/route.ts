@@ -5,17 +5,20 @@ import { parseJsonBody, isNonEmptyString } from '@/server/jsonBody';
 import { refreshForecast } from '@/server/engine/forecast';
 import { toFlightSummary } from '@/server/domain/views';
 import { endOfDayAtAirport } from '@/server/deadline';
+import { isSameOriginRequest } from '@/server/auth/csrf';
 import type { Flight, Consent } from '@/server/domain/types';
 
 /**
  * The member booking a flight they found in search.
  *
- * Separate from POST /api/flights, which is the OPERATOR's endpoint and takes
- * an arbitrary `passengerIds` list. That is fine for /ops, which has no account
- * of its own, but it must never be the member path: a body-supplied passenger
+ * `POST /api/flights` — an earlier operator endpoint taking an arbitrary
+ * `passengerIds` list — is gone (2026-08-19, "booking is now the only way a
+ * flight is created"); this comment used to describe this route as separate
+ * from it, which is now stale documentation, corrected 2026-08-21. What
+ * still matters and is unchanged: the passenger is always the session's, per
+ * server/auth/guard.ts, never a body-supplied id — a body-supplied passenger
  * id would let anyone attach a booking to someone else's account and start
- * receiving that person's disruption alerts. Here the passenger is always the
- * session's, per server/auth/guard.ts.
+ * receiving that person's disruption alerts.
  *
  * This is where a booking ENTERS the system. Everything downstream — the risk
  * score, the band, the alternatives, the alert — already worked; until now
@@ -68,6 +71,10 @@ function isBody(v: unknown): v is Body {
 export async function POST(req: NextRequest) {
   const g = await requireSession(req);
   if ('response' in g) return g.response;
+  // CSRF check added 2026-08-21 — this is where a booking enters the system.
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ error: 'cross-site request rejected' }, { status: 403 });
+  }
 
   const parsed = await parseJsonBody(req, isBody);
   if ('response' in parsed) return parsed.response;
@@ -157,6 +164,18 @@ export async function POST(req: NextRequest) {
     seat: '—',
     pnr: pnr(),
     cabin: body.cabin ?? 'Economy',
+    // `farePaid` is deliberately absent. OAG sells schedules, not fares — see
+    // the note at the top of app/page.tsx — so no price is shown at search and
+    // none arrives in this body. estimateRefund() already returns
+    // `known: false` for a booking without one, and the flight page renders
+    // "refund not known yet" rather than a number.
+    //
+    // A constant was briefly written here instead. That is worse than nothing:
+    // an absent fare produces an honest "we don't know", while an invented one
+    // produces a confident refund, and the refund is subtracted from every
+    // alternative's price to give the figure the member actually decides on. A
+    // wrong fare is therefore a wrong number on every row. Set this only from a
+    // fare we were really quoted.
   });
 
   // Captured at booking because that is when the member is actually thinking

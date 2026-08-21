@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchAccommodation } from '@/server/hotels';
 import { airport, cityOf, countryCodeOf } from '@/server/airportDirectory';
+import { currencyForCountry, getRate, convertWith, CONVERSION_NOTE } from '@/server/fx';
+import { BILLING_CURRENCY } from '@/server/myca';
+import { checkRateLimit } from '@/server/rateLimit';
 
 /**
  * Hotels for a city and date range.
@@ -29,6 +32,13 @@ function toIata(raw: string | null): string | null {
 const isDate = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 export async function GET(req: NextRequest) {
+  // Added 2026-08-21: deliberately unauthenticated, but backs onto real
+  // budget-capped hotel suppliers (LiteAPI/Duffel Stays/Makcorps).
+  const limited = checkRateLimit(req, 'search-hotels', { capacity: 15, refillPerMinute: 15 });
+  if (!limited.allowed) {
+    return NextResponse.json({ error: 'too many requests, try again shortly' }, { status: 429 });
+  }
+
   const p = req.nextUrl.searchParams;
   const iata = toIata(p.get('city') ?? p.get('iata'));
   const checkin = p.get('checkin');
@@ -57,6 +67,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Ask the supplier for the DESTINATION's own currency, not a fixed INR —
+    // a London hotel search asking for INR pricing is asking most suppliers
+    // for something they don't naturally quote, which is a real part of why
+    // an international demo route has come back thin. currencyForCountry
+    // falls back to INR for an unmapped country, so a domestic search is
+    // unchanged.
+    const destCurrency = currencyForCountry(countryCodeOf(iata));
     const result = await searchAccommodation({
       iata,
       cityName: cityOf(iata) ?? ap.city ?? iata,
@@ -65,13 +82,27 @@ export async function GET(req: NextRequest) {
       checkout,
       rooms,
       adults,
-      // The registry prices in whatever the supplier quotes; this is the
-      // currency we ASK for. No conversion happens anywhere downstream — see
-      // the needsConversion refusal in server/domain/altsFromOffers.ts.
-      currency: 'INR',
+      currency: destCurrency,
       guestNationality: 'IN',
       lane: 'refresh',
     });
+
+    // Convert once per RESPONSE CURRENCY present, not once per offer — the
+    // same reasoning altsFromOffers/score.ts already apply to flights: forty
+    // offers converted at forty different rate lookups is not a comparison.
+    // A dead rates API degrades to the committed fallback table
+    // (server/fx.ts), never to a blank price.
+    const rateCache = new Map<string, Awaited<ReturnType<typeof getRate>>>();
+    async function toBilling(offerCurrency: string) {
+      const key = offerCurrency.toUpperCase();
+      if (key === BILLING_CURRENCY) return null;
+      let rate = rateCache.get(key);
+      if (!rate) {
+        rate = await getRate(key, BILLING_CURRENCY);
+        rateCache.set(key, rate);
+      }
+      return rate;
+    }
 
     return NextResponse.json({
       city: iata,
@@ -83,22 +114,31 @@ export async function GET(req: NextRequest) {
       // and "every supplier returned nothing" are different answers and only
       // one of them is a configuration problem.
       sources: result.sources,
-      hotels: result.offers.map((o) => ({
-        id: o.id,
-        supplier: o.supplier,
-        name: o.name,
-        area: o.area,
-        city: o.city,
-        checkin: o.checkin,
-        checkout: o.checkout,
-        roomsAvailable: o.roomsAvailable,
-        total: o.total,
-        refundable: o.refundable,
-        cancelDeadline: o.cancelDeadline,
-        minutesFromAirport: o.minutesFromAirport,
-        /** false means the source can price it but cannot be committed against —
-         *  the same honesty flag the flight side uses. */
-        live: o.live,
+      hotels: await Promise.all(result.offers.map(async (o) => {
+        const rate = await toBilling(o.total.currency);
+        return {
+          id: o.id,
+          supplier: o.supplier,
+          name: o.name,
+          area: o.area,
+          city: o.city,
+          checkin: o.checkin,
+          checkout: o.checkout,
+          roomsAvailable: o.roomsAvailable,
+          // The supplier's own quote, exactly as returned — never altered.
+          total: o.total,
+          // What that is worth on the member's Amex card, so a GBP quote is
+          // legible next to an INR one. null when already in billing
+          // currency (the unchanged domestic-search case) or, honestly, when
+          // even the fallback table has no rate for this currency.
+          totalInBillingCurrency: rate ? { amount: convertWith(o.total.amount, rate), currency: BILLING_CURRENCY, note: CONVERSION_NOTE } : null,
+          refundable: o.refundable,
+          cancelDeadline: o.cancelDeadline,
+          minutesFromAirport: o.minutesFromAirport,
+          /** false means the source can price it but cannot be committed against —
+           *  the same honesty flag the flight side uses. */
+          live: o.live,
+        };
       })),
     });
   } catch (e) {

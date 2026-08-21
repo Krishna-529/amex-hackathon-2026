@@ -1,12 +1,10 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect } from 'react';
 import { usePoll } from '@/lib/usePoll';
 import { hhmm, money } from '@/lib/time';
 import type { FlightSummary, DisruptionOpsView } from '@/lib/apiTypes';
 import { SkTableRows, SkLine } from '@/components/Skeletons';
-
-type PassengerRow = { id: string; displayName: string; consent: string };
 
 /**
  * Only the detection slice of /api/pipeline/health is typed here — the budget
@@ -54,10 +52,7 @@ function ago(at: number | null): string {
   return `${Math.round(mins / 60)} h ago`;
 }
 
-const emptyForm = {
-  code: '', from: '', to: '', depISO: '', durationMin: 120,
-  aircraft: '', terminal: '', passengerIds: [] as string[],
-};
+
 
 /**
  * Not part of the member experience (not linked from SiteHeader — direct-URL
@@ -67,15 +62,96 @@ const emptyForm = {
  * watcher would call. Everything below is a passive view of the same backend
  * every member device polls — this page has no special access to state.
  */
+/**
+ * Operator sign-in gate. Added 2026-08-21 alongside the API-side
+ * `requireOperator` fix — before this, the page's own copy below said "this
+ * console has no account of its own," which was true in the sense that it
+ * never checked one, not in the sense that it was actually safe. The gate is
+ * deliberately minimal (one shared key, no username) — see opsSession.ts.
+ */
+function OpsLoginGate({ onSignedIn }: { onSignedIn: () => void }) {
+  const [key, setKey] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/auth/ops-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(typeof body?.error === 'string' ? body.error : 'Sign-in failed.');
+        return;
+      }
+      onSignedIn();
+    } catch {
+      setError('Could not reach the server.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="page-h">
+      <h1>Operator console</h1>
+      <p>This console can trigger real disruptions and wipe demo state — sign in with the operator key.</p>
+      <form onSubmit={submit} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 16 }}>
+        <input
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder="Operator key"
+          autoFocus
+          style={{ padding: '8px 12px' }}
+        />
+        <button type="submit" disabled={submitting || !key}>{submitting ? 'Signing in…' : 'Sign in'}</button>
+      </form>
+      {error && <p style={{ color: 'var(--risk, #d33)' }}>{error}</p>}
+    </div>
+  );
+}
+
 export default function OpsPage() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null); // null = still checking
+
+  useEffect(() => {
+    fetch('/api/auth/ops-me')
+      .then((r) => r.json())
+      .then((d) => setSignedIn(d?.signedIn === true))
+      .catch(() => setSignedIn(false));
+  }, []);
+
   const { data: flights } = usePoll<FlightSummary[]>('/api/flights', 3000);
-  const { data: passengers } = usePoll<PassengerRow[]>('/api/passengers', 8000);
-  const { data: disruptions } = usePoll<DisruptionOpsView[]>('/api/disruptions', 2000);
+  const { data: disruptions } = usePoll<DisruptionOpsView[]>(signedIn ? '/api/disruptions' : null, 2000);
   const { data: health } = usePoll<HealthResponse>('/api/pipeline/health', 10000);
 
-  const [form, setForm] = useState(emptyForm);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [warmingId, setWarmingId] = useState<string | null>(null);
+  const [ramp, setRamp] = useState<Record<string, number>>({});
+  const [marked, setMarked] = useState<Record<string, boolean>>({});
+  const [resetting, setResetting] = useState(false);
+
+  /**
+   * DEMO — mark a flight cancelled in our DATA only, without starting a recovery.
+   * This is the ground truth a member's "this flight was cancelled" report is
+   * checked against: with it set, the report is confirmed and rebooking starts;
+   * without it, the member is told the flight is not cancelled + given a helpline.
+   */
+  const markCancelledData = (flightId: string) => {
+    const next = !marked[flightId];
+    setMarked((m) => ({ ...m, [flightId]: next }));
+    fetch('/api/ops/mark-cancelled', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flightId, cancelled: next }),
+    }).catch(() => {});
+  };
 
   const trigger = (flightId: string) => {
     setBusyId(flightId);
@@ -98,34 +174,64 @@ export default function OpsPage() {
     fetch(`/api/flights/${flightId}/warm`, { method: 'POST' }).finally(() => setWarmingId(null));
   };
 
-  const togglePassenger = (id: string) => {
-    setForm((f) => ({
-      ...f,
-      passengerIds: f.passengerIds.includes(id)
-        ? f.passengerIds.filter((x) => x !== id)
-        : [...f.passengerIds, id],
-    }));
-  };
-
-  const addFlight = (e: FormEvent) => {
-    e.preventDefault();
-    if (!form.depISO) return;
-    fetch('/api/flights', {
+  /**
+   * DEMO control — ramp a flight's risk score up past the threshold, live and
+   * on screen (+1 every 250ms up to 82), so a walkthrough can show the moment
+   * the system decides a flight is at risk. The number is animated locally for
+   * the reveal; the same target is persisted via /demo-risk so every screen
+   * (and the member's own) then reads it too. Cleared by "Reset demo". This is a
+   * presenter control, not the real model — the forecast it writes is tagged
+   * `demo-override`.
+   */
+  const RAMP_TARGET = 82;
+  const rampRisk = (flightId: string) => {
+    if (ramp[flightId] !== undefined) return; // already ramping
+    const current = (flights ?? []).find((f) => f.id === flightId)?.forecast?.riskScore;
+    let v = Math.max(Math.round(current ?? 55), 55);
+    setRamp((r) => ({ ...r, [flightId]: v }));
+    fetch(`/api/flights/${flightId}/demo-risk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, depISO: new Date(form.depISO).toISOString() }),
-    }).then(() => setForm(emptyForm));
+      body: JSON.stringify({ riskScore: RAMP_TARGET }),
+    }).catch(() => {});
+    const iv = setInterval(() => {
+      v += 1;
+      setRamp((r) => ({ ...r, [flightId]: v }));
+      if (v >= RAMP_TARGET) clearInterval(iv);
+    }, 250);
   };
+
+  const resetDemo = () => {
+    setResetting(true);
+    fetch('/api/ops/demo-reset', { method: 'POST' }).finally(() => {
+      setRamp({});
+      setMarked({});
+      setResetting(false);
+    });
+  };
+
+  if (signedIn === null) return null; // avoid a flash of the console before the ops-me check resolves
+  if (signedIn === false) return <OpsLoginGate onSignedIn={() => setSignedIn(true)} />;
 
   return (
     <div className="skeleton">
       <div className="page-h">
-        <h1>Operator console</h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <h1>Operator console</h1>
+          <button
+            onClick={resetDemo}
+            disabled={resetting}
+            title="Restore the demo to its seeded state — remove added flights, clear risk scores, and undo any rebook/cancel"
+          >
+            {resetting ? 'Resetting…' : 'Reset demo'}
+          </button>
+        </div>
         <p>
           Not part of the member experience — stands in for a live status feed. A demo can&apos;t wait
           for a real airline to actually cancel a flight, so this triggers the same detection entry
-          point a production poller would call. This console has no account of its own and no way to
-          view or act as a member — everything below is state, not a member&apos;s screen.
+          point a production poller would call. Gated by a separate operator key
+          (added 2026-08-21), not a member login — this console has no way to view or act as a
+          member; everything below is state, not a member&apos;s screen.
         </p>
       </div>
 
@@ -145,9 +251,13 @@ export default function OpsPage() {
                 <td className="rt">{f.from} → {f.to}</td>
                 <td className="dt">{hhmm(new Date(f.depISO))}</td>
                 <td>
-                  {f.forecast ? `${Math.round(f.forecast.riskScore ?? f.forecast.pct)}/100` : '—'}{' '}
-                  <span style={{ color: 'var(--mist2)' }}>
-                    ({f.forecast ? `${f.forecast.pct}% real · ${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
+                  {ramp[f.id] !== undefined
+                    ? `${ramp[f.id]}/100`
+                    : f.forecast ? `${Math.round(f.forecast.riskScore ?? f.forecast.pct)}/100` : '—'}{' '}
+                  <span style={{ color: ramp[f.id] !== undefined ? 'var(--risk)' : 'var(--mist2)' }}>
+                    ({ramp[f.id] !== undefined
+                      ? 'demo — ramping risk'
+                      : f.forecast ? `${f.forecast.pct}% real · ${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
                   </span>
                 </td>
                 <td>{f.passengerCount}</td>
@@ -160,12 +270,27 @@ export default function OpsPage() {
                 </td>
                 <td className="ar">
                   <button
+                    disabled={ramp[f.id] !== undefined}
+                    onClick={() => rampRisk(f.id)}
+                    style={{ marginRight: 8 }}
+                    title="DEMO: ramp this flight's risk score up past the threshold, live on screen"
+                  >
+                    {ramp[f.id] !== undefined ? `Risk ${ramp[f.id]}…` : 'Ramp risk →80'}
+                  </button>
+                  <button
                     disabled={warmingId === f.id}
                     onClick={() => warm(f.id)}
                     style={{ marginRight: 8 }}
                     title="Real supplier search, right now — bypasses the risk-score prefetch gate"
                   >
                     {warmingId === f.id ? 'Warming…' : 'Warm candidates'}
+                  </button>
+                  <button
+                    onClick={() => markCancelledData(f.id)}
+                    style={{ marginRight: 8 }}
+                    title="DEMO: mark this flight cancelled in our DATA only — no recovery. A member's 'was cancelled' report then gets confirmed; without it the member is told it is not cancelled."
+                  >
+                    {marked[f.id] ? 'Cancelled in data ✓' : 'Mark cancelled (data)'}
                   </button>
                   <button
                     disabled={f.disruptionPhase !== 'none' || busyId === f.id}
@@ -249,54 +374,7 @@ export default function OpsPage() {
         )}
       </div>
 
-      <div className="sect">Add a flight</div>
-      <form onSubmit={addFlight} className="g panel ops-form" style={{ marginBottom: 28, display: 'grid', gap: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-          <input required placeholder="Code, e.g. AI 999" value={form.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value })} />
-          <input required placeholder="From, e.g. DEL" value={form.from}
-            onChange={(e) => setForm({ ...form, from: e.target.value.toUpperCase() })} />
-          <input required placeholder="To, e.g. BOM" value={form.to}
-            onChange={(e) => setForm({ ...form, to: e.target.value.toUpperCase() })} />
-          <input required type="datetime-local" value={form.depISO}
-            onChange={(e) => setForm({ ...form, depISO: e.target.value })} />
-          <input required type="number" min={30} placeholder="Duration (min)" value={form.durationMin}
-            onChange={(e) => setForm({ ...form, durationMin: Number(e.target.value) })} />
-          <input placeholder="Aircraft" value={form.aircraft}
-            onChange={(e) => setForm({ ...form, aircraft: e.target.value })} />
-          <input placeholder="Terminal" value={form.terminal}
-            onChange={(e) => setForm({ ...form, terminal: e.target.value })} />
-        </div>
-        <div>
-          <div className="lbl" style={{ marginBottom: 8 }}>Passengers on this flight</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {!passengers && ['7em', '5.5em', '8em', '6em'].map((w) => (
-              <span
-                key={w}
-                className="opt"
-                style={{ padding: '7px 14px', width: 'auto', pointerEvents: 'none' }}
-                aria-hidden="true"
-              >
-                <SkLine w={w} />
-              </span>
-            ))}
-            {(passengers ?? []).map((p) => (
-              <button
-                type="button"
-                key={p.id}
-                onClick={() => togglePassenger(p.id)}
-                className={`opt ${form.passengerIds.includes(p.id) ? 'pick' : ''}`}
-                style={{ padding: '7px 14px', width: 'auto' }}
-              >
-                {p.displayName}
-              </button>
-            ))}
-          </div>
-        </div>
-        <button className="go" type="submit" style={{ justifySelf: 'start', padding: '10px 20px' }}>
-          Add flight
-        </button>
-      </form>
+
 
       <div className="sect">Active disruptions</div>
       {!disruptions ? (

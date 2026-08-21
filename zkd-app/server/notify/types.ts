@@ -8,7 +8,7 @@
  * channel later touches one file.
  */
 
-export type NotifyChannel = 'whatsapp' | 'push';
+export type NotifyChannel = 'whatsapp' | 'push' | 'sms';
 
 /**
  * Why we are interrupting the member. `risk-threshold` is the only one that

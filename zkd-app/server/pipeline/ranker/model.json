@@ -1,0 +1,65 @@
+{
+  "version": 2,
+  "trainedAt": "2026-08-21T00:00:00.000Z",
+  "note": "v2 adds two live disruption-risk features — weatherRisk (moderate) and advisoryRisk (heavy, overridable) — fed by server/risk/ (weather + NOTAM + GDELT news), off by default (ZKD_LIVE_RISK=1). v1 priors are the server/preferences/presets.ts weights ported onto the signed feature set and scaled by a logit temperature, so day-one ranking reproduces the previous weighted-sum behaviour. Nothing here was fitted on member data yet — `learnedByStrategy` is empty and every weight is still the prior. This is the file the offline trainer (train.ts) rewrites; the app never writes it at request time.",
+
+  "features": ["arrival", "cost", "cabin", "effort", "loyalty", "redeye", "seats", "stability", "weatherRisk", "advisoryRisk"],
+
+  "featureDoc": {
+    "arrival": "-hoursLate / scale. Higher = earlier. Monotone: earlier is never worse.",
+    "cost": "-(fare - cheapestFare)/cheapestFare, floored at -1. Higher = cheaper. Monotone.",
+    "cabin": "-(preferredCabinRank - altCabinRank clamped >=0). Higher = less downgrade. Monotone. [MyCa: preferred cabin]",
+    "effort": "-((legs-1) + overnight). Higher = fewer changes. Monotone.",
+    "loyalty": "1 if on a carrier the member holds status with, else 0. Monotone. [MyCa: preferredCarriers]",
+    "redeye": "-1 if this is a red-eye AND the member asked to avoid them, else 0. Monotone. [MyCa: avoidRedEye]",
+    "seats": "min(seatsSpare, 8)/8 where seatsSpare = seats - partySize. Higher = more headroom for the party. Monotone.",
+    "stability": "-pCancel / scale, where pCancel is the trained cancellation model's own historical rate for THIS alternate's carrier+route (server/pipeline/ranker/cancelRisk.ts). Higher = the alternate is itself less likely to be cancelled. Monotone: a more-stable option is never ranked worse. [ML: cancellation model]",
+    "weatherRisk": "-max live weather severity over the airports this candidate touches (origin, destination, hub) / scale. From server/risk/weatherRisk.ts (METAR/SIGMET). Higher = clearer skies. Monotone. [LIVE feed]",
+    "advisoryRisk": "-max live advisory severity (NOTAM closures + GDELT news) over the candidate's airports and carrier / scale. Zeroed when overrideSevereRisk is set (the member's LLM-parsed 'no matter what'). Heavy prior. Higher = fewer active advisories. Monotone. [LIVE feed]"
+  },
+
+  "scales": { "arrival": 6, "cost": 1, "cabin": 1, "effort": 1, "loyalty": 1, "redeye": 1, "seats": 1, "stability": 0.05, "weatherRisk": 1, "advisoryRisk": 1 },
+
+  "monotoneNonNegative": ["arrival", "cost", "cabin", "effort", "loyalty", "redeye", "seats", "stability", "weatherRisk", "advisoryRisk"],
+
+  "priorByStrategy": {
+    "earliest_arrival":            { "arrival": 3.00, "cost": 0.60, "cabin": 0.48, "effort": 0.60, "loyalty": 0.24, "redeye": 0.60, "seats": 0.30, "stability": 1.20, "weatherRisk": 1.00, "advisoryRisk": 2.50 },
+    "stick_to_preferred_airline":  { "arrival": 1.44, "cost": 0.72, "cabin": 0.60, "effort": 0.36, "loyalty": 1.80, "redeye": 0.60, "seats": 0.30, "stability": 1.20, "weatherRisk": 1.00, "advisoryRisk": 2.50 },
+    "minimize_layovers":           { "arrival": 1.56, "cost": 0.60, "cabin": 0.48, "effort": 2.04, "loyalty": 0.24, "redeye": 0.60, "seats": 0.30, "stability": 1.20, "weatherRisk": 1.00, "advisoryRisk": 2.50 },
+    "lowest_cost":                 { "arrival": 1.08, "cost": 2.40, "cabin": 0.60, "effort": 0.60, "loyalty": 0.24, "redeye": 0.60, "seats": 0.30, "stability": 1.20, "weatherRisk": 1.00, "advisoryRisk": 2.50 }
+  },
+
+  "mycaOffsets": {
+    "note": "Per-member warm start. Added to the strategy prior at load time, then clipped >= 0. This is the smart initialisation: a member starts already personalised to their MyCa profile, so the learned delta only has to be small, which is what keeps the fit data-cheap and hard to overfit.",
+    "loyaltyIfPreferredCarriers": 0.80,
+    "redeyeIfAvoid": 0.80,
+    "cabinIfPremiumEntitled": 0.40
+  },
+
+  "bookability": {
+    "note": "Enters the utility as a fixed-coefficient offset (v += log P). It is NOT a learnable weight, so no amount of data can teach the model to prefer an option it cannot book — this is what makes the old RELIABILITY_FLOOR unnecessary rather than merely enforced. Priors below are the starting P(bookable); learnedBySupplier overrides them as revalidateOffer outcomes accumulate.",
+    "logFloor": 0.02,
+    "priors": { "liveWithExpiry": 0.97, "okNoExpiry": 0.72, "other": 0.45 },
+    "learnedBySupplier": {},
+    "shrink": { "pseudoCount": 20 }
+  },
+
+  "shrink": {
+    "note": "Empirical-Bayes shrinkage, the same shape zkd-risk-model/train.py uses for entity rates: w = (n*learned + k*prior)/(n+k). Below minData the learned vector is ignored entirely and the prior is used as-is. Both are anti-overfit controls: minData is a hard gate, pseudoCount is a soft one.",
+    "pseudoCountGlobal": 50,
+    "pseudoCountMember": 30,
+    "minDataGlobal": 200,
+    "minDataMember": 25,
+    "l2ToPrior": 0.8
+  },
+
+  "explore": {
+    "note": "Deliberately OFF by default (epsilon 0). When enabled, swaps only ADJACENT ranks whose utility gap is below nearTieDelta — options the model already considers interchangeable — and records the propensity so offline evaluation stays unbiased. There is no exploration among options the model can actually tell apart, because a wrong flight has real cost. Learning does not depend on this being on: members overriding the top rank is natural, un-engineered exploration.",
+    "epsilon": 0.0,
+    "nearTieDelta": 0.05
+  },
+
+  "learnedByStrategy": {},
+  "learnedByMember": {},
+  "counts": { "byStrategy": {}, "byMember": {} }
+}

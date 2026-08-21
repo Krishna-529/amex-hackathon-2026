@@ -15,9 +15,6 @@
     "verify": "npm run typecheck && npm run verify:prefs && npm run verify:pipeline && npm run verify:hotels"
   },
   "dependencies": {
-    "@langchain/core": "^1.2.8",
-    "@langchain/langgraph": "^1.4.10",
-    "@temporalio/client": "^1.13.0",
     "next": "^16.3.1",
     "postgres": "^3.4.5",
     "react": "^19.0.0",

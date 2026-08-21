@@ -129,10 +129,31 @@ export type PassengerScheduleResponse = {
   stays: Stay[];
 };
 
-/** passengerId comes from the session, never the body — see server/auth/guard.ts */
-export type PreAuthRequest = { altId: string; hotelId: string; cabId: string };
+/** passengerId comes from the session, never the body — see server/auth/guard.ts.
+ *  Only the alternative is required: hotel/cab are optional add-ons and are null
+ *  when the member pre-authorises from a screen with no hotel/cab picker. */
+export type PreAuthRequest = { altId: string; hotelId: string | null; cabId: string | null };
 export type PreAuthResponse = {
-  flightId: string; passengerId: string; altId: string; hotelId: string; cabId: string; owed: number; grantedAt: number;
+  flightId: string; passengerId: string; altId: string; hotelId: string | null; cabId: string | null; owed: number; grantedAt: number;
+} | null;
+
+/** The member's temporary, per-flight journey window + consent choice. Every
+ *  field optional: a member may set only a deadline, only a consent mode, etc.
+ *  `consent: null` means "use my standing profile consent". */
+export type JourneyPrefsRequest = {
+  earliestDepartISO?: string | null;
+  latestArriveISO?: string | null;
+  consent?: 'autopilot' | 'ask' | null;
+};
+export type JourneyPrefsResponse = {
+  flightId: string;
+  passengerId: string;
+  earliestDepartISO: string | null;
+  latestArriveISO: string | null;
+  consent: 'autopilot' | 'ask' | null;
+  setAt: number;
+  /** anything we could not read or had to drop, in the member's words */
+  notes: string[];
 } | null;
 
 export type DisruptionOpsTask = {

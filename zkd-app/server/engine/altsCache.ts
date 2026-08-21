@@ -233,10 +233,15 @@ async function mergePinned(flightId: string, current: Alt[], fresh: Alt[]): Prom
   }
   // A pre-authorised plan is a promise about specific ids — isPlanIntact checks
   // exactly those, and reads a missing alt as a broken plan.
-  const passengers = await store.listPassengers();
-  for (const p of passengers) {
-    const pre = await store.getPreAuth(flightId, p.id);
-    if (pre?.altId) pinned.add(pre.altId);
+  //
+  // Fixed 2026-08-21: this used to load `listPassengers()` — the ENTIRE
+  // passenger table, system-wide — then issue one `getPreAuth` call per
+  // passenger just to find this ONE flight's pre-auths, a true N+1 on a hot
+  // path (this function can run every 20s during a real disruption, per the
+  // module header). `getPreAuthsForFlight` is one indexed query.
+  const preAuths = await store.getPreAuthsForFlight(flightId);
+  for (const pre of preAuths) {
+    if (pre.altId) pinned.add(pre.altId);
   }
 
   if (pinned.size === 0) return fresh;

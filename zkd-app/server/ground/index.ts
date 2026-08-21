@@ -82,6 +82,7 @@ async function uberToken(): Promise<string | null> {
         scope: 'request',
       }),
       cache: 'no-store',
+      signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) throw new Error(`uber token ${res.status}`);
     const json = (await res.json()) as { access_token?: string };
@@ -116,6 +117,7 @@ async function uberFetch(url: URL | string, init: RequestInit = {}, retrying = f
     ...init,
     headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${token}` },
     cache: 'no-store',
+    signal: init.signal ?? AbortSignal.timeout(10000),
   });
 
   if (res.status === 401 && !retrying) {

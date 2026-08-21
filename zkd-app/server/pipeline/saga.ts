@@ -225,7 +225,11 @@ function buildSteps(input: SagaInput): SagaStep[] {
     label: 'Payment authorised',
     budget: 0.9,
     run: async () => ({ ok: true, ref: `van:${run.id}`, narration: narrate('authorise') }),
-    compensate: async (ref) => ({ ok: true, detail: `voided ${ref}` }),
+    // Honest, not "voided ${ref}" — fixed 2026-08-21 alongside the hotel
+    // compensator, same reasoning. `van:${run.id}` is never a real
+    // authorisation (no live payment integration exists on this branch —
+    // see pricing.ts's header), so there is nothing real to void.
+    compensate: async (ref) => ({ ok: true, detail: `no real authorisation was ever made for ${ref} — nothing to void` }),
   });
 
   steps.push({
@@ -245,7 +249,13 @@ function buildSteps(input: SagaInput): SagaStep[] {
         uncertain: false,
       };
     },
-    compensate: async (ref) => ({ ok: true, detail: `released ${ref}` }),
+    // Honest, not "released ${ref}" — fixed 2026-08-21. This step never
+    // reaches a real booking (mutationsAllowed() gates the only branch that
+    // would attempt one, and that branch fails rather than fabricating a
+    // success), so a compensate call here is always unwinding an `intent:`
+    // ref with nothing real behind it. If/when live ticketing lands, THIS
+    // compensator must call a real supplier release/void before claiming one.
+    compensate: async (ref) => ({ ok: true, detail: `no real seat was ever booked for ${ref} — nothing to release` }),
   });
 
   if (hotel) {
@@ -272,12 +282,36 @@ function buildSteps(input: SagaInput): SagaStep[] {
           ? { ok: false, error: 'live hotel booking is not implemented', uncertain: false }
           : { ok: true, ref: `intent:${ref}`, narration: narrate('hotel') };
       },
-      compensate: async (ref) =>
-        ref.startsWith('unverified:')
+      compensate: async (ref) => {
+        // Fixed 2026-08-21: this branch used to claim `cancelled ${ref}
+        // inside the free-cancellation window` unconditionally for any
+        // real ref — a real API call this codebase never made. Traced what
+        // `holdHotel()` (`server/hotels/index.ts`) actually does: today the
+        // ONLY provider implementing `hold()` is Duffel Stays
+        // (`server/hotels/providers.ts`), and its own comment is explicit —
+        // "A quote holds the rate... letting it lapse costs nothing." No
+        // provider in this registry implements a real cancel/release
+        // endpoint, because none of their holds are a persistent booking to
+        // begin with (a real booking only exists after `stays/bookings`,
+        // which this saga never calls while mutations are gated off).
+        // Claiming an active cancellation for something that simply expires
+        // unclaimed is the exact "claims a release that did not happen"
+        // anti-pattern `fallbackNote.test.ts`/`verify.ts` already guard
+        // against elsewhere in this codebase — this compensator was the one
+        // place still doing it. If a future provider DOES implement a real,
+        // billable hold, its own `hold()` must grow a matching
+        // `release()`/`cancel()` and this branch must call it for real
+        // before claiming success — not before.
+        if (ref.startsWith('unverified:')) {
           // Nothing was held, so there is nothing to release. Claiming a
           // cancellation we did not perform would be a fake compensation.
-          ? { ok: true, detail: `nothing to release for ${ref}` }
-          : { ok: true, detail: `cancelled ${ref} inside the free-cancellation window` },
+          return { ok: true, detail: `nothing to release for ${ref}` };
+        }
+        return {
+          ok: true,
+          detail: `no real hotel booking was ever made for ${ref} — only a quote, which expires unclaimed at no cost`,
+        };
+      },
     });
   }
 

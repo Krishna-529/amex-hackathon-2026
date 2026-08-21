@@ -24,6 +24,7 @@
 import { logNotification } from '@/server/decisionLedger';
 import * as whatsapp from './whatsapp';
 import * as push from './push';
+import * as sms from './fast2sms';
 import type { ChannelResult, NotifyEvent } from './types';
 
 export type DispatchResult = {
@@ -34,9 +35,9 @@ export type DispatchResult = {
 };
 
 export async function dispatch(event: NotifyEvent): Promise<DispatchResult> {
-  const settled = await Promise.allSettled([whatsapp.send(event), push.send(event)]);
+  const settled = await Promise.allSettled([whatsapp.send(event), push.send(event), sms.send(event)]);
 
-  const channels = ['whatsapp', 'push'] as const;
+  const channels = ['whatsapp', 'push', 'sms'] as const;
   const results: ChannelResult[] = settled.map((s, i) =>
     s.status === 'fulfilled'
       ? s.value
@@ -83,6 +84,7 @@ export function channelStatus(passengerId?: string): { channel: string; configur
   return [
     { channel: 'whatsapp', configured: whatsapp.isConfigured() },
     { channel: 'push', configured: push.isConfigured(passengerId) },
+    { channel: 'sms', configured: sms.isConfigured() },
   ];
 }
 

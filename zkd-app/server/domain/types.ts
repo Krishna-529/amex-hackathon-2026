@@ -241,6 +241,16 @@ export type Flight = {
   /** true once the carrier moves the flight — the booked time above stays put so
    *  a reschedule stays visible as the diff between the two */
   rescheduledToISO?: string;
+  /**
+   * Ground truth from our data feed: the airline has actually cancelled this
+   * flight, but no recovery has been triggered yet. Set by the /ops "Mark
+   * cancelled (data only)" control so a member's "this flight was cancelled"
+   * report can be checked against it — a report on a flight with this flag is
+   * corroborated (we start rebooking); a report without it is answered "we
+   * checked, it is not cancelled" plus a helpline. Distinct from a DisruptionEvent,
+   * which is a recovery already in flight. Cleared by Reset demo (re-seed).
+   */
+  cancelledInData?: boolean;
   /** minutes of slack before the onward leg is missed; null when there is none */
   connectionSlackMinutes: number | null;
   /** a late arrival breaks something that matters — an onward leg, a commitment */
@@ -264,6 +274,21 @@ export type Flight = {
    * a getter to live.
    */
   hardDeadlineISO?: string | null;
+  /**
+   * The symmetric lower bound: the earliest instant a REPLACEMENT flight may
+   * depart. "I cannot get to the airport before 6am" / "my meeting only ends at
+   * noon". Null when the member gave us no earliest-start.
+   *
+   * Like `hardDeadlineISO` this is a HARD RULE, not a preference weight: a
+   * replacement leaving before the member can physically make it is not a worse
+   * option, it is an impossible one, so `applyHardRules`
+   * (server/pipeline/score.ts) removes it rather than ranking it low. Also like
+   * the deadline, it is stored on the Flight view the pipeline scores against
+   * rather than derived, because the whole Flight is JSON-serialised into one
+   * Postgres column. Set per-passenger from their JourneyPrefs (see below), so
+   * two members on the same physical flight can hold different windows.
+   */
+  earliestDepartISO?: string | null;
   /** fetched from the forecaster, cached here; undefined until the first refresh */
   forecast?: FlightForecast;
   /** every real forecast this flight has ever received, oldest first, capped
@@ -377,10 +402,42 @@ export type PreAuthRecord = {
   flightId: string;
   passengerId: string;
   altId: string;
-  hotelId: string;
-  cabId: string;
+  // Hotel and cab are optional add-ons to the pre-authorised plan — the member
+  // pre-authorises a replacement SEAT; a hotel/cab only apply when the recovery
+  // actually needs an overnight or a transfer. The flight detail screen has no
+  // hotel/cab picker, so those arrive null from there.
+  hotelId: string | null;
+  cabId: string | null;
   owed: number;
   grantedAt: number;
+};
+
+/**
+ * A member's temporary, per-flight instruction, set before a booked flight is
+ * ever disrupted. Deliberately NOT part of the MyCa profile: it applies to this
+ * one flight only and is discarded when the flight is done, which is why it is
+ * keyed and stored exactly like PreAuthRecord (per flight + passenger) rather
+ * than living on the durable Passenger/MyCa profile.
+ *
+ * Three things the member states up front:
+ *  - `earliestDepartISO` — the soonest a replacement may depart (journey start)
+ *  - `latestArriveISO`   — the latest it may arrive (journey end); becomes the
+ *                          flight's `hardDeadlineISO` for this passenger
+ *  - `consent`           — whether rebooking this flight should be fully
+ *                          autonomous ('autopilot') or human-in-the-loop
+ *                          ('ask'), overriding the member's profile default.
+ *                          Null means "use my standing profile consent".
+ *
+ * Any field may be null: a member can set only a deadline, only a consent mode,
+ * or all three. Null is "not stated", never a value.
+ */
+export type JourneyPrefs = {
+  flightId: string;
+  passengerId: string;
+  earliestDepartISO: string | null;
+  latestArriveISO: string | null;
+  consent: Consent | null;
+  setAt: number;
 };
 
 /* ── outcomes ────────────────────────────────────────────────────────────── */
@@ -462,9 +519,9 @@ export type DisruptionEvent = {
 };
 
 export type DisruptionResolution =
-  | { kind: 'autopilot' | 'approved'; at: number; altId: string; hotelId: string; cabId: string }
+  | { kind: 'autopilot' | 'approved'; at: number; altId: string; hotelId: string | null; cabId: string | null }
   /** the flight moved but still works: no new ticket, only downstream bookings re-timed */
-  | { kind: 're-timed'; at: number; hotelId: string; cabId: string; shiftMinutes: number }
+  | { kind: 're-timed'; at: number; hotelId: string | null; cabId: string | null; shiftMinutes: number }
   | { kind: 'handed-over'; at: number };
 
 /**
@@ -514,10 +571,17 @@ export type RecoveryTask = {
   /** what bounded the window, so the UI can say why it is that long */
   windowBoundBy: 'offer-expiry' | 'check-in' | 'ceiling' | 'floor';
   chosenAltId: string;
-  chosenHotelId: string;
-  chosenCabId: string;
+  // Hotel and cab are optional parts of a recovery plan — a same-day reseat
+  // needs neither. Null when the plan has no overnight/transfer leg.
+  chosenHotelId: string | null;
+  chosenCabId: string | null;
   rejectedAltIds: string[];
   shown: Step[];
   note: string | null;
   resolution: DisruptionResolution | null;
+  /** true once the one grace extension for an undelivered rung-3 notification
+   *  has been used, so settleExpired never grants a second one. See
+   *  server/engine/simulation.ts's settleExpired and
+   *  ZKD-Gap-Audit-Session-Report.md §3. */
+  undeliveredGraceUsed: boolean;
 };

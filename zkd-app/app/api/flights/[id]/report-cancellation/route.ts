@@ -15,10 +15,25 @@ import * as store from '@/server/domain/store';
 import { requireSession } from '@/server/auth/guard';
 import { report, hasReported, INDEPENDENT_REPORTS_NEEDED } from '@/server/engine/memberReports';
 import { detectDisruption, widenDetection } from '@/server/engine/simulation';
+import { consumeToken } from '@/server/rateLimit';
+
+// Added 2026-08-21: a member with a real booking can still spam this route,
+// each call spending a real status-corroboration check. Generous burst —
+// this is a real "my flight died" action, not something to make a member
+// hesitate over — but bounded.
+const REPORT_RATE_LIMIT = { capacity: 10, refillPerMinute: 2 };
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireSession(req);
   if ('response' in g) return g.response;
+
+  const limited = consumeToken(`report-cancellation:${g.passenger.id}`, REPORT_RATE_LIMIT);
+  if (!limited.allowed) {
+    return NextResponse.json(
+      { error: 'Too many reports — please slow down.', retryAfterMs: limited.retryAfterMs },
+      { status: 429 },
+    );
+  }
 
   const { id } = await params;
   const flight = await store.getFlight(id);
@@ -40,29 +55,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const verdict = await report(id, g.passenger.id, 'member');
 
-  if (!repeat) {
-    if (verdict.confirmed) {
-      // Corroborated: this is a real cancellation as far as we can tell, and
-      // everyone on the aircraft is in the same trouble.
-      await detectDisruption(id);
-      await widenDetection(id);
-    } else {
-      // Uncorroborated: believe them about THEIR trip and nobody else's. The
-      // pipeline this starts searches and plans; it does not spend until the
-      // consent window it opens has run, and it never touches another
-      // passenger's card.
-      await detectDisruption(id, { onlyForPassengerId: g.passenger.id });
-    }
+  // We only rebook once our own data actually confirms the cancellation. A
+  // report on a flight we can see is fine must NOT silently start moving the
+  // member onto another flight — we tell them it is not cancelled and give them
+  // a human to call. (Set a flight's ground truth from /ops: "Mark cancelled
+  // (data only)".)
+  if (!repeat && verdict.confirmed) {
+    await detectDisruption(id);
+    await widenDetection(id);
   }
+
+  const HELPLINE = '1800 419 2122';
 
   return NextResponse.json({
     acknowledged: true,
     confirmed: verdict.confirmed,
+    status: verdict.confirmed ? 'cancelled' : 'not-cancelled',
     reports: verdict.reports,
     needed: INDEPENDENT_REPORTS_NEEDED,
     evidence: verdict.evidence,
+    helpline: verdict.confirmed ? null : HELPLINE,
     message: verdict.confirmed
-      ? 'Thank you — that matches what we can see. We have started the rebooking for everyone on this flight.'
-      : 'Thank you. We have started your rebooking now. We have not yet been able to confirm the cancellation independently, so we are not moving other passengers until we can.',
+      ? 'Sorry for the inconvenience. We have checked and this flight is cancelled — we have marked it and started rebooking you now. Nothing is charged without telling you first.'
+      : `We have checked with the airline and this flight is not showing as cancelled. Please double-check your gate or booking, and if the airline has told you otherwise, call our helpline on ${HELPLINE} and we will confirm it for you.`,
   });
 }

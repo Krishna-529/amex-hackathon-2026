@@ -120,6 +120,7 @@ export const skyscanner: Supplier = {
         const res = await fetch(url, {
           headers: { 'X-RapidAPI-Key': key, 'X-RapidAPI-Host': host },
           cache: 'no-store',
+          signal: AbortSignal.timeout(10000),
         });
         if (!res.ok) return { offers: [], status: 'error' as SupplierStatus };
 

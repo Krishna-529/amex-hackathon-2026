@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { refreshAlts } from '@/server/engine/altsCache';
 import { refreshGround } from '@/server/engine/groundCache';
 import { requireSession } from '@/server/auth/guard';
+import { opsSessionFrom } from '@/server/auth/opsSession';
+import { consumeToken } from '@/server/rateLimit';
 import * as store from '@/server/domain/store';
 
 /**
@@ -14,14 +16,42 @@ import * as store from '@/server/domain/store';
  * for, not on every page view), but a demo or a member manually checking
  * "what would you rebook me onto right now" shouldn't have to wait on the
  * scorer being up. The /ops console's "Warm candidates" action calls this.
+ *
+ * Ownership check added 2026-08-21: `requireSession` alone let any signed-in
+ * member force a real (budget-consuming) supplier search against any flight
+ * id, not only their own. An operator session (the /ops caller) still passes
+ * unconditionally, matching the pattern `report-cancellation` already
+ * established for the member-self-service case.
  */
+// Same reasoning as reverify's rate limit — a real budget-consuming supplier
+// search, per-account abuse surface, generous burst for legitimate use.
+const WARM_RATE_LIMIT = { capacity: 5, refillPerMinute: 1 };
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireSession(req);
   if ('response' in g) return g.response;
 
+  if (!opsSessionFrom(req)) {
+    const limited = consumeToken(`warm:${g.passenger.id}`, WARM_RATE_LIMIT);
+    if (!limited.allowed) {
+      return NextResponse.json(
+        { error: 'Too many warm requests — please slow down.', retryAfterMs: limited.retryAfterMs },
+        { status: 429 },
+      );
+    }
+  }
+
   const { id } = await params;
   const flight = await store.getFlight(id);
   if (!flight) return NextResponse.json({ error: 'flight not found' }, { status: 404 });
+
+  if (!opsSessionFrom(req)) {
+    const bookings = await store.getBookingsForFlight(id);
+    const own = bookings.find((b) => b.passengerId === g.passenger.id);
+    if (!own) {
+      return NextResponse.json({ error: 'you do not have a booking on this flight' }, { status: 403 });
+    }
+  }
 
   await Promise.all([refreshAlts(id), refreshGround(id)]);
   const warmed = await store.getFlight(id);
