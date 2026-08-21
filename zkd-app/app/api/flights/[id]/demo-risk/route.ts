@@ -4,6 +4,8 @@ import { requireOperator } from '@/server/auth/guard';
 import { thresholdsFor } from '@/server/engine/thresholds';
 import { bandFor, BAND_TONE } from '@/lib/thresholds';
 import { refreshAltsNow } from '@/server/engine/altsCache';
+import { isSameOriginRequest } from '@/server/auth/csrf';
+import { checkRateLimit } from '@/server/rateLimit';
 import type { FlightForecast } from '@/server/domain/types';
 
 /**
@@ -26,6 +28,13 @@ import type { FlightForecast } from '@/server/domain/types';
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireOperator(req);
   if ('response' in g) return g.response;
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ error: 'cross-site request rejected' }, { status: 403 });
+  }
+  const limited = checkRateLimit(req, 'ops-demo-risk', { capacity: 30, refillPerMinute: 30 });
+  if (!limited.allowed) {
+    return NextResponse.json({ error: 'too many requests, try again shortly' }, { status: 429 });
+  }
 
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as { riskScore?: unknown };

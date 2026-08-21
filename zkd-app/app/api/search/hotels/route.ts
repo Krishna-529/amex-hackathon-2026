@@ -3,6 +3,7 @@ import { searchAccommodation } from '@/server/hotels';
 import { airport, cityOf, countryCodeOf } from '@/server/airportDirectory';
 import { currencyForCountry, getRate, convertWith, CONVERSION_NOTE } from '@/server/fx';
 import { BILLING_CURRENCY } from '@/server/myca';
+import { checkRateLimit } from '@/server/rateLimit';
 
 /**
  * Hotels for a city and date range.
@@ -31,6 +32,13 @@ function toIata(raw: string | null): string | null {
 const isDate = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 export async function GET(req: NextRequest) {
+  // Added 2026-08-21: deliberately unauthenticated, but backs onto real
+  // budget-capped hotel suppliers (LiteAPI/Duffel Stays/Makcorps).
+  const limited = checkRateLimit(req, 'search-hotels', { capacity: 15, refillPerMinute: 15 });
+  if (!limited.allowed) {
+    return NextResponse.json({ error: 'too many requests, try again shortly' }, { status: 429 });
+  }
+
   const p = req.nextUrl.searchParams;
   const iata = toIata(p.get('city') ?? p.get('iata'));
   const checkin = p.get('checkin');

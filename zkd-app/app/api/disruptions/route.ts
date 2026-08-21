@@ -4,6 +4,8 @@ import { ensureSeeded } from '@/server/domain/seed';
 import { toDisruptionOpsView } from '@/server/domain/views';
 import { detectDisruption } from '@/server/engine/simulation';
 import { requireOperator } from '@/server/auth/guard';
+import { isSameOriginRequest } from '@/server/auth/csrf';
+import { checkRateLimit } from '@/server/rateLimit';
 
 /**
  * The operator console's own disruption feed and manual trigger. `requireOperator`
@@ -35,6 +37,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const g = await requireOperator(req);
   if ('response' in g) return g.response;
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ error: 'cross-site request rejected' }, { status: 403 });
+  }
+
+  // This is the entry point a live status feed would call automatically —
+  // it drives the entire recovery/booking pipeline, including real supplier
+  // calls downstream. Rate-limited even behind operator auth (2026-08-21) so
+  // a stuck demo script, or a compromised operator credential, can't hammer
+  // it: 20 burst / 20-per-minute.
+  const limited = checkRateLimit(req, 'disruption-trigger', { capacity: 20, refillPerMinute: 20 });
+  if (!limited.allowed) {
+    return NextResponse.json({ error: 'too many requests, try again shortly' }, { status: 429 });
+  }
 
   await ensureSeeded();
   const body = (await req.json().catch(() => null)) as { flightId?: unknown } | null;

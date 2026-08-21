@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { reverify } from '@/server/engine/forecast';
 import { requireSession } from '@/server/auth/guard';
 import { opsSessionFrom } from '@/server/auth/opsSession';
+import { consumeToken } from '@/server/rateLimit';
 import * as store from '@/server/domain/store';
 
 /**
@@ -12,10 +13,27 @@ import * as store from '@/server/domain/store';
  * Ownership check added 2026-08-21: `requireSession` alone let any signed-in
  * member force a real, costed re-score against any flight id, not only their
  * own. An operator session passes unconditionally.
+ *
+ * Rate-limited per member (not per IP — the abuse surface here is
+ * per-account, a real bypass of the forecast TTL straight to the real
+ * scorer), 5 burst / 1-per-minute-sustained: generous for "let me
+ * double-check a couple of flights right now," tight enough that unlimited
+ * manual refreshing can't undercut neighbor smoothing's whole point of
+ * reducing real model-call volume.
  */
+const REVERIFY_RATE_LIMIT = { capacity: 5, refillPerMinute: 1 };
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireSession(req);
   if ('response' in g) return g.response;
+
+  const limited = consumeToken(`reverify:${g.passenger.id}`, REVERIFY_RATE_LIMIT);
+  if (!limited.allowed) {
+    return NextResponse.json(
+      { error: 'Too many reverify requests — please slow down.', retryAfterMs: limited.retryAfterMs },
+      { status: 429 },
+    );
+  }
 
   const { id } = await params;
 

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as store from '@/server/domain/store';
 import { requireOperator } from '@/server/auth/guard';
+import { isSameOriginRequest } from '@/server/auth/csrf';
+import { checkRateLimit } from '@/server/rateLimit';
 
 /**
  * DEMO / operator control — mark a flight cancelled IN OUR DATA without starting
@@ -21,6 +23,13 @@ import { requireOperator } from '@/server/auth/guard';
 export async function POST(req: NextRequest) {
   const g = await requireOperator(req);
   if ('response' in g) return g.response;
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ error: 'cross-site request rejected' }, { status: 403 });
+  }
+  const limited = checkRateLimit(req, 'ops-mark-cancelled', { capacity: 20, refillPerMinute: 20 });
+  if (!limited.allowed) {
+    return NextResponse.json({ error: 'too many requests, try again shortly' }, { status: 429 });
+  }
 
   const body = (await req.json().catch(() => ({}))) as { flightId?: unknown; cancelled?: unknown };
   if (typeof body.flightId !== 'string' || body.flightId.length === 0) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { flightInstancesByRoute, trialBudget } from '@/server/oag';
 import { cityOf } from '@/server/airportDirectory';
+import { checkRateLimit } from '@/server/rateLimit';
 
 /**
  * Real flights on a route and date, straight from OAG — the search behind the
@@ -38,6 +39,16 @@ function dayOffset(departureDate: string, arrivalDate: string): number {
 }
 
 export async function GET(req: NextRequest) {
+  // Added 2026-08-21: deliberately unauthenticated (browse-before-signin),
+  // but every real search spends from OAG's 100-call TOTAL trial allowance
+  // — a handful of anonymous requests could exhaust the entire budget for
+  // every real user of this demo. Generous enough for real browsing, tight
+  // enough that a runaway script can't drain the trial in a two-minute loop.
+  const limited = checkRateLimit(req, 'search-flights', { capacity: 15, refillPerMinute: 15 });
+  if (!limited.allowed) {
+    return NextResponse.json({ error: 'too many requests, try again shortly' }, { status: 429 });
+  }
+
   const params = req.nextUrl.searchParams;
   const from = toIata(params.get('from'));
   const to = toIata(params.get('to'));

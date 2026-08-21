@@ -3,6 +3,7 @@ import { refreshAlts } from '@/server/engine/altsCache';
 import { refreshGround } from '@/server/engine/groundCache';
 import { requireSession } from '@/server/auth/guard';
 import { opsSessionFrom } from '@/server/auth/opsSession';
+import { consumeToken } from '@/server/rateLimit';
 import * as store from '@/server/domain/store';
 
 /**
@@ -22,9 +23,23 @@ import * as store from '@/server/domain/store';
  * unconditionally, matching the pattern `report-cancellation` already
  * established for the member-self-service case.
  */
+// Same reasoning as reverify's rate limit — a real budget-consuming supplier
+// search, per-account abuse surface, generous burst for legitimate use.
+const WARM_RATE_LIMIT = { capacity: 5, refillPerMinute: 1 };
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireSession(req);
   if ('response' in g) return g.response;
+
+  if (!opsSessionFrom(req)) {
+    const limited = consumeToken(`warm:${g.passenger.id}`, WARM_RATE_LIMIT);
+    if (!limited.allowed) {
+      return NextResponse.json(
+        { error: 'Too many warm requests — please slow down.', retryAfterMs: limited.retryAfterMs },
+        { status: 429 },
+      );
+    }
+  }
 
   const { id } = await params;
   const flight = await store.getFlight(id);
