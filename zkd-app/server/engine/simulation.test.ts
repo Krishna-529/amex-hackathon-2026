@@ -33,6 +33,7 @@ vi.mock('../notify/templates', () => ({
 }));
 vi.mock('../pipeline', () => ({
   onDisruptionDetected: vi.fn(),
+  ensurePlanned: vi.fn(async () => {}),
   preferredPlan: () => null,
   execute: (...args: unknown[]) => pipelineExecute(...(args as [])),
 }));
