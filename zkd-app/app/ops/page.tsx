@@ -70,7 +70,24 @@ export default function OpsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [warmingId, setWarmingId] = useState<string | null>(null);
   const [ramp, setRamp] = useState<Record<string, number>>({});
+  const [marked, setMarked] = useState<Record<string, boolean>>({});
   const [resetting, setResetting] = useState(false);
+
+  /**
+   * DEMO — mark a flight cancelled in our DATA only, without starting a recovery.
+   * This is the ground truth a member's "this flight was cancelled" report is
+   * checked against: with it set, the report is confirmed and rebooking starts;
+   * without it, the member is told the flight is not cancelled + given a helpline.
+   */
+  const markCancelledData = (flightId: string) => {
+    const next = !marked[flightId];
+    setMarked((m) => ({ ...m, [flightId]: next }));
+    fetch('/api/ops/mark-cancelled', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flightId, cancelled: next }),
+    }).catch(() => {});
+  };
 
   const trigger = (flightId: string) => {
     setBusyId(flightId);
@@ -124,6 +141,7 @@ export default function OpsPage() {
     setResetting(true);
     fetch('/api/ops/demo-reset', { method: 'POST' }).finally(() => {
       setRamp({});
+      setMarked({});
       setResetting(false);
     });
   };
@@ -198,6 +216,13 @@ export default function OpsPage() {
                     title="Real supplier search, right now — bypasses the risk-score prefetch gate"
                   >
                     {warmingId === f.id ? 'Warming…' : 'Warm candidates'}
+                  </button>
+                  <button
+                    onClick={() => markCancelledData(f.id)}
+                    style={{ marginRight: 8 }}
+                    title="DEMO: mark this flight cancelled in our DATA only — no recovery. A member's 'was cancelled' report then gets confirmed; without it the member is told it is not cancelled."
+                  >
+                    {marked[f.id] ? 'Cancelled in data ✓' : 'Mark cancelled (data)'}
                   </button>
                   <button
                     disabled={f.disruptionPhase !== 'none' || busyId === f.id}

@@ -241,6 +241,16 @@ export type Flight = {
   /** true once the carrier moves the flight — the booked time above stays put so
    *  a reschedule stays visible as the diff between the two */
   rescheduledToISO?: string;
+  /**
+   * Ground truth from our data feed: the airline has actually cancelled this
+   * flight, but no recovery has been triggered yet. Set by the /ops "Mark
+   * cancelled (data only)" control so a member's "this flight was cancelled"
+   * report can be checked against it — a report on a flight with this flag is
+   * corroborated (we start rebooking); a report without it is answered "we
+   * checked, it is not cancelled" plus a helpline. Distinct from a DisruptionEvent,
+   * which is a recovery already in flight. Cleared by Reset demo (re-seed).
+   */
+  cancelledInData?: boolean;
   /** minutes of slack before the onward leg is missed; null when there is none */
   connectionSlackMinutes: number | null;
   /** a late arrival breaks something that matters — an onward leg, a commitment */

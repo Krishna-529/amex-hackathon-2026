@@ -102,11 +102,15 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const [thinking, setThinking] = useState(false);
   const [intent, setIntent] = useState<IntentResult | null>(null);
 
-  // The member as a detection source. Behind a confirm, because pressing it
-  // starts a real recovery — for them immediately, and for everyone else on the
-  // flight only once corroborated (server/engine/memberReports.ts).
+  // The member as a detection source. Behind our own confirm modal (not the
+  // browser's), because pressing it checks the flight against our airline data:
+  // if it really is cancelled we mark it and start rebooking; if not we tell them
+  // so and give them a helpline (server/engine/memberReports.ts).
+  const [reportOpen, setReportOpen] = useState(false);
   const [reporting, setReporting] = useState(false);
-  const [reported, setReported] = useState<{ message: string; confirmed: boolean } | null>(null);
+  const [reportResult, setReportResult] = useState<
+    { status: 'cancelled' | 'not-cancelled'; message: string; helpline?: string | null } | null
+  >(null);
 
   const upcoming = schedule?.upcoming.find((x) => x.id === id);
   const past = schedule?.past.find((x) => x.id === id);
@@ -148,19 +152,28 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
       .finally(() => setThinking(false));
   };
 
-  const reportCancelled = () => {
+  const openReport = () => { setReportResult(null); setReportOpen(true); };
+  const closeReport = () => { if (!reporting) setReportOpen(false); };
+
+  const runReportCheck = () => {
     if (reporting) return;
-    const ok = window.confirm(
-      'Tell us this flight has been cancelled?\n\n'
-      + 'We will start rebooking you straight away. We will check it against the airline before '
-      + 'moving anyone else on this flight, and nothing is charged without telling you first.',
-    );
-    if (!ok) return;
     setReporting(true);
     fetch(`/api/flights/${id}/report-cancellation`, { method: 'POST' })
       .then((r) => r.json())
-      .then((r) => setReported({ message: r.message ?? r.error ?? 'Reported.', confirmed: !!r.confirmed }))
-      .catch(() => setReported({ message: 'We could not send that just now — please try again.', confirmed: false }))
+      .then((r) =>
+        setReportResult({
+          status: r.status === 'cancelled' || r.confirmed ? 'cancelled' : 'not-cancelled',
+          message: r.message ?? r.error ?? 'Checked.',
+          helpline: r.helpline ?? null,
+        }),
+      )
+      .catch(() =>
+        setReportResult({
+          status: 'not-cancelled',
+          message: 'We could not reach our systems just now — please try again in a moment.',
+          helpline: null,
+        }),
+      )
       .finally(() => setReporting(false));
   };
 
@@ -752,14 +765,12 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
               If the airline has told you this flight is cancelled and we have not caught it yet,
               tell us and we will start straight away rather than wait for the feed.
             </p>
-            {reported ? (
-              <p className="why" style={{ color: reported.confirmed ? 'var(--safe)' : undefined }}>
-                {reported.message}
+            {reportResult && !reportOpen ? (
+              <p className="why" style={{ color: reportResult.status === 'cancelled' ? 'var(--safe)' : undefined }}>
+                {reportResult.message}
               </p>
             ) : (
-              <button onClick={reportCancelled} disabled={reporting}>
-                {reporting ? 'Sending…' : 'This flight was cancelled'}
-              </button>
+              <button onClick={openReport}>This flight was cancelled</button>
             )}
           </div>
         </div>
@@ -768,6 +779,52 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
       {fc && (
         <div style={{ marginTop: 16 }}>
           <ForecastAudit forecast={fc} history={detail.forecastHistory} depISO={f.depISO} />
+        </div>
+      )}
+
+      {reportOpen && (
+        <div className="zkd-modal-scrim" role="dialog" aria-modal="true" onClick={closeReport}>
+          <div className="zkd-modal" onClick={(e) => e.stopPropagation()}>
+            {!reportResult ? (
+              <>
+                <h3>Sorry for the inconvenience</h3>
+                <p>
+                  Before we do anything, let us check {detail.code} against the airline&apos;s own
+                  records. If it really has been cancelled we&apos;ll mark it and start rebooking you
+                  right away — and nothing is charged without telling you first.
+                </p>
+                <div className="zkd-modal-acts">
+                  <button className="zkd-btn primary" onClick={runReportCheck} disabled={reporting}>
+                    {reporting ? 'Checking…' : 'Check now'}
+                  </button>
+                  <button className="zkd-btn ghost" onClick={closeReport} disabled={reporting}>Not now</button>
+                </div>
+              </>
+            ) : reportResult.status === 'cancelled' ? (
+              <>
+                <h3 style={{ color: 'var(--safe)' }}>We&apos;ve marked it cancelled</h3>
+                <p>{reportResult.message}</p>
+                <div className="zkd-modal-acts">
+                  <a className="zkd-btn primary" href={`/recovery/${id}`}>See your rebooking →</a>
+                  <button className="zkd-btn ghost" onClick={closeReport}>Close</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3>Good news — it&apos;s not cancelled</h3>
+                <p>{reportResult.message}</p>
+                {reportResult.helpline && (
+                  <p className="zkd-help">
+                    Helpline:{' '}
+                    <a href={`tel:${reportResult.helpline.replace(/\s+/g, '')}`}>{reportResult.helpline}</a>
+                  </p>
+                )}
+                <div className="zkd-modal-acts">
+                  <button className="zkd-btn primary" onClick={closeReport}>Got it</button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
