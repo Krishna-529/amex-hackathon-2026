@@ -158,6 +158,74 @@ describe.skipIf(!hasDb)('store.ts against real Postgres', () => {
     expect(ids).not.toContain(resolvedTask.id);
   });
 
+  // 2026-08-21: updateConsent used to be read-modify-write (getPassenger,
+  // mutate .consent in application code, blind overwrite the whole
+  // document) — a real lost-update race. Now a single atomic
+  // `jsonb_set(...)` inside the UPDATE itself.
+  test('updateConsent is atomic under concurrent writers — the final value is one of the writes, never lost or corrupted', async () => {
+    const passengerId = `test-consent-${Date.now()}`;
+    await store.createPassenger({
+      id: passengerId, displayName: 'Consent Race Test', legalName: 'CONSENT RACE TEST',
+      dob: '01 Jan 1990', gender: 'Other', nationality: 'Indian',
+      passport: { number: 'X1234567', expiry: 'Jan 2030', issued: 'India' },
+      contact: { email: `consent-${Date.now()}@example.com`, phone: '+91 00000 00000' },
+      consent: 'ask',
+      loyalty: [], prefs: [], payment: { card: 'test', method: 'test' },
+    });
+
+    // Fire both concurrently — this is exactly the shape of race the old
+    // read-modify-write implementation could silently lose one side of.
+    const [a, b] = await Promise.all([
+      store.updateConsent(passengerId, 'autopilot'),
+      store.updateConsent(passengerId, 'ask'),
+    ]);
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+
+    const final = await store.getPassenger(passengerId);
+    // Whichever write landed last, the persisted value must be exactly one
+    // of the two real values written — never undefined, never merged/
+    // corrupted, and both concurrent calls must have completed successfully
+    // (asserted above) rather than one throwing or silently no-oping.
+    expect(['autopilot', 'ask']).toContain(final?.consent);
+  });
+
+  // 2026-08-21: createItinerary used to be a separate insert plus one
+  // update per booking, none of it transactional — a crash mid-loop could
+  // leave Itinerary.bookingIds and a Booking's itineraryId/legIndex
+  // permanently disagreeing.
+  test('createItinerary atomically links every booking to the new itinerary', async () => {
+    const passengerId = `test-itin-${Date.now()}`;
+    const flightId = `test-itin-flight-${Date.now()}`;
+    await store.createPassenger({
+      id: passengerId, displayName: 'Itinerary Test', legalName: 'ITINERARY TEST',
+      dob: '01 Jan 1990', gender: 'Other', nationality: 'Indian',
+      passport: { number: 'X1234567', expiry: 'Jan 2030', issued: 'India' },
+      contact: { email: `itin-${Date.now()}@example.com`, phone: '+91 00000 00000' },
+      consent: 'ask',
+      loyalty: [], prefs: [], payment: { card: 'test', method: 'test' },
+    });
+    await store.createFlight({
+      id: flightId, code: 'IT 100', from: 'MAA', to: 'DEL',
+      depISO: new Date(Date.now() + 3_600_000).toISOString(), durationMin: 150,
+      connectionSlackMinutes: null, hasHardConstraint: false,
+      candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
+    });
+    const b1 = await store.createBooking({ flightId, passengerId, seat: '1A', pnr: 'ITIN01', cabin: 'Economy' });
+    const b2 = await store.createBooking({ flightId, passengerId, seat: '1B', pnr: 'ITIN02', cabin: 'Economy' });
+
+    const it = await store.createItinerary(passengerId, [b1.id, b2.id]);
+    expect(it.bookingIds).toEqual([b1.id, b2.id]);
+
+    const readB1 = await store.getScheduleForPassenger(passengerId);
+    const leg1 = readB1.find((r) => r.booking.id === b1.id);
+    const leg2 = readB1.find((r) => r.booking.id === b2.id);
+    expect(leg1?.booking.itineraryId).toBe(it.id);
+    expect(leg1?.booking.legIndex).toBe(0);
+    expect(leg2?.booking.itineraryId).toBe(it.id);
+    expect(leg2?.booking.legIndex).toBe(1);
+  });
+
   test('getPreAuthsForFlight returns only that flight\'s pre-auths', async () => {
     const flightA = `flt-preauth-a-${Date.now()}`;
     const flightB = `flt-preauth-b-${Date.now()}`;

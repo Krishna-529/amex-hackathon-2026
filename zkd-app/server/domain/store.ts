@@ -92,11 +92,21 @@ export async function deleteFlight(id: string): Promise<void> {
  * data (bookings, passengers, past flights) is untouched — a recovery never
  * deletes those, it only layers disruption/recovery state on top.
  */
+/**
+ * Transaction added 2026-08-21 — the three deletes used to be separate
+ * round trips; a crash mid-reset (demo-reset is a real, user-triggerable
+ * action) could leave stale `recovery_tasks`/`pre_auths` rows after
+ * `disruption_events` was already gone, with nothing to reconcile them.
+ * Demo-reset-only path (lower stakes than the money-adjacent writes
+ * elsewhere in this file), but cheap to make correctly atomic.
+ */
 export async function clearDisruptionState(): Promise<void> {
   const q = await db();
-  await q`delete from recovery_tasks`;
-  await q`delete from disruption_events`;
-  await q`delete from pre_auths`;
+  await q.begin(async (tx) => {
+    await tx`delete from recovery_tasks`;
+    await tx`delete from disruption_events`;
+    await tx`delete from pre_auths`;
+  });
   pipelineRuns.clear();
 }
 
@@ -122,13 +132,30 @@ export async function getPassenger(id: string): Promise<Passenger | undefined> {
   return rows[0]?.data;
 }
 
+/**
+ * Fixed 2026-08-21 — was a real lost-update race: read the whole passenger,
+ * mutate `.consent` in application code, blind-write the whole document
+ * back. Two concurrent consent changes for the same passenger (a member
+ * toggling autopilot on two devices, or a UI edit racing a MyCa sync) could
+ * silently drop one — including, worst case, a real "ask me first" ->
+ * autopilot DOWNGRADE being lost, leaving a member on autopilot when they
+ * explicitly asked to be consulted. `jsonb_set` inside the UPDATE makes this
+ * genuinely atomic: Postgres applies it to whatever the row's CURRENT value
+ * is under row-level locking, not a stale snapshot read earlier in this
+ * function — there is no read-modify-write window for a second writer to
+ * land inside. `RETURNING data` gets the fresh document back in the same
+ * round trip rather than returning the pre-update value this function used
+ * to hand back.
+ */
 export async function updateConsent(passengerId: string, consent: Passenger['consent']): Promise<Passenger | undefined> {
   const q = await db();
-  const p = await getPassenger(passengerId);
-  if (!p) return undefined;
-  p.consent = consent;
-  await q`update passengers set data = ${q.json(p)} where id = ${passengerId}`;
-  return p;
+  const rows = await q<{ data: Passenger }[]>`
+    update passengers
+    set data = jsonb_set(data, '{consent}', to_jsonb(${consent}::text))
+    where id = ${passengerId}
+    returning data
+  `;
+  return rows[0]?.data;
 }
 
 // ------------------------------------------------------------- credentials --
@@ -189,16 +216,6 @@ export function partySize(b: Booking): number {
   return b.travellerIds.length || 1;
 }
 
-// ----------------------------------------------------------------------------
-// internal: not exported. Persists an in-place mutation to a Booking that
-// was already fetched via getBooking/getBookingsForFlight — used only by
-// createItinerary below, which is the one place a Booking is mutated after
-// creation (itineraryId/legIndex, once its Itinerary exists).
-async function saveBooking(b: Booking): Promise<void> {
-  const q = await db();
-  await q`update bookings set passenger_id = ${b.passengerId}, flight_id = ${b.flightId}, data = ${q.json(b)} where id = ${b.id}`;
-}
-
 /**
  * Back-fills a solo party when the caller (e.g. the /ops flight-creation form)
  * supplies no travellers: one Traveller synthesised from the passenger's own
@@ -252,21 +269,36 @@ export async function getBooking(id: string): Promise<Booking | undefined> {
   return rows[0]?.data;
 }
 
+/**
+ * Fixed 2026-08-21 — was a real atomicity gap: the itinerary insert and each
+ * booking's itineraryId/legIndex update were separate, un-transacted round
+ * trips. A crash mid-loop left `Itinerary.bookingIds` and each
+ * `Booking.itineraryId`/`legIndex` permanently disagreeing — a real,
+ * silent data-consistency bug (the schedule join in
+ * `getScheduleForPassenger` trusts `Booking.itineraryId`, so an orphaned
+ * booking would render out of order or drop off a multi-leg itinerary's
+ * display). Now one real Postgres transaction: either every write lands, or
+ * none do — the same guarantee `seed.ts`'s advisory-lock pattern already
+ * gives the migration runner, applied here to a genuine multi-step write.
+ */
 export async function createItinerary(passengerId: string, bookingIds: string[]): Promise<Itinerary> {
   const q = await db();
-  const [{ nextval }] = await q<{ nextval: string }[]>`select nextval('itinerary_seq') as nextval`;
-  const it: Itinerary = { id: `it${nextval}`, passengerId, bookingIds };
-  await q`insert into itineraries (id, passenger_id, data) values (${it.id}, ${passengerId}, ${q.json(it)})`;
+  return q.begin(async (tx) => {
+    const [{ nextval }] = await tx<{ nextval: string }[]>`select nextval('itinerary_seq') as nextval`;
+    const it: Itinerary = { id: `it${nextval}`, passengerId, bookingIds };
+    await tx`insert into itineraries (id, passenger_id, data) values (${it.id}, ${passengerId}, ${tx.json(it)})`;
 
-  for (let i = 0; i < bookingIds.length; i += 1) {
-    const b = await getBooking(bookingIds[i]);
-    if (b) {
-      b.itineraryId = it.id;
-      b.legIndex = i;
-      await saveBooking(b);
+    for (let i = 0; i < bookingIds.length; i += 1) {
+      const rows = await tx<{ data: Booking }[]>`select data from bookings where id = ${bookingIds[i]}`;
+      const b = rows[0]?.data;
+      if (b) {
+        b.itineraryId = it.id;
+        b.legIndex = i;
+        await tx`update bookings set passenger_id = ${b.passengerId}, flight_id = ${b.flightId}, data = ${tx.json(b)} where id = ${b.id}`;
+      }
     }
-  }
-  return it;
+    return it;
+  });
 }
 
 /** A passenger's upcoming flights (their "schedule"), joined Booking → Flight, soonest first. */
