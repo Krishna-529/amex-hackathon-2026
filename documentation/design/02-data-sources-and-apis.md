@@ -52,12 +52,16 @@ only one of them.
 **Prediction** is §2 and `05-cancellation-risk-model.md`: a probability that a flight *will* be
 cancelled, produced hours ahead. We have this, self-trained, running.
 
-**Detection** is knowing that a flight *has been* cancelled. We do not have this. The procedure
-today is reactive and the code says so plainly: `detectDisruption` in
-`zkd-app/server/engine/simulation.ts` has exactly one production caller — `POST /api/disruptions`,
-reached by a human pressing a button in the `/ops` console. There is no poller, cron, webhook or
-worker anywhere in `zkd-app/server/`. In production terms, the member is the detector: they notice,
-they tell Amex, and only then does the pipeline start.
+**Detection** is knowing that a flight *has been* cancelled. As of 2026-08-19 we have this, on
+three lanes, webhook-first: `server/webhooks/` (push — Duffel and AeroDataBox adapters live, OAG
+deliberately stubbed inert pending a subscription), `server/engine/statusPoller.ts` (poll —
+AviationStack, a budget-capped fallback that stands down whenever a live webhook already covers a
+flight), and `server/engine/memberReports.ts` (the member — acts for the reporter immediately,
+corroborates for everyone else at three independent reports). `detectDisruption` in
+`zkd-app/server/engine/simulation.ts` is reachable from all three lanes now, not only from a human
+pressing the button in the `/ops` console — that manual trigger still exists, for rehearsal and
+for a flight none of the three lanes cover. A dead feed looks exactly like a quiet week, so `/ops`
+surfaces per-lane liveness as a heartbeat rather than letting silence pass as good news.
 
 **Does OAG provide the data? Yes.** OAG's Flight Instances v2 response carries a live status field
 whose values include `"Cancelled"`, alongside a `scheduleChanged` flag — both already modelled in
