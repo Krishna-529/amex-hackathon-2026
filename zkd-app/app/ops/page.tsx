@@ -132,7 +132,6 @@ export default function OpsPage() {
   const { data: health } = usePoll<HealthResponse>('/api/pipeline/health', 10000);
 
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [warmingId, setWarmingId] = useState<string | null>(null);
   const [ramp, setRamp] = useState<Record<string, number>>({});
   const [marked, setMarked] = useState<Record<string, boolean>>({});
   const [resetting, setResetting] = useState(false);
@@ -162,17 +161,6 @@ export default function OpsPage() {
     }).finally(() => setBusyId(null));
   };
 
-  /**
-   * Real candidates come from a real supplier search, gated on the real risk
-   * model crossing its prefetch threshold (server/engine/forecast.ts) — the
-   * point of that gate, not a bug. This bypasses it on demand: same real
-   * search, just without waiting for the scorer, useful whenever a demo (or
-   * an operator) wants a flight's alt/hotel/cab candidates warm right now.
-   */
-  const warm = (flightId: string) => {
-    setWarmingId(flightId);
-    fetch(`/api/flights/${flightId}/warm`, { method: 'POST' }).finally(() => setWarmingId(null));
-  };
 
   /**
    * DEMO control — ramp a flight's risk score up past the threshold, live and
@@ -276,14 +264,6 @@ export default function OpsPage() {
                     title="DEMO: ramp this flight's risk score up past the threshold, live on screen"
                   >
                     {ramp[f.id] !== undefined ? `Risk ${ramp[f.id]}…` : 'Ramp risk →80'}
-                  </button>
-                  <button
-                    disabled={warmingId === f.id}
-                    onClick={() => warm(f.id)}
-                    style={{ marginRight: 8 }}
-                    title="Real supplier search, right now — bypasses the risk-score prefetch gate"
-                  >
-                    {warmingId === f.id ? 'Warming…' : 'Warm candidates'}
                   </button>
                   <button
                     onClick={() => markCancelledData(f.id)}
