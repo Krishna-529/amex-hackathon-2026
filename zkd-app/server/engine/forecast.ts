@@ -53,26 +53,8 @@ const inFlight = new Map<string, Promise<FlightForecast | null>>();
  *  not, even though the config file exists precisely so ops can retune
  *  without a redeploy). */
 export function isStale(f: Flight): boolean {
-  // A demo override (/ops "Ramp risk") is a presenter-pinned score, not a model
-  // reading — it must survive until "Reset demo" explicitly clears it. Treating
-  // it as never-stale stops every read path (list refreshIfStale, detail poll)
-  // from re-scoring it back down. See isDemoPinned.
-  if (isDemoPinned(f)) return false;
   const ttlMs = getThresholdConfig().forecast.ttlMs;
   return !f.forecast || Date.now() - f.forecast.asOf > ttlMs;
-}
-
-/**
- * A forecast written by the /ops "Ramp risk" demo control, tagged so no rescore
- * path overwrites it. app/api/flights/[id]/demo-risk/route.ts stamps every
- * override `modelVersion: 'demo-override'`; every place that would otherwise
- * replace a flight's forecast with a fresh model score checks this first, so a
- * ramped 80 stays at 80 across navigation and batch ticks until the flight is
- * re-seeded by resetDemo(). Without the guard the 90-second 'critical' rescore
- * tick (a ramped flight sits at hold-gate) silently reset the score.
- */
-export function isDemoPinned(f: Flight): boolean {
-  return f.forecast?.modelVersion === 'demo-override';
 }
 
 /**
@@ -109,13 +91,6 @@ async function compute(flightId: string): Promise<FlightForecast | null> {
  * is exactly one place that knows how a score becomes a forecast.
  */
 export async function applyScore(flight: Flight, score: ModelScore): Promise<FlightForecast> {
-  // A demo override is sticky: never let a fresh model score replace it (this is
-  // the universal guard — the on-demand compute() path AND the batch scorer both
-  // land here). Only resetDemo(), which re-seeds the flight without a forecast,
-  // clears it. Returns the existing forecast unchanged, skipping history/alert
-  // side-effects too.
-  if (isDemoPinned(flight)) return flight.forecast!;
-
   const departsAt = new Date(flight.depISO).getTime();
   const date = flight.depISO.slice(0, 10);
 

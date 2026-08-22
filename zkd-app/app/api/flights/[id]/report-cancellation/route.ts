@@ -40,28 +40,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const verdict = await report(id, g.passenger.id, 'member');
 
-  // We only rebook once our own data actually confirms the cancellation. A
-  // report on a flight we can see is fine must NOT silently start moving the
-  // member onto another flight — we tell them it is not cancelled and give them
-  // a human to call. (Set a flight's ground truth from /ops: "Mark cancelled
-  // (data only)".)
-  if (!repeat && verdict.confirmed) {
-    await detectDisruption(id);
-    await widenDetection(id);
+  if (!repeat) {
+    if (verdict.confirmed) {
+      // Corroborated: this is a real cancellation as far as we can tell, and
+      // everyone on the aircraft is in the same trouble.
+      await detectDisruption(id);
+      await widenDetection(id);
+    } else {
+      // Uncorroborated: believe them about THEIR trip and nobody else's. The
+      // pipeline this starts searches and plans; it does not spend until the
+      // consent window it opens has run, and it never touches another
+      // passenger's card.
+      await detectDisruption(id, { onlyForPassengerId: g.passenger.id });
+    }
   }
-
-  const HELPLINE = '1800 419 2122';
 
   return NextResponse.json({
     acknowledged: true,
     confirmed: verdict.confirmed,
-    status: verdict.confirmed ? 'cancelled' : 'not-cancelled',
     reports: verdict.reports,
     needed: INDEPENDENT_REPORTS_NEEDED,
     evidence: verdict.evidence,
-    helpline: verdict.confirmed ? null : HELPLINE,
     message: verdict.confirmed
-      ? 'Sorry for the inconvenience. We have checked and this flight is cancelled — we have marked it and started rebooking you now. Nothing is charged without telling you first.'
-      : `We have checked with the airline and this flight is not showing as cancelled. Please double-check your gate or booking, and if the airline has told you otherwise, call our helpline on ${HELPLINE} and we will confirm it for you.`,
+      ? 'Thank you — that matches what we can see. We have started the rebooking for everyone on this flight.'
+      : 'Thank you. We have started your rebooking now. We have not yet been able to confirm the cancellation independently, so we are not moving other passengers until we can.',
   });
 }

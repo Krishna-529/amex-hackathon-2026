@@ -69,25 +69,6 @@ export default function OpsPage() {
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [warmingId, setWarmingId] = useState<string | null>(null);
-  const [ramp, setRamp] = useState<Record<string, number>>({});
-  const [marked, setMarked] = useState<Record<string, boolean>>({});
-  const [resetting, setResetting] = useState(false);
-
-  /**
-   * DEMO — mark a flight cancelled in our DATA only, without starting a recovery.
-   * This is the ground truth a member's "this flight was cancelled" report is
-   * checked against: with it set, the report is confirmed and rebooking starts;
-   * without it, the member is told the flight is not cancelled + given a helpline.
-   */
-  const markCancelledData = (flightId: string) => {
-    const next = !marked[flightId];
-    setMarked((m) => ({ ...m, [flightId]: next }));
-    fetch('/api/ops/mark-cancelled', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ flightId, cancelled: next }),
-    }).catch(() => {});
-  };
 
   const trigger = (flightId: string) => {
     setBusyId(flightId);
@@ -110,55 +91,10 @@ export default function OpsPage() {
     fetch(`/api/flights/${flightId}/warm`, { method: 'POST' }).finally(() => setWarmingId(null));
   };
 
-  /**
-   * DEMO control — ramp a flight's risk score up past the threshold, live and
-   * on screen (+1 every 250ms up to 82), so a walkthrough can show the moment
-   * the system decides a flight is at risk. The number is animated locally for
-   * the reveal; the same target is persisted via /demo-risk so every screen
-   * (and the member's own) then reads it too. Cleared by "Reset demo". This is a
-   * presenter control, not the real model — the forecast it writes is tagged
-   * `demo-override`.
-   */
-  const RAMP_TARGET = 82;
-  const rampRisk = (flightId: string) => {
-    if (ramp[flightId] !== undefined) return; // already ramping
-    const current = (flights ?? []).find((f) => f.id === flightId)?.forecast?.riskScore;
-    let v = Math.max(Math.round(current ?? 55), 55);
-    setRamp((r) => ({ ...r, [flightId]: v }));
-    fetch(`/api/flights/${flightId}/demo-risk`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ riskScore: RAMP_TARGET }),
-    }).catch(() => {});
-    const iv = setInterval(() => {
-      v += 1;
-      setRamp((r) => ({ ...r, [flightId]: v }));
-      if (v >= RAMP_TARGET) clearInterval(iv);
-    }, 250);
-  };
-
-  const resetDemo = () => {
-    setResetting(true);
-    fetch('/api/ops/demo-reset', { method: 'POST' }).finally(() => {
-      setRamp({});
-      setMarked({});
-      setResetting(false);
-    });
-  };
-
   return (
     <div className="skeleton">
       <div className="page-h">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-          <h1>Operator console</h1>
-          <button
-            onClick={resetDemo}
-            disabled={resetting}
-            title="Restore the demo to its seeded state — remove added flights, clear risk scores, and undo any rebook/cancel"
-          >
-            {resetting ? 'Resetting…' : 'Reset demo'}
-          </button>
-        </div>
+        <h1>Operator console</h1>
         <p>
           Not part of the member experience — stands in for a live status feed. A demo can&apos;t wait
           for a real airline to actually cancel a flight, so this triggers the same detection entry
@@ -183,13 +119,9 @@ export default function OpsPage() {
                 <td className="rt">{f.from} → {f.to}</td>
                 <td className="dt">{hhmm(new Date(f.depISO))}</td>
                 <td>
-                  {ramp[f.id] !== undefined
-                    ? `${ramp[f.id]}/100`
-                    : f.forecast ? `${Math.round(f.forecast.riskScore ?? f.forecast.pct)}/100` : '—'}{' '}
-                  <span style={{ color: ramp[f.id] !== undefined ? 'var(--risk)' : 'var(--mist2)' }}>
-                    ({ramp[f.id] !== undefined
-                      ? 'demo — ramping risk'
-                      : f.forecast ? `${f.forecast.pct}% real · ${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
+                  {f.forecast ? `${Math.round(f.forecast.riskScore ?? f.forecast.pct)}/100` : '—'}{' '}
+                  <span style={{ color: 'var(--mist2)' }}>
+                    ({f.forecast ? `${f.forecast.pct}% real · ${f.forecast.band} · ${f.forecast.source}` : 'awaiting forecast'})
                   </span>
                 </td>
                 <td>{f.passengerCount}</td>
@@ -202,27 +134,12 @@ export default function OpsPage() {
                 </td>
                 <td className="ar">
                   <button
-                    disabled={ramp[f.id] !== undefined}
-                    onClick={() => rampRisk(f.id)}
-                    style={{ marginRight: 8 }}
-                    title="DEMO: ramp this flight's risk score up past the threshold, live on screen"
-                  >
-                    {ramp[f.id] !== undefined ? `Risk ${ramp[f.id]}…` : 'Ramp risk →80'}
-                  </button>
-                  <button
                     disabled={warmingId === f.id}
                     onClick={() => warm(f.id)}
                     style={{ marginRight: 8 }}
                     title="Real supplier search, right now — bypasses the risk-score prefetch gate"
                   >
                     {warmingId === f.id ? 'Warming…' : 'Warm candidates'}
-                  </button>
-                  <button
-                    onClick={() => markCancelledData(f.id)}
-                    style={{ marginRight: 8 }}
-                    title="DEMO: mark this flight cancelled in our DATA only — no recovery. A member's 'was cancelled' report then gets confirmed; without it the member is told it is not cancelled."
-                  >
-                    {marked[f.id] ? 'Cancelled in data ✓' : 'Mark cancelled (data)'}
                   </button>
                   <button
                     disabled={f.disruptionPhase !== 'none' || busyId === f.id}

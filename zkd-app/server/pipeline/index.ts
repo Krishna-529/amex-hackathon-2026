@@ -116,18 +116,6 @@ async function preferencesFor(passengerId: string): Promise<AdaptedPreferences> 
  * whether or not anyone is polling, which is the same design simulation.ts
  * already documents for its own timers.
  */
-/**
- * In-flight plan() promises, keyed by run id — so a caller that must act the
- * instant a disruption fires (autopilot / pre-auth, in simulation.ts) can await
- * the SAME plan() run rather than racing it. Without this the immediate-execute
- * path fired ~260ms after detection and lost the race against plan()'s awaited
- * supplier search, so the run was still SEARCHING when execute() tried the
- * HOLD_PENDING → CONFIRMED transition — which is illegal from SEARCHING, so
- * execute bailed and the task hung at 'acting'. Same shape as altsCache.ts /
- * forecast.ts's inFlight maps.
- */
-const planning = new Map<string, Promise<void>>();
-
 export function onDisruptionDetected(flightId: string): void {
   void (async () => {
     try {
@@ -143,7 +131,9 @@ export function onDisruptionDetected(flightId: string): void {
           detail: { flightId, passengerId: booking.passengerId, partySize: store.partySize(booking) },
         });
 
-        startPlanning(run);
+        void plan(run).catch((err) => {
+          halt(run, `pipeline error: ${err instanceof Error ? err.message : String(err)}`);
+        });
       }
     } catch (err) {
       // Swallowed deliberately — see the module header. The trigger endpoint must
@@ -153,35 +143,9 @@ export function onDisruptionDetected(flightId: string): void {
   })();
 }
 
-/** Kick plan() and register its promise so ensurePlanned() can await it. */
-function startPlanning(run: PipelineRun): Promise<void> {
-  const p = plan(run)
-    .catch((err) => {
-      halt(run, `pipeline error: ${err instanceof Error ? err.message : String(err)}`);
-    })
-    .finally(() => planning.delete(run.id));
-  planning.set(run.id, p);
-  return p;
-}
-
-/**
- * Resolve once this run has finished planning (reached HOLD_PENDING, or halted).
- * The immediate-execute path awaits this before crossing the WAIT gate, so it
- * can never run before plan() has parked the run — closing the race described
- * on `planning`. Starts a plan itself if none is in flight (e.g. a run still at
- * TRIGGERED), and is a no-op once the run is already at/past HOLD_PENDING.
- */
-export async function ensurePlanned(flightId: string, passengerId: string): Promise<void> {
-  const run = journal.ensureRun(flightId, passengerId);
-  if (run.state === 'HOLD_PENDING' || journal.isTerminal(run.state)) return;
-  const inflight = planning.get(run.id);
-  if (inflight) return inflight;
-  if (run.state === 'TRIGGERED') return startPlanning(run);
-}
-
 /** SEARCHING → EVALUATING → HOLD_PENDING, then parks at the WAIT gate. */
 async function plan(run: PipelineRun): Promise<void> {
-  let flight = await store.getFlight(run.flightId);
+  const flight = await store.getFlight(run.flightId);
   const bookings = await store.getBookingsForFlight(run.flightId);
   const booking = bookings.find((b) => b.passengerId === run.passengerId);
   if (!flight || !booking) return halt(run, 'flight or booking vanished mid-recovery');
@@ -199,20 +163,6 @@ async function plan(run: PipelineRun): Promise<void> {
   // windows. A member-set arrive-by overrides any existing deadline on the
   // flight; the invariant "a deadline implies hasHardConstraint" is preserved.
   const journeyPrefs = await store.getJourneyPrefs(run.flightId, run.passengerId);
-
-  // Force a confirm-lane refresh: a disruption is exactly the moment staleness
-  // is unacceptable at any price, and this is what the reserve exists for.
-  await refreshAltsNow(run.flightId, 'disruption detected').catch(() => {});
-
-  // Re-read the flight AFTER the refresh. refreshAltsNow persists the freshly
-  // searched alternatives onto its own re-read of the row (not this snapshot),
-  // so without re-reading here `flight.candidates.alts` is still the pre-refresh
-  // list — empty for a flight whose alts are risk-gated — and applyHardRules
-  // below keeps 0, halting the whole recovery on a flight that actually has
-  // seats. This was the stale-snapshot bug behind the "stuck at Policy gate".
-  const refreshed = await store.getFlight(run.flightId);
-  if (refreshed) flight = refreshed;
-
   const effectiveDeadlineISO = journeyPrefs?.latestArriveISO ?? flight.hardDeadlineISO ?? null;
   const flightForScoring = {
     ...flight,
@@ -220,6 +170,10 @@ async function plan(run: PipelineRun): Promise<void> {
     hardDeadlineISO: effectiveDeadlineISO,
     hasHardConstraint: flight.hasHardConstraint || effectiveDeadlineISO != null,
   };
+
+  // Force a confirm-lane refresh: a disruption is exactly the moment staleness
+  // is unacceptable at any price, and this is what the reserve exists for.
+  await refreshAltsNow(run.flightId, 'disruption detected').catch(() => {});
 
   const directCount = flight.candidates.alts.filter((a) => a.ok).length;
   const connections = await composeConnections(
@@ -414,7 +368,7 @@ async function arrangeOvernight(
 export function preferredPlan(
   flightId: string,
   passengerId: string,
-): { altId: string; hotelId: string | null; cabId: string | null } | null {
+): { altId: string; hotelId: string; cabId: string } | null {
   const run = store.getPipelineRun(flightId, passengerId);
   return run?.plan ?? null;
 }
@@ -437,20 +391,6 @@ export function summaryFor(flightId: string, passengerId: string) {
 // ── Crossing the gate ──────────────────────────────────────────────────────
 
 /**
- * Safety net for the execute() early-outs: a recovery that cannot cross the gate
- * must degrade to something the member can act on ('handed'), never sit forever
- * at 'acting' (the "stuck at Policy gate" symptom). Re-reads the task so it does
- * not clobber a concurrent write, and never demotes an already-booked one.
- */
-async function strandTask(task: RecoveryTask, note: string): Promise<void> {
-  const fresh = await store.getRecoveryTask(task.flightId, task.passengerId);
-  if (!fresh || fresh.phase === 'booked') return;
-  fresh.phase = 'handed';
-  fresh.note = note;
-  await store.setRecoveryTask(fresh);
-}
-
-/**
  * Runs the saga. The only irreversible thing in this module.
  *
  * Called once consent exists — either explicitly, or by the rules simulation.ts
@@ -461,16 +401,10 @@ export async function execute(task: RecoveryTask, resolution: DisruptionResoluti
   const run = journal.ensureRun(task.flightId, task.passengerId);
   const flight = await store.getFlight(task.flightId);
   const booking = await store.getBooking(task.bookingId);
-  if (!flight || !booking) {
-    halt(run, 'flight or booking vanished before execution');
-    return strandTask(task, 'We lost the booking record before we could act. Nothing was charged — please try again or contact us.');
-  }
+  if (!flight || !booking) return void halt(run, 'flight or booking vanished before execution');
 
   const alt = flight.candidates.alts.find((a) => a.id === task.chosenAltId);
-  if (!alt) {
-    halt(run, 'the chosen option is no longer in the candidate list');
-    return strandTask(task, 'The option we lined up is no longer available. Nothing was booked — the choice is yours.');
-  }
+  if (!alt) return void halt(run, 'the chosen option is no longer in the candidate list');
 
   // The room the member is holding, if any. `flight.candidates.hotels` carries
   // the UI shape; the richer HotelOffer only exists when the pipeline's own
@@ -487,13 +421,7 @@ export async function execute(task: RecoveryTask, resolution: DisruptionResoluti
 
   const cab = flight.candidates.cabs.find((c) => c.id === task.chosenCabId) ?? null;
 
-  if (!journal.transition(run, 'CONFIRMED', `consent recorded: ${resolution.kind}`).ok) {
-    // The run is not at the WAIT gate, so it never planned (or already halted).
-    // The immediate-execute callers now await ensurePlanned() first, so this is
-    // a genuine failure rather than the old race — hand it back instead of
-    // leaving the task pinned at 'acting'.
-    return strandTask(task, 'We could not confirm this plan just now. Nothing was booked — it is yours to decide.');
-  }
+  if (!journal.transition(run, 'CONFIRMED', `consent recorded: ${resolution.kind}`).ok) return;
 
   // Fetched once, up front: narrate()'s 'onward' step must stay synchronous
   // (the saga calls it inline as each step completes), so the async store

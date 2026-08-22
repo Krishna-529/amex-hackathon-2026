@@ -129,12 +129,10 @@ export type PassengerScheduleResponse = {
   stays: Stay[];
 };
 
-/** passengerId comes from the session, never the body — see server/auth/guard.ts.
- *  Only the alternative is required: hotel/cab are optional add-ons and are null
- *  when the member pre-authorises from a screen with no hotel/cab picker. */
-export type PreAuthRequest = { altId: string; hotelId: string | null; cabId: string | null };
+/** passengerId comes from the session, never the body — see server/auth/guard.ts */
+export type PreAuthRequest = { altId: string; hotelId: string; cabId: string };
 export type PreAuthResponse = {
-  flightId: string; passengerId: string; altId: string; hotelId: string | null; cabId: string | null; owed: number; grantedAt: number;
+  flightId: string; passengerId: string; altId: string; hotelId: string; cabId: string; owed: number; grantedAt: number;
 } | null;
 
 /** The member's temporary, per-flight journey window + consent choice. Every

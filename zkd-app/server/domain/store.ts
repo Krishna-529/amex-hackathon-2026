@@ -81,25 +81,6 @@ export async function getFlight(id: string): Promise<Flight | undefined> {
   return rows[0]?.data;
 }
 
-export async function deleteFlight(id: string): Promise<void> {
-  const q = await db();
-  await q`delete from flights where id = ${id}`;
-}
-
-/**
- * Demo reset: send every triggered flight back to "watching" by wiping all
- * disruption/recovery/pre-auth rows and the in-process pipeline runs. Static
- * data (bookings, passengers, past flights) is untouched — a recovery never
- * deletes those, it only layers disruption/recovery state on top.
- */
-export async function clearDisruptionState(): Promise<void> {
-  const q = await db();
-  await q`delete from recovery_tasks`;
-  await q`delete from disruption_events`;
-  await q`delete from pre_auths`;
-  pipelineRuns.clear();
-}
-
 // -------------------------------------------------------------- passengers --
 
 export async function createPassenger(p: Passenger): Promise<void> {

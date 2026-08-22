@@ -8,25 +8,15 @@ import * as store from './store';
 import { ensureReady, withAdvisoryLock, SEED_LOCK_KEY } from './db';
 import { hashPassword } from '../auth/passwords';
 import { DEMO_ACCOUNTS } from '@/lib/demoAccounts';
-import type { Passenger, Flight, PastFlight, Traveller, Alt } from './types';
-import { localDateParts, localTime } from '../airportDirectory';
+import type { Passenger, Flight, PastFlight, Traveller } from './types';
+import { localDateParts } from '../airportDirectory';
 import { localHourAtAirport, localDateISOAt } from '../deadline';
 
 const now = Date.now();
 const MIN = 60_000;
-
-/**
- * Demo floor: every UPCOMING flight below is written as an offset from this
- * base, so a departure never lands before the scheduled demo date. Once the
- * real clock passes it, `Math.max` makes it a no-op and offsets go back to
- * being relative to now. Past flights (seedPastFlights) deliberately keep using
- * `now` — history stays relative to the real present.
- */
-const DEMO_FLOOR = new Date(2026, 7, 25, 6, 0, 0).getTime(); // 25 Aug 2026, 06:00 local
-const demoBase = Math.max(now, DEMO_FLOOR);
-const iso = (offsetMin: number) => new Date(demoBase + offsetMin * MIN).toISOString();
+const iso = (offsetMin: number) => new Date(now + offsetMin * MIN).toISOString();
 const hhmm = (offsetMin: number) => {
-  const d = new Date(demoBase + offsetMin * MIN);
+  const d = new Date(now + offsetMin * MIN);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
@@ -157,103 +147,7 @@ async function seedPassengers() {
   await store.createPassenger(base({ id: 'p-ananya', displayName: 'Ananya I.', legalName: 'ANANYA IYER', dob: '08 Sep 1997', gender: 'Female' }));
 }
 
-/**
- * Mock alternative inventory for the demo.
- *
- * In a real deployment `candidates.alts` stays [] in the seed and is filled
- * live from a supplier search (the /ops "Warm" button, or the risk-gated
- * pre-fetch). A demo has no supplier keys, so without this every triggered
- * flight would recover with nothing to book — no options, no refund/delta/
- * new-cost arithmetic, and the saga stalls at the policy gate with nothing to
- * act on. Seeding realistic options makes "trigger any flight" produce a full,
- * honest recovery: each option's `fare` is the new cost, refund.ts computes
- * what comes back, and the member decides on the delta between them.
- *
- * Positioned relative to each flight's OWN departure (so alts sit after the
- * cancelled one) and priced in INR. `ok:false` marks an option the card's
- * policy rules out (cabin/cap); seats below a party size are filtered per-party
- * downstream (altsForParty), which is why the party cases carry a small-seat
- * option too.
- */
-type AltSpec = {
-  code: string;
-  laterMin: number;
-  durationMin: number;
-  cabin?: string;
-  seats: number;
-  fare: number;
-  ok?: boolean;
-  why: string;
-};
-
-const ALT_SPECS: Record<string, AltSpec[]> = {
-  u1: [
-    { code: 'AI 2841', laterMin: 180, durationMin: 155, seats: 7, fare: 8200, why: 'Next full-service seat on your route, ~3h later' },
-    { code: '6E 6178', laterMin: 300, durationMin: 150, seats: 9, fare: 7350, why: 'Cheapest seat that still lands the same night' },
-    { code: 'UK 828', laterMin: 240, durationMin: 145, cabin: 'Business', seats: 4, fare: 15200, ok: false, why: 'Business fare — above your Economy entitlement' },
-  ],
-  u2: [
-    { code: 'AI 111', laterMin: 300, durationMin: 560, seats: 5, fare: 51500, why: 'Same-day direct to London, ~5h later' },
-    { code: 'UK 17', laterMin: 720, durationMin: 550, seats: 6, fare: 47900, why: 'Cheapest same-day direct' },
-    { code: 'BA 142', laterMin: 180, durationMin: 545, cabin: 'Business', seats: 3, fare: 92000, ok: false, why: 'Business fare — above your per-transaction cap' },
-  ],
-  u3: [
-    { code: '6E 5201', laterMin: 150, durationMin: 130, seats: 9, fare: 6300, why: 'Next 6E on the route' },
-    { code: 'AI 866', laterMin: 240, durationMin: 135, seats: 6, fare: 6850, why: 'Full-service, ~4h later' },
-    { code: 'SG 8172', laterMin: 360, durationMin: 140, seats: 8, fare: 5600, why: 'Cheapest evening option' },
-  ],
-  'f-multi': [
-    { code: 'AI 505', laterMin: 180, durationMin: 165, seats: 7, fare: 7100, why: 'Seven seats — fits the whole party of six together' },
-    { code: '6E 6902', laterMin: 300, durationMin: 160, seats: 9, fare: 6600, why: 'Cheapest option with six seats together' },
-    { code: 'UK 862', laterMin: 120, durationMin: 170, seats: 3, fare: 11330, why: 'Only three seats left — fits a small party, not six' },
-  ],
-  'f-depth': [
-    { code: '6E 245', laterMin: 180, durationMin: 80, seats: 9, fare: 4200, why: 'Next hop back to Chennai' },
-    { code: 'IX 2478', laterMin: 300, durationMin: 85, seats: 6, fare: 3900, why: 'Cheapest evening seat' },
-  ],
-  u4: [
-    { code: '6E 456', laterMin: 180, durationMin: 90, seats: 8, fare: 5400, why: 'Next flight to Goa' },
-    { code: 'AI 673', laterMin: 300, durationMin: 95, seats: 6, fare: 5950, why: 'Full-service, ~5h later' },
-  ],
-  u5: [
-    { code: '6E 2795', laterMin: 150, durationMin: 130, seats: 7, fare: 8600, why: 'Next available seat on the route' },
-    { code: 'UK 995', laterMin: 300, durationMin: 125, seats: 5, fare: 9200, why: 'Full-service alternative' },
-  ],
-  u6: [
-    { code: 'AI 507', laterMin: 180, durationMin: 165, cabin: 'Premium Economy', seats: 4, fare: 15200, why: 'Same Premium Economy cabin you booked' },
-    { code: '6E 6908', laterMin: 300, durationMin: 160, seats: 9, fare: 9800, why: 'Economy — a cabin down, but far cheaper' },
-  ],
-};
-
-/** Build a flight's mock alternatives from ALT_SPECS, positioned after its own
- *  departure and rendered in each airport's local clock. */
-function buildAlts(f: Flight): Alt[] {
-  const specs = ALT_SPECS[f.id];
-  if (!specs) return [];
-  const origDep = Date.parse(f.depISO);
-  return specs.map((s, i) => {
-    const departsAt = origDep + s.laterMin * MIN;
-    const arrivesAt = departsAt + s.durationMin * MIN;
-    return {
-      id: `${f.id}-alt${i + 1}`,
-      code: s.code,
-      dep: localTime(f.from, departsAt),
-      arr: localTime(f.to, arrivesAt),
-      departsAt,
-      arrivesAt,
-      cabin: s.cabin ?? 'Economy',
-      seats: s.seats,
-      fare: s.fare,
-      currency: 'INR',
-      kind: 'market',
-      ok: s.ok ?? true,
-      why: s.why,
-      expiresAt: now + 4 * 60 * MIN,
-    };
-  });
-}
-
-export function buildDemoFlights(): Flight[] {
+async function seedFlights() {
   const flights: Flight[] = [
     {
       // The flagship — the route the whole walkthrough is built around.
@@ -350,7 +244,7 @@ export function buildDemoFlights(): Flight[] {
       // 22:00 UTC (= 03:30 IST, one of the model's QUIETEST hours) — see
       // nextSundayEveningAt above.
       id: 'u4', code: '6E 6155', from: 'BOM', to: 'GOI',
-      depISO: new Date(nextSundayEveningAt('BOM', 22, demoBase)).toISOString(), durationMin: 90,
+      depISO: new Date(nextSundayEveningAt('BOM', 22, now)).toISOString(), durationMin: 90,
       aircraft: 'A320neo', terminal: 'T2',
       connectionSlackMinutes: null, hasHardConstraint: false,
       candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
@@ -370,7 +264,7 @@ export function buildDemoFlights(): Flight[] {
        * 75, which is what actually triggers alternative pre-fetching.
        */
       id: 'u5', code: '6E 2789', from: 'BOM', to: 'DEL',
-      depISO: new Date(nextSundayEveningAt('BOM', 21, demoBase)).toISOString(), durationMin: 130,
+      depISO: new Date(nextSundayEveningAt('BOM', 21, now)).toISOString(), durationMin: 130,
       aircraft: 'A321neo', terminal: 'T2',
       connectionSlackMinutes: null, hasHardConstraint: false,
       candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
@@ -382,41 +276,13 @@ export function buildDemoFlights(): Flight[] {
       // which is the point worth showing: the bar moves per flight, it is not a
       // fixed 80.
       id: 'u6', code: 'AI 2984', from: 'DEL', to: 'BLR',
-      depISO: new Date(nextSundayEveningAt('DEL', 22, demoBase)).toISOString(), durationMin: 165,
+      depISO: new Date(nextSundayEveningAt('DEL', 22, now)).toISOString(), durationMin: 165,
       aircraft: 'A320neo', terminal: 'T3',
       connectionSlackMinutes: 55, hasHardConstraint: true,
       candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
     },
   ];
-  // Alternatives are NOT seeded onto flights. They are searched only when the
-  // risk gate fires — a threshold crossing (real high-risk or the /ops Ramp),
-  // a manual Warm, or an actual cancellation — exactly as production behaves.
-  // Seeding them made "find alternatives" show on low-risk flights before any
-  // crossing, which is wrong. The supplier layer (server/suppliers) is the
-  // single source of alternatives now.
-  return flights;
-}
-
-async function seedFlights() {
-  for (const f of buildDemoFlights()) await store.createFlight(f);
-}
-
-/**
- * Demo reset — restore every seeded flight to its original state (clearing any
- * forecast, warmed candidates or reschedule), delete anything added through the
- * /ops console, and wipe all disruption/recovery state. Bookings and history are
- * static and left in place. Reuses buildDemoFlights() so "original" always means
- * exactly what the seed produces.
- */
-export async function resetDemo(): Promise<void> {
-  await ensureReady();
-  const flights = buildDemoFlights();
-  const seededIds = new Set(flights.map((f) => f.id));
   for (const f of flights) await store.createFlight(f);
-  for (const f of await store.listFlights()) {
-    if (!seededIds.has(f.id)) await store.deleteFlight(f.id);
-  }
-  await store.clearDisruptionState();
 }
 
 /** A companion traveller who is not a card member — a full passenger-style

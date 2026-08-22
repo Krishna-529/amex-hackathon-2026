@@ -18,7 +18,7 @@
  * is a Lambda-invocation-count change, not a per-flight one.
  */
 import { scoreFlightsBatch } from './riskModel';
-import { applyScore, isDemoPinned } from './forecast';
+import { applyScore } from './forecast';
 import { getThresholdConfig, type ThresholdConfig } from '@/lib/thresholdConfig';
 import { tierFor, type RescoreTier } from './rescoreTiming';
 import * as store from '../domain/store';
@@ -49,62 +49,13 @@ export function flightsInTier(flights: Flight[], tier: RescoreTier, cfg: Thresho
 
 async function tick(tier: RescoreTier): Promise<void> {
   const cfg = getThresholdConfig();
-  // Skip demo-pinned flights: a /ops "Ramp risk" override must not be re-scored
-  // away by a scheduled tick (a ramped flight sits at hold-gate → the critical
-  // tier's 90s cadence, which is exactly what used to reset it). See isDemoPinned.
-  const flights = flightsInTier(await store.listFlights(), tier, cfg, Date.now())
-    .filter((f) => !isDemoPinned(f));
+  const flights = flightsInTier(await store.listFlights(), tier, cfg, Date.now());
   if (flights.length === 0) return;
 
   const scores = await scoreFlightsBatch(flights);
   await Promise.allSettled(
     flights.filter((f) => scores.has(f.id)).map((f) => applyScore(f, scores.get(f.id)!)),
   );
-}
-
-const WARM_RETRY_MS = 20_000;
-const WARM_MAX_ATTEMPTS = 5;
-
-/**
- * Score every flight once, immediately, on startup — so a freshly booted
- * server shows real risk scores within seconds instead of waiting up to a full
- * tier interval for the first scheduled tick (dormant flights are 30 min out
- * otherwise, which is why /ops and /flights showed "—" right after boot). One
- * batch call for all flights, same cost shape as a single tier tick. Returns
- * how many forecasts it actually applied, so the caller can tell whether the
- * model service answered.
- */
-async function warmAll(): Promise<number> {
-  // Same demo-pin exclusion as tick(): never overwrite a presenter's ramped
-  // score during the startup warm pass.
-  const flights = (await store.listFlights()).filter((f) => !isDemoPinned(f));
-  if (flights.length === 0) return 0;
-  const scores = await scoreFlightsBatch(flights);
-  const scored = flights.filter((f) => scores.has(f.id));
-  await Promise.allSettled(scored.map((f) => applyScore(f, scores.get(f.id)!)));
-  return scored.length;
-}
-
-/**
- * The warm pass can land before the risk model service (RISK_MODEL_URL) is up —
- * scoreFlightsBatch then returns nothing and every forecast stays null. Rather
- * than leave the demo on "—" until the first scheduled tier tick, retry a few
- * times a short interval apart, then stop and let the normal cadence take over.
- * Bounded, and only ever called from startBatchScorer (single-shot via the
- * globalThis guard), so it can't stack up.
- */
-function warmUntilScored(attempt = 1): void {
-  const retry = () => {
-    if (attempt < WARM_MAX_ATTEMPTS) setTimeout(() => warmUntilScored(attempt + 1), WARM_RETRY_MS);
-  };
-  void warmAll()
-    .then((n) => {
-      if (n === 0) retry();
-    })
-    .catch((e) => {
-      console.error('[batchScorer] startup warm failed:', e);
-      retry();
-    });
 }
 
 function scheduleNext(tier: RescoreTier): void {
@@ -136,6 +87,5 @@ export function startBatchScorer(): void {
       `standard=${cfg.forecast.batchRescoreIntervalMs}ms ` +
       `dormant=${cfg.forecast.dormantRescoreIntervalMs}ms (>${cfg.forecast.dormantWindowMinutes}min and watch)`,
   );
-  warmUntilScored();
   for (const tier of TIERS) scheduleNext(tier);
 }

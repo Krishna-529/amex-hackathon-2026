@@ -139,15 +139,6 @@ async function corroborate(
   const flight = await store.getFlight(flightId);
   if (!flight) return { confirmed: false, evidence, reports: count };
 
-  // 1b. Our own data feed already shows it cancelled (set via the /ops "Mark
-  //     cancelled (data only)" control, or a real airline feed in production).
-  //     Free and authoritative — this is exactly the "check our data" the member
-  //     is asking us to do.
-  if (flight.cancelledInData) {
-    evidence.push('our airline data feed shows this flight cancelled');
-    return { confirmed: true, evidence, reports: count };
-  }
-
   // 2. The model already believed it. Free, and a strong prior: a report on a
   //    flight our own forecast has escalated is a very different claim from one
   //    on a flight we think is healthy.
