@@ -91,6 +91,16 @@ export type RefundInput = {
   cancelledBy: CancelledBy;
   /** how late the member ends up, in hours — drives the statutory entitlement */
   delayHours: number;
+  /**
+   * Whether the delay runs across a night. Optional: when a caller knows the
+   * real answer (e.g. from the flight's actual local departure/arrival
+   * times), pass it — a red-eye cancellation can be genuinely overnight on a
+   * delay well under 8h. Falls back to `delayHours >= 8` only when omitted,
+   * which both live call sites (views.ts, simulation.ts) currently do — that
+   * heuristic can misclassify a shorter, genuinely-overnight delay as not
+   * overnight, wrongly denying the hotel line. See refund.test.ts's P1 case.
+   */
+  overnight?: boolean;
   /** stays and rides being unwound because this flight died */
   stays?: Stay[];
   rides?: Ride[];
@@ -146,7 +156,7 @@ export function estimateRefund(input: RefundInput): RefundEstimate {
   const care: CareItem[] = owed({
     jurisdiction,
     delayHours: input.delayHours,
-    overnight: input.delayHours >= 8,
+    overnight: input.overnight ?? input.delayHours >= 8,
     // A cancellation is never force majeure for the purposes of the ticket's
     // value: force majeure removes CASH COMPENSATION, never the duty to refund
     // or re-route. lib/entitlement.ts encodes that distinction; passing `true`

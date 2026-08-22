@@ -50,14 +50,22 @@ const ARTIFACT_PATH = join(process.cwd(), 'server', 'pipeline', 'ranker', 'model
 
 let cached: { art: RankerArtifact; mtime: number } | null = null;
 
-/** Load the artifact, re-reading only when the file changes. The trainer writes
- *  a new one out of band; the app picks it up on the next call. */
+/**
+ * Force a fresh read from disk, replacing whatever is cached. `getArtifact()`
+ * below never re-reads on its own once cached — calling this is the only way
+ * an in-process trainer's write actually takes effect before a restart.
+ * `server/pipeline/ranker/schedule.ts` calls this right after
+ * `runTrainingPass()` promotes a new vector, for exactly that reason; the CLI
+ * trainer doesn't need to, since it runs in its own short-lived process.
+ */
 export function loadArtifact(): RankerArtifact {
   const art = JSON.parse(readFileSync(ARTIFACT_PATH, 'utf8')) as RankerArtifact;
   cached = { art, mtime: Date.now() };
   return art;
 }
 
+/** The hot-path read: an in-memory cache hit once anything has loaded once,
+ *  deliberately with no per-call fs.stat — this runs on every ranking. */
 export function getArtifact(): RankerArtifact {
   if (cached) return cached.art;
   return loadArtifact();

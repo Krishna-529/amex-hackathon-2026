@@ -57,6 +57,17 @@ export type FeatureContext = {
   cancelRiskById: Map<string, number>;
   /** the base rate used for any alt not present in cancelRiskById */
   baseCancelRate: number;
+  /** the journey's endpoints, so a candidate's touched airports can be resolved */
+  from: string;
+  to: string;
+  /** live disruption-risk signals, resolved once per recovery (server/risk/).
+   *  Empty maps make weatherRisk/advisoryRisk constant and ranking unchanged. */
+  weatherByAirport: Map<string, number>;
+  advisoryByAirport: Map<string, number>;
+  advisoryByCarrier: Map<string, number>;
+  /** when true, the advisoryRisk feature is zeroed — the member's "no matter
+   *  what" override, set (later) by the LLM intent layer. */
+  overrideSevereRisk: boolean;
 };
 
 /** Local night window used only to label a departure/arrival as a "red-eye". */
@@ -116,9 +127,12 @@ export function featurise(alt: PartyAlt, ctx: FeatureContext, art: RankerArtifac
   const overnight = alt.id.startsWith('ovn:') ? 1 : 0;
   const effort = -((legCount(alt) - 1) + overnight) / s.effort;
 
-  // loyalty: on a status carrier or not (MyCa)
-  const carrier = alt.code.split(/\s+/)[0]?.toUpperCase() ?? '';
-  const onPreferred = ctx.preferredCarriers.map((c) => c.toUpperCase()).includes(carrier);
+  // loyalty: on a status carrier or not (MyCa). Checks EVERY leg, not just
+  // the first — a connection where the member's status carrier operates the
+  // second leg is still a loyalty-relevant option, and understating it here
+  // meant the ranker never learned to credit it.
+  const preferredUpper = ctx.preferredCarriers.map((c) => c.toUpperCase());
+  const onPreferred = carriersOf(alt).some((c) => preferredUpper.includes(c));
   const loyalty = (onPreferred ? 1 : 0) / s.loyalty;
 
   // redeye: a red-eye the member specifically asked to avoid (MyCa), negated
@@ -135,7 +149,77 @@ export function featurise(alt: PartyAlt, ctx: FeatureContext, art: RankerArtifac
   const pCancel = ctx.cancelRiskById.get(alt.id) ?? ctx.baseCancelRate;
   const stability = -pCancel / s.stability;
 
-  return { arrival, cost, cabin, effort, loyalty, redeye, seats, stability };
+  // weatherRisk: worst live weather across the airports THIS candidate touches
+  // — its origin, destination, and (for a connection) its hub. Negated so lower
+  // risk is a higher feature. The shared endpoints are the same for every
+  // same-route candidate and cancel in the softmax; the hub is what makes a
+  // connection through a storm rank below a direct.
+  const airports = touchedAirports(alt, ctx.from, ctx.to);
+  const wRisk = maxOver(airports, ctx.weatherByAirport);
+  const weatherRisk = -wRisk / s.weatherRisk;
+
+  // advisoryRisk: worst live advisory (closures via NOTAM, news via GDELT) over
+  // the touched airports OR the candidate's operating carrier(s) — a striking or
+  // grounded airline demotes every one of its options. Zeroed when the member
+  // has overridden ("get me there no matter what"), which is why this is a heavy
+  // weight rather than a hard rule.
+  const aRisk = ctx.overrideSevereRisk
+    ? 0
+    : Math.max(maxOver(airports, ctx.advisoryByAirport), maxOver(carriersOf(alt), ctx.advisoryByCarrier));
+  const advisoryRisk = -aRisk / s.advisoryRisk;
+
+  return sanitize({ arrival, cost, cabin, effort, loyalty, redeye, seats, stability, weatherRisk, advisoryRisk });
+}
+
+/**
+ * Last line of defense against a malformed candidate. Real supplier
+ * integrations occasionally return a null/NaN price, a missing seat count, or
+ * a departure/arrival timestamp of 0 or a string that failed to parse
+ * upstream — and this is the ONE place that turns a candidate into numbers,
+ * so it is also the one place that can catch it before it does damage.
+ *
+ * The damage is not local to the broken candidate: `model.ts`'s softmax
+ * subtracts the SET's max utility before exponentiating, so a single NaN
+ * feature produces a NaN utility, which makes `Math.max(...utilities)` NaN,
+ * which poisons every OTHER candidate's choice probability too — one bad
+ * supplier row can silently break ranking for the entire choice set, not
+ * just itself. A non-finite feature is coerced to 0 (the neutral value every
+ * feature is designed around — see the file header's "raw and signed"
+ * rule), which makes the broken candidate merely unremarkable on that one
+ * axis rather than contaminating the set. `scoreSet` in model.ts carries a
+ * second, independent guard at the utility level, since a future feature
+ * added here without going through this function would otherwise bypass it.
+ */
+function sanitize(v: FeatureVector): FeatureVector {
+  const out = {} as FeatureVector;
+  for (const k of Object.keys(v) as (keyof FeatureVector)[]) {
+    const n = v[k];
+    out[k] = Number.isFinite(n) ? n : 0;
+  }
+  return out;
+}
+
+/** The airports a candidate touches: its journey endpoints, plus the hub of a
+ *  composed connection (recorded as "…via XXX…" in the alt's `why`). Accepts any
+ *  Alt or PartyAlt — only `why` is read. */
+export function touchedAirports(alt: { why?: string }, from: string, to: string): string[] {
+  const set = new Set<string>([from, to]);
+  const hub = /via\s+([A-Z]{3})/.exec(alt.why ?? '')?.[1];
+  if (hub) set.add(hub);
+  return [...set];
+}
+
+/** The operating carrier(s) of a candidate — one for a direct, both legs of a
+ *  connection (code "AI 101 + 6E 202"). Only `code` is read. */
+export function carriersOf(alt: { code: string }): string[] {
+  return [...(alt.code.match(/\b([A-Z0-9]{2})\s*\d/g) ?? [])]
+    .map((m) => m.trim().slice(0, 2).toUpperCase());
+}
+
+function maxOver(keys: string[], m: Map<string, number>): number {
+  let max = 0;
+  for (const k of keys) max = Math.max(max, m.get(k) ?? 0);
+  return max;
 }
 
 /**

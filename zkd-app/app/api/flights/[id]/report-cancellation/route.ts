@@ -15,10 +15,25 @@ import * as store from '@/server/domain/store';
 import { requireSession } from '@/server/auth/guard';
 import { report, hasReported, INDEPENDENT_REPORTS_NEEDED } from '@/server/engine/memberReports';
 import { detectDisruption, widenDetection } from '@/server/engine/simulation';
+import { consumeToken } from '@/server/rateLimit';
+
+// Added 2026-08-21: a member with a real booking can still spam this route,
+// each call spending a real status-corroboration check. Generous burst —
+// this is a real "my flight died" action, not something to make a member
+// hesitate over — but bounded.
+const REPORT_RATE_LIMIT = { capacity: 10, refillPerMinute: 2 };
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireSession(req);
   if ('response' in g) return g.response;
+
+  const limited = consumeToken(`report-cancellation:${g.passenger.id}`, REPORT_RATE_LIMIT);
+  if (!limited.allowed) {
+    return NextResponse.json(
+      { error: 'Too many reports — please slow down.', retryAfterMs: limited.retryAfterMs },
+      { status: 429 },
+    );
+  }
 
   const { id } = await params;
   const flight = await store.getFlight(id);

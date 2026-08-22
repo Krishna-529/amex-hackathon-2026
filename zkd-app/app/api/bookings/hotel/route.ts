@@ -3,6 +3,7 @@ import * as store from '@/server/domain/store';
 import { requireSession } from '@/server/auth/guard';
 import { parseJsonBody, isNonEmptyString } from '@/server/jsonBody';
 import { airport, cityOf } from '@/server/airportDirectory';
+import { isSameOriginRequest } from '@/server/auth/csrf';
 import type { Stay } from '@/server/domain/types';
 
 /**
@@ -57,6 +58,10 @@ function isBody(v: unknown): v is Body {
 export async function POST(req: NextRequest) {
   const g = await requireSession(req);
   if ('response' in g) return g.response;
+  // CSRF check added 2026-08-21, same reasoning as POST /api/bookings.
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ error: 'cross-site request rejected' }, { status: 403 });
+  }
 
   const parsed = await parseJsonBody(req, isBody);
   if ('response' in parsed) return parsed.response;

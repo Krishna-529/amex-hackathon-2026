@@ -38,6 +38,9 @@ import { airport, countryCodeOf } from '../airportDirectory';
 import { adapt, type AdaptedPreferences } from '../preferences/adapt';
 import * as journal from './journal';
 import { applyHardRules, rankAlts, type ScoreContext } from './score';
+import { touchedAirports, carriersOf } from './ranker/features';
+import { resolveRiskMaps, emptyRiskMaps, type RiskInput } from '../risk';
+import { cityOf } from '../airportDirectory';
 import { composeConnections, needsOvernight, needsRentalCar } from './compose';
 import { runSaga } from './saga';
 import { narrate } from './narrate';
@@ -85,6 +88,28 @@ function defaultWirePreferences(memberCarriers: string[], homeAirport: string) {
  * is meaningful and handled: it means "known by id only", not "broken".
  */
 const hotelOffersByRun = new Map<string, Map<string, import('../hotels').HotelOffer>>();
+
+/**
+ * The unique airports (with cities, for the news query) and carriers the whole
+ * candidate set touches — the batch the risk feeds are resolved over, so a
+ * five-airport recovery is a handful of lookups, not one per candidate.
+ */
+function riskInputFor(flight: Flight): RiskInput {
+  const airports = new Map<string, string>(); // iata -> city
+  const carriers = new Map<string, string>(); // code -> name (code as name until a carrier directory exists)
+  airports.set(flight.from, cityOf(flight.from) ?? '');
+  airports.set(flight.to, cityOf(flight.to) ?? '');
+  for (const alt of flight.candidates.alts) {
+    for (const iata of touchedAirports(alt, flight.from, flight.to)) {
+      if (!airports.has(iata)) airports.set(iata, cityOf(iata) ?? '');
+    }
+    for (const code of carriersOf(alt)) carriers.set(code, code);
+  }
+  return {
+    airports: [...airports].map(([iata, city]) => ({ iata, city })),
+    carriers: [...carriers].map(([code, name]) => ({ code, name })),
+  };
+}
 
 async function preferencesFor(passengerId: string): Promise<AdaptedPreferences> {
   const profile = await fetchProfile(passengerId);
@@ -205,6 +230,12 @@ async function plan(run: PipelineRun): Promise<void> {
 
   if (!journal.transition(run, 'EVALUATING', 'scoring the portfolio against the member profile').ok) return;
 
+  // Live disruption-risk signals for the two risk features, resolved ONCE per
+  // recovery over the unique airports and carriers the candidate set touches —
+  // never per candidate. Every feed degrades to neutral, so this never throws
+  // and never blocks a rebooking (server/risk/).
+  const riskMaps = await resolveRiskMaps(riskInputFor(flight)).catch(() => emptyRiskMaps());
+
   const ctx: ScoreContext = {
     flight: flightForScoring,
     rules: prefs.rules,
@@ -218,6 +249,12 @@ async function plan(run: PipelineRun): Promise<void> {
     // read straight from the MyCa-backed profile — the ranker never keeps a copy.
     memberId: run.passengerId,
     avoidRedEye: prefs.preferences.avoidRedEye,
+    weatherByAirport: riskMaps.weatherByAirport,
+    advisoryByAirport: riskMaps.advisoryByAirport,
+    advisoryByCarrier: riskMaps.advisoryByCarrier,
+    // The LLM intent layer will set this from a member's "no matter what"; until
+    // it exists the flag defaults off and severe advisories keep their weight.
+    overrideSevereRisk: false,
   };
 
   const party = altsForParty(flight.candidates.alts, partySize);

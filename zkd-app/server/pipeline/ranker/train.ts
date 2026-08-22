@@ -4,6 +4,14 @@
  * strategy, and writes a new model.json. Same cadence and shape as the weekly
  * risk-model retrain: a job, an artifact, a metrics line.
  *
+ * The actual fit-and-maybe-write logic is `runTrainingPass()`, called from two
+ * places: the CLI entrypoint at the bottom of this file (manual, one-shot,
+ * prints per-strategy detail) and `server/pipeline/ranker/schedule.ts` (a
+ * self-starting interval, mirroring `batchScorer.ts`'s pattern, wired into
+ * `instrumentation.ts`) — added 2026-08-22 because this file previously had
+ * no automatic trigger at all: interaction data could accumulate in Postgres
+ * indefinitely without anything ever learning from it.
+ *
  * The maths is a maximum-likelihood conditional logit with three anti-overfit
  * controls stacked on top, because a learned ranker in a spend path has to be
  * conservative by construction, not by luck:
@@ -29,10 +37,11 @@
  * toward the prior until its strategy has real volume behind it.
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { FEATURES, type FeatureVector, type WeightVector, type RankerArtifact } from './types.ts';
 import { bookabilityOffset } from './bookability.ts';
+import type { reconcileChoices } from './reconcile.ts';
 
 /** One presented choice set with the option the member actually took. */
 export type Observation = {
@@ -228,14 +237,6 @@ export function updateArtifact(
 
 // ── main: read logs, fit, write ──────────────────────────────────────────────
 
-function readJsonl<T>(path: string): T[] {
-  if (!existsSync(path)) return [];
-  return readFileSync(path, 'utf8')
-    .split('\n')
-    .filter((l) => l.trim())
-    .map((l) => JSON.parse(l) as T);
-}
-
 /** Reconstruct observations by joining shown-sets to choices on decisionId. */
 export function buildObservations(
   shown: { decisionId: string; strategy: string; memberId: string; candidates: { altId: string; features: FeatureVector; bookability: number }[] }[],
@@ -258,12 +259,82 @@ export function buildObservations(
   return obs;
 }
 
-// Run directly: `node --experimental-strip-types server/pipeline/ranker/train.ts`
-if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}` || process.argv[1]?.endsWith('train.ts')) {
+/**
+ * Reads every resolved RecoveryTask AND the shown-set log itself from
+ * Postgres, and reconciles them via reconcile.ts — see that file's header
+ * for why this runs here, offline, rather than a live call site in
+ * simulation.ts. Returns [] (never throws) if the DB is unreachable, so a
+ * training run on a machine without DATABASE_URL degrades to whatever
+ * loadChoicesFromDb separately returns instead of failing outright —
+ * matching this codebase's standing rule of degrading honestly rather than
+ * crashing a scheduled job over an optional input.
+ */
+async function loadResolvedChoicesFromDb(): Promise<ReturnType<typeof reconcileChoices>> {
+  try {
+    const [
+      { listFlights, getRecoveryTasksForFlight },
+      { reconcileChoices: reconcile },
+      { loadShownSetsFromDb },
+    ] = await Promise.all([import('../../domain/store.ts'), import('./reconcile.ts'), import('./decisionLog.ts')]);
+    const flights = await listFlights();
+    const resolved: import('./reconcile.ts').ResolvedChoice[] = [];
+    for (const f of flights) {
+      const tasks = await getRecoveryTasksForFlight(f.id);
+      for (const t of tasks) {
+        const r = t.resolution;
+        if (r && (r.kind === 'autopilot' || r.kind === 'approved') && r.altId) {
+          resolved.push({
+            flightId: f.id,
+            memberId: t.passengerId,
+            chosenAltId: r.altId,
+            resolvedAt: r.at,
+            kind: r.kind,
+          });
+        }
+      }
+    }
+    const shown = await loadShownSetsFromDb();
+    return reconcile(shown, resolved);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message || (e as { code?: string }).code || e.constructor.name : String(e);
+    console.warn('[ranker/train] could not reconcile choices from Postgres, continuing without them:', detail);
+    return [];
+  }
+}
+
+export type TrainingPassResult = {
+  observations: number;
+  reconciledFromDb: number;
+  directlyLogged: number;
+  fits: StrategyFit[];
+  promoted: boolean;
+  newVersion?: number;
+};
+
+/**
+ * Read every log, fit every strategy with enough data, and write a new
+ * model.json if anything cleared its promotion bar. Cheap to call when there
+ * is nothing to learn from yet: `buildObservations` returning [] means the
+ * strategy loop below never runs — no gradient descent, no writes — which is
+ * what makes it safe for `schedule.ts` to call this on a short, immediate-at-
+ * startup interval rather than the manual, occasional cadence the CLI
+ * entrypoint below originally assumed.
+ */
+export async function runTrainingPass(): Promise<TrainingPassResult> {
   const art = loadArtifactFrom();
-  const shownDir = join(process.cwd(), 'server', '.state');
-  const shown = readJsonl<any>(join(shownDir, 'ranker-shown.jsonl'));
-  const choices = readJsonl<any>(join(shownDir, 'ranker-choices.jsonl'));
+  const { loadShownSetsFromDb, loadChoicesFromDb } = await import('./decisionLog.ts');
+  const shown = await loadShownSetsFromDb();
+  const loggedChoices = await loadChoicesFromDb();
+  const reconciled = await loadResolvedChoicesFromDb();
+
+  // Merge, preferring a directly-logged choice over a reconciled one for the
+  // same decisionId (a real future live wiring would be more authoritative
+  // than an offline nearest-match heuristic) — dedupe on decisionId.
+  const byDecisionId = new Map<string, { decisionId: string; chosenAltId: string }>();
+  for (const c of reconciled) byDecisionId.set(c.decisionId, c);
+  for (const c of loggedChoices) byDecisionId.set(c.decisionId, c);
+  const choices = [...byDecisionId.values()];
+
   const obs = buildObservations(shown, choices);
 
   const byStrategy = new Map<string, Observation[]>();
@@ -272,18 +343,47 @@ if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}` || proc
   const fits: StrategyFit[] = [];
   for (const [strategy, os] of byStrategy) fits.push(fitStrategy(art, strategy, os));
 
-  console.log(`observations: ${obs.length}`);
-  for (const f of fits) {
-    console.log(
-      `  ${f.strategy}: n=${f.n} held-out NLL ${f.heldOutNllChallenger.toFixed(4)} vs incumbent ${f.heldOutNllIncumbent.toFixed(4)} → ${f.promoted ? 'PROMOTE' : 'keep prior'}`,
-    );
-  }
-
+  let promoted = false;
+  let newVersion: number | undefined;
   if (fits.some((f) => f.promoted)) {
     const next = updateArtifact(art, fits, {});
     writeFileSync(ARTIFACT_PATH, JSON.stringify(next, null, 2) + '\n');
-    console.log(`wrote model.json v${next.version}`);
-  } else {
-    console.log('no promotion — model.json unchanged');
+    promoted = true;
+    newVersion = next.version;
   }
+
+  return {
+    observations: obs.length,
+    reconciledFromDb: reconciled.length,
+    directlyLogged: loggedChoices.length,
+    fits,
+    promoted,
+    newVersion,
+  };
+}
+
+// Run directly: `node --experimental-strip-types server/pipeline/ranker/train.ts`
+if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}` || process.argv[1]?.endsWith('train.ts')) {
+  (async () => {
+    const result = await runTrainingPass();
+
+    console.log(
+      `observations: ${result.observations} (${result.reconciledFromDb} reconciled from Postgres, ${result.directlyLogged} directly logged)`,
+    );
+    for (const f of result.fits) {
+      console.log(
+        `  ${f.strategy}: n=${f.n} held-out NLL ${f.heldOutNllChallenger.toFixed(4)} vs incumbent ${f.heldOutNllIncumbent.toFixed(4)} → ${f.promoted ? 'PROMOTE' : 'keep prior'}`,
+      );
+    }
+
+    if (result.promoted) {
+      console.log(`wrote model.json v${result.newVersion}`);
+    } else {
+      console.log('no promotion — model.json unchanged');
+    }
+    process.exit(0);
+  })().catch((e) => {
+    console.error('[ranker/train] fatal:', e);
+    process.exit(1);
+  });
 }

@@ -27,7 +27,7 @@
  * `create*` function they already use is that persistence call, so no new
  * exported "update" methods were needed for those cases.
  */
-import { sql, ensureReady } from './db';
+import { sql, ensureReady } from './db.ts';
 import type {
   Passenger, Flight, Booking, Itinerary, PreAuthRecord, PastFlight,
   DisruptionEvent, RecoveryTask, Credential, Traveller, SeatAssignment,
@@ -41,11 +41,23 @@ async function db() {
 }
 
 /**
- * Pipeline runs stay in-memory (not Postgres-backed like everything else in
- * this file) — they're per-process orchestration state for one rebooking
- * attempt, not a durable booking record, so they inherit the same
- * process-lifetime caveat the rest of this store used to have before the
- * Postgres migration, rather than needing a new migration of their own.
+ * Pipeline runs — the in-memory Map is the PRIMARY, synchronous read/write
+ * path, unchanged since journal.ts/pipeline/index.ts's 24+ call sites all
+ * depend on `getPipelineRun`/`setPipelineRun` being synchronous (converting
+ * them to real async Postgres calls would cascade `await` through the
+ * entire pipeline state machine — the exact hot path this session already
+ * found and fixed a real double-booking race in, and not a refactor to risk
+ * rushing on top of that).
+ *
+ * Durability added 2026-08-21 instead, via the SAME fire-and-forget mirror
+ * pattern journal.ts's own `mirrorToTask` already established for an
+ * analogous concern: `setPipelineRun` below also persists to the
+ * `pipeline_runs` table, off the synchronous path. `hydratePipelineRunsFromDb`
+ * reads it all back into this Map once at process startup
+ * (instrumentation.ts) — so a restart resumes every in-flight pipeline run
+ * instead of silently losing it, closing the real gap the previous version
+ * of this comment left open, without touching the hot path's call sites at
+ * all.
  */
 export const pipelineRuns = new Map<string, PipelineRun>(); // key: `${flightId}:${passengerId}`
 
@@ -81,6 +93,39 @@ export async function getFlight(id: string): Promise<Flight | undefined> {
   return rows[0]?.data;
 }
 
+export async function deleteFlight(id: string): Promise<void> {
+  const q = await db();
+  await q`delete from flights where id = ${id}`;
+}
+
+/**
+ * Demo reset: send every triggered flight back to "watching" by wiping all
+ * disruption/recovery/pre-auth rows and the in-process pipeline runs. Static
+ * data (bookings, passengers, past flights) is untouched — a recovery never
+ * deletes those, it only layers disruption/recovery state on top.
+ */
+/**
+ * Transaction added 2026-08-21 — the three deletes used to be separate
+ * round trips; a crash mid-reset (demo-reset is a real, user-triggerable
+ * action) could leave stale `recovery_tasks`/`pre_auths` rows after
+ * `disruption_events` was already gone, with nothing to reconcile them.
+ * Demo-reset-only path (lower stakes than the money-adjacent writes
+ * elsewhere in this file), but cheap to make correctly atomic.
+ */
+export async function clearDisruptionState(): Promise<void> {
+  const q = await db();
+  await q.begin(async (tx) => {
+    await tx`delete from recovery_tasks`;
+    await tx`delete from disruption_events`;
+    await tx`delete from pre_auths`;
+    // pipeline_runs added 2026-08-21 alongside its durability mirror — a
+    // demo reset must clear the persisted mirror too, not just the
+    // in-memory Map, or a stale run would come back on the next restart.
+    await tx`delete from pipeline_runs`;
+  });
+  pipelineRuns.clear();
+}
+
 // -------------------------------------------------------------- passengers --
 
 export async function createPassenger(p: Passenger): Promise<void> {
@@ -103,13 +148,30 @@ export async function getPassenger(id: string): Promise<Passenger | undefined> {
   return rows[0]?.data;
 }
 
+/**
+ * Fixed 2026-08-21 — was a real lost-update race: read the whole passenger,
+ * mutate `.consent` in application code, blind-write the whole document
+ * back. Two concurrent consent changes for the same passenger (a member
+ * toggling autopilot on two devices, or a UI edit racing a MyCa sync) could
+ * silently drop one — including, worst case, a real "ask me first" ->
+ * autopilot DOWNGRADE being lost, leaving a member on autopilot when they
+ * explicitly asked to be consulted. `jsonb_set` inside the UPDATE makes this
+ * genuinely atomic: Postgres applies it to whatever the row's CURRENT value
+ * is under row-level locking, not a stale snapshot read earlier in this
+ * function — there is no read-modify-write window for a second writer to
+ * land inside. `RETURNING data` gets the fresh document back in the same
+ * round trip rather than returning the pre-update value this function used
+ * to hand back.
+ */
 export async function updateConsent(passengerId: string, consent: Passenger['consent']): Promise<Passenger | undefined> {
   const q = await db();
-  const p = await getPassenger(passengerId);
-  if (!p) return undefined;
-  p.consent = consent;
-  await q`update passengers set data = ${q.json(p)} where id = ${passengerId}`;
-  return p;
+  const rows = await q<{ data: Passenger }[]>`
+    update passengers
+    set data = jsonb_set(data, '{consent}', to_jsonb(${consent}::text))
+    where id = ${passengerId}
+    returning data
+  `;
+  return rows[0]?.data;
 }
 
 // ------------------------------------------------------------- credentials --
@@ -170,16 +232,6 @@ export function partySize(b: Booking): number {
   return b.travellerIds.length || 1;
 }
 
-// ----------------------------------------------------------------------------
-// internal: not exported. Persists an in-place mutation to a Booking that
-// was already fetched via getBooking/getBookingsForFlight — used only by
-// createItinerary below, which is the one place a Booking is mutated after
-// creation (itineraryId/legIndex, once its Itinerary exists).
-async function saveBooking(b: Booking): Promise<void> {
-  const q = await db();
-  await q`update bookings set passenger_id = ${b.passengerId}, flight_id = ${b.flightId}, data = ${q.json(b)} where id = ${b.id}`;
-}
-
 /**
  * Back-fills a solo party when the caller (e.g. the /ops flight-creation form)
  * supplies no travellers: one Traveller synthesised from the passenger's own
@@ -233,21 +285,36 @@ export async function getBooking(id: string): Promise<Booking | undefined> {
   return rows[0]?.data;
 }
 
+/**
+ * Fixed 2026-08-21 — was a real atomicity gap: the itinerary insert and each
+ * booking's itineraryId/legIndex update were separate, un-transacted round
+ * trips. A crash mid-loop left `Itinerary.bookingIds` and each
+ * `Booking.itineraryId`/`legIndex` permanently disagreeing — a real,
+ * silent data-consistency bug (the schedule join in
+ * `getScheduleForPassenger` trusts `Booking.itineraryId`, so an orphaned
+ * booking would render out of order or drop off a multi-leg itinerary's
+ * display). Now one real Postgres transaction: either every write lands, or
+ * none do — the same guarantee `seed.ts`'s advisory-lock pattern already
+ * gives the migration runner, applied here to a genuine multi-step write.
+ */
 export async function createItinerary(passengerId: string, bookingIds: string[]): Promise<Itinerary> {
   const q = await db();
-  const [{ nextval }] = await q<{ nextval: string }[]>`select nextval('itinerary_seq') as nextval`;
-  const it: Itinerary = { id: `it${nextval}`, passengerId, bookingIds };
-  await q`insert into itineraries (id, passenger_id, data) values (${it.id}, ${passengerId}, ${q.json(it)})`;
+  return q.begin(async (tx) => {
+    const [{ nextval }] = await tx<{ nextval: string }[]>`select nextval('itinerary_seq') as nextval`;
+    const it: Itinerary = { id: `it${nextval}`, passengerId, bookingIds };
+    await tx`insert into itineraries (id, passenger_id, data) values (${it.id}, ${passengerId}, ${tx.json(it)})`;
 
-  for (let i = 0; i < bookingIds.length; i += 1) {
-    const b = await getBooking(bookingIds[i]);
-    if (b) {
-      b.itineraryId = it.id;
-      b.legIndex = i;
-      await saveBooking(b);
+    for (let i = 0; i < bookingIds.length; i += 1) {
+      const rows = await tx<{ data: Booking }[]>`select data from bookings where id = ${bookingIds[i]}`;
+      const b = rows[0]?.data;
+      if (b) {
+        b.itineraryId = it.id;
+        b.legIndex = i;
+        await tx`update bookings set passenger_id = ${b.passengerId}, flight_id = ${b.flightId}, data = ${tx.json(b)} where id = ${b.id}`;
+      }
     }
-  }
-  return it;
+    return it;
+  });
 }
 
 /** A passenger's upcoming flights (their "schedule"), joined Booking → Flight, soonest first. */
@@ -283,6 +350,20 @@ export async function getPreAuth(flightId: string, passengerId: string): Promise
   const q = await db();
   const rows = await q<{ data: PreAuthRecord }[]>`select data from pre_auths where key = ${`${flightId}:${passengerId}`}`;
   return rows[0]?.data;
+}
+
+/**
+ * Every pre-auth for one flight, in one indexed query. Added 2026-08-21:
+ * `altsCache.ts`'s `mergePinned` used to find these by calling
+ * `listPassengers()` (the ENTIRE passenger table, system-wide) then issuing
+ * one `getPreAuth` per passenger — a true N+1 that ran on every alts refresh
+ * (which can fire every 20s during a real disruption). `pre_auths` already
+ * carries a `flight_id` column for exactly this query; nothing used it.
+ */
+export async function getPreAuthsForFlight(flightId: string): Promise<PreAuthRecord[]> {
+  const q = await db();
+  const rows = await q<{ data: PreAuthRecord }[]>`select data from pre_auths where flight_id = ${flightId}`;
+  return rows.map((r) => r.data);
 }
 
 export async function setPreAuth(rec: PreAuthRecord): Promise<void> {
@@ -404,6 +485,35 @@ export async function getRecoveryTasksForFlight(flightId: string): Promise<Recov
 }
 
 /**
+ * Every recovery task still waiting on a member with a window that has
+ * already lapsed — the input to `simulation.ts`'s reconciliation sweep.
+ * Added 2026-08-21: consent-window expiry has always been driven by a
+ * `setTimeout` that lives only in process memory (`RecoveryTask.windowExpiresAt`
+ * is persisted, the live timer that acts on it is not — see this file's own
+ * header on `pipelineRuns`/process-lifetime state for the same class of gap).
+ * Before this query existed, a process restart while any member had an open
+ * consent window meant nothing anywhere would ever resume it — the task sat
+ * at `phase:'waiting'`, `resolution:null` forever, with no automatic path
+ * back to a decision. A JSONB path filter, not an indexed column — acceptable
+ * for a periodic sweep at this table's current size; would want a real
+ * generated/indexed column (`phase`, `resolution_kind`) before this runs
+ * against a real member base.
+ */
+export async function listWaitingRecoveryTasks(): Promise<RecoveryTask[]> {
+  const q = await db();
+  // jsonb_typeof(...) = 'null', not `IS NULL` or `= 'null'::jsonb` — the `->`
+  // operator returns the JSONB scalar `null` for a stored JSON null, which is
+  // NOT the same thing as SQL NULL (a naive `IS NULL` here would silently
+  // match nothing). jsonb_typeof is the standard, unambiguous way to ask
+  // "is this JSON value actually null".
+  const rows = await q<{ data: RecoveryTask }[]>`
+    select data from recovery_tasks
+    where data->>'phase' = 'waiting' and jsonb_typeof(data->'resolution') = 'null'
+  `;
+  return rows.map((r) => r.data);
+}
+
+/**
  * Pipeline runs live here rather than in a second store, so they inherit the
  * same process-lifetime caveat documented at the top of this file rather than
  * introducing a second, differently-broken persistence story.
@@ -414,6 +524,7 @@ export function getPipelineRun(flightId: string, passengerId: string): PipelineR
 
 export function setPipelineRun(run: PipelineRun) {
   pipelineRuns.set(`${run.flightId}:${run.passengerId}`, run);
+  mirrorPipelineRunToDb(run);
 }
 
 export function getPipelineRunsForFlight(flightId: string): PipelineRun[] {
@@ -422,6 +533,55 @@ export function getPipelineRunsForFlight(flightId: string): PipelineRun[] {
 
 export function listPipelineRuns(): PipelineRun[] {
   return [...pipelineRuns.values()].sort((a, b) => b.startedAt - a.startedAt);
+}
+
+/**
+ * Fire-and-forget mirror to Postgres — same shape as journal.ts's own
+ * `mirrorToTask`. Deliberately swallows its own errors: `setPipelineRun` is
+ * called from deep inside the saga's synchronous step-execution loop, and a
+ * transient DB hiccup on the DURABILITY mirror must never surface as a
+ * failure in the actual booking flow, which the in-memory Map already
+ * satisfies on its own. Logged, not silent — a mirror that's failing
+ * without anyone knowing would defeat the point.
+ */
+function mirrorPipelineRunToDb(run: PipelineRun): void {
+  void (async () => {
+    try {
+      const q = await db();
+      const key = `${run.flightId}:${run.passengerId}`;
+      await q`
+        insert into pipeline_runs (key, flight_id, passenger_id, data)
+        values (${key}, ${run.flightId}, ${run.passengerId}, ${q.json(run)})
+        on conflict (key) do update set data = excluded.data
+      `;
+    } catch (e) {
+      console.error(`[store] failed to mirror pipeline run ${run.flightId}:${run.passengerId} to Postgres:`, e);
+    }
+  })();
+}
+
+/**
+ * Resumes every pipeline run a PREVIOUS process's death would otherwise have
+ * silently discarded. Call once at startup (instrumentation.ts) — reads
+ * every row this table has and hydrates the in-memory Map from it, before
+ * any request can observe an empty pipelineRuns that should have real
+ * in-flight runs in it. Best-effort: a failure here degrades to the
+ * pre-2026-08-21 behaviour (starts with no memory of prior runs) rather
+ * than blocking the process from booting.
+ */
+export async function hydratePipelineRunsFromDb(): Promise<void> {
+  try {
+    const q = await db();
+    const rows = await q<{ data: PipelineRun }[]>`select data from pipeline_runs`;
+    for (const row of rows) {
+      pipelineRuns.set(`${row.data.flightId}:${row.data.passengerId}`, row.data);
+    }
+    if (rows.length > 0) {
+      console.info(`[store] hydrated ${rows.length} pipeline run(s) from Postgres`);
+    }
+  } catch (e) {
+    console.error('[store] failed to hydrate pipeline runs from Postgres — starting with none:', e);
+  }
 }
 
 /* ── Stays and rides ───────────────────────────────────────────────────────

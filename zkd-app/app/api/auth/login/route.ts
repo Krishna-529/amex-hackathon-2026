@@ -3,9 +3,21 @@ import * as store from '@/server/domain/store';
 import { ensureSeeded } from '@/server/domain/seed';
 import { verifyPassword, DUMMY_HASH } from '@/server/auth/passwords';
 import { setSessionCookie } from '@/server/auth/session';
+import { checkRateLimit } from '@/server/rateLimit';
 
 export async function POST(req: NextRequest) {
   await ensureSeeded();
+
+  // Added 2026-08-21: the dummy-hash compare below defends against
+  // email-enumeration timing, not brute force — without a rate limit, a
+  // script can try unlimited password guesses against a known demo email
+  // at network speed. 8 burst / 8-per-minute: generous for a real member
+  // mistyping a password a few times, tight against automated guessing.
+  const limited = checkRateLimit(req, 'login', { capacity: 8, refillPerMinute: 8 });
+  if (!limited.allowed) {
+    return NextResponse.json({ error: 'too many attempts, try again shortly' }, { status: 429 });
+  }
+
   const body = (await req.json().catch(() => null)) as { email?: unknown; password?: unknown } | null;
 
   if (typeof body?.email !== 'string' || typeof body?.password !== 'string' || !body.email || !body.password) {

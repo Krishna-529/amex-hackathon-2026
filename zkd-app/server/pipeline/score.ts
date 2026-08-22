@@ -63,6 +63,7 @@
 import { STRATEGY_LABEL, type Criterion } from '../preferences/presets.ts';
 import { costFor, type PartyCost } from '../domain/pricing.ts';
 import { rankByModel, cabinRank as modelCabinRank } from './ranker/index.ts';
+import { carriersOf } from './ranker/features.ts';
 import { cancelRiskOf, BASE_CANCEL_RATE } from './ranker/cancelRisk.ts';
 import type { RankOptions } from './ranker/index.ts';
 import type { ModelScored } from './ranker/types.ts';
@@ -94,6 +95,14 @@ export type ScoreContext = {
   /** MyCa red-eye preference, a ranker feature (never a hard filter). Optional:
    *  absent → treated as no stated preference. */
   avoidRedEye?: boolean;
+  /** live disruption-risk maps (server/risk/), resolved once per recovery.
+   *  Optional: absent → weatherRisk/advisoryRisk are constant, ranking unaffected. */
+  weatherByAirport?: Map<string, number>;
+  advisoryByAirport?: Map<string, number>;
+  advisoryByCarrier?: Map<string, number>;
+  /** the member's "no matter what" override (set later by the LLM intent layer);
+   *  zeroes the advisoryRisk feature. Optional, default off. */
+  overrideSevereRisk?: boolean;
 };
 
 export type ScoredAlt = {
@@ -103,6 +112,9 @@ export type ScoredAlt = {
   /** the sentence the member reads under this option */
   why: string;
 };
+
+/** A display note, tagged with which criterion it's about — see explain(). */
+type TaggedNote = { criterion: Criterion; text: string };
 
 export type FilterOutcome = {
   kept: PartyAlt[];
@@ -135,10 +147,18 @@ export function applyHardRules(alts: PartyAlt[], ctx: ScoreContext): FilterOutco
   const earliestDepart = ctx.flight.earliestDepartISO ? Date.parse(ctx.flight.earliestDepartISO) : NaN;
 
   for (const a of alts) {
-    const carrier = a.code.split(/\s+/)[0]?.toUpperCase() ?? '';
+    // Every leg's carrier, not just the first — `carriersOf` (shared with the
+    // ranker's own advisoryRisk feature, ./ranker/features.ts) already parses
+    // a connection's full code ("AI 101 + 6E 202") correctly. Checking only
+    // `a.code.split(/\s+/)[0]` here used to mean a blocked carrier operating
+    // the SECOND leg of a connection was invisible to this rule — a member
+    // who said "never book me on X" could still be booked onto a connection
+    // whose second leg was X. Fixed 2026-08-21.
+    const legCarriers = carriersOf(a);
+    const blockedCarrier = legCarriers.find((c) => ctx.rules.avoidAirlines.includes(c));
 
-    if (ctx.rules.avoidAirlines.includes(carrier)) {
-      removed.push({ id: a.id, code: a.code, rule: `you asked us never to book ${carrier}` });
+    if (blockedCarrier) {
+      removed.push({ id: a.id, code: a.code, rule: `you asked us never to book ${blockedCarrier}` });
       continue;
     }
     if (!Number.isNaN(deadline) && typeof a.arrivesAt === 'number' && a.arrivesAt > deadline) {
@@ -221,8 +241,17 @@ export function rankAlts(alts: PartyAlt[], ctx: ScoreContext): ScoredAlt[] {
     const c = costFor(ctx.flight, { chosenAltId: a.id, chosenHotelId: '', chosenCabId: '' }, ctx.partySize, ctx.displayCurrency);
     costById.set(a.id, c);
     partyTotalById.set(a.id, c.total);
-    const carrier = a.code.split(/\s+/)[0]?.toUpperCase() ?? '';
-    cancelRiskById.set(a.id, cancelRiskOf(carrier, ctx.flight.from, ctx.flight.to));
+    // Every leg's carrier, taking the WORST risk across them — the same
+    // "conservative, not averaged" reasoning cancelRiskOf itself already
+    // applies when blending carrier-rate vs. route-rate (see that file's
+    // header). A connection is only as reliable as its riskiest leg; scoring
+    // it on the first leg's carrier alone (the old behaviour) understated
+    // the risk of a connection whose second leg was the shakier carrier.
+    const legCarriers = carriersOf(a);
+    const legRisk = legCarriers.length
+      ? Math.max(...legCarriers.map((carrier) => cancelRiskOf(carrier, ctx.flight.from, ctx.flight.to)))
+      : cancelRiskOf('', ctx.flight.from, ctx.flight.to);
+    cancelRiskById.set(a.id, legRisk);
   }
 
   const { order } = rankByModel(
@@ -239,23 +268,44 @@ export function rankAlts(alts: PartyAlt[], ctx: ScoreContext): ScoredAlt[] {
       partyTotalById,
       cancelRiskById,
       baseCancelRate: BASE_CANCEL_RATE,
+      from: ctx.flight.from,
+      to: ctx.flight.to,
+      weatherByAirport: ctx.weatherByAirport,
+      advisoryByAirport: ctx.advisoryByAirport,
+      advisoryByCarrier: ctx.advisoryByCarrier,
+      overrideSevereRisk: ctx.overrideSevereRisk ?? false,
     },
     (ctx as ScoreContext & { rankOptions?: RankOptions }).rankOptions ?? {},
   );
 
   const byId = new Map(alts.map((a) => [a.id, a] as const));
+  // `typeof NaN === 'number'` is true in JS, so a malformed candidate's NaN
+  // arrivesAt/fare used to slip through this filter and poison `bestArrival`/
+  // `band` for the WHOLE choice set (Math.min/Math.max with any NaN argument
+  // returns NaN) — every OTHER candidate's display bars would go NaN too,
+  // not just the broken one's. `Number.isFinite` actually excludes NaN.
+  // Fixed 2026-08-21, alongside the same-shaped bug in the ranking features
+  // themselves (features.ts's `sanitize`) — this is the display-layer half
+  // of that fix; the two are computed on separate paths from the same raw
+  // `alt`/`cost` values, so both needed the guard independently.
   const bestArrival = order
     .map((s) => byId.get(s.altId)?.arrivesAt)
-    .filter((n): n is number => typeof n === 'number')
+    .filter((n): n is number => Number.isFinite(n))
     .reduce<number | null>((m, v) => (m === null ? v : Math.min(m, v)), null);
-  const totals = [...partyTotalById.values()];
-  const band = { min: Math.min(...totals), max: Math.max(...totals) };
+  const finiteTotals = [...partyTotalById.values()].filter((n) => Number.isFinite(n));
+  // If every total came back non-finite (every candidate broken), fall back
+  // to a zero-width band — costPart's own `span <= 0` branch already handles
+  // that safely (everyone scores 1, cost stops discriminating), the same
+  // degenerate-but-safe behaviour a genuinely all-equal-price set gets.
+  const band = finiteTotals.length
+    ? { min: Math.min(...finiteTotals), max: Math.max(...finiteTotals) }
+    : { min: 0, max: 0 };
 
-  const scored = order.map((s) => {
+  const built = order.map((s) => {
     const alt = byId.get(s.altId)!;
     return toScoredAlt(alt, s, ctx, costById.get(alt.id)!, bestArrival, band);
   });
-  return finalise(scored, ctx);
+  return finalise(built, ctx);
 }
 
 /**
@@ -276,15 +326,29 @@ function toScoredAlt(
   cost: PartyCost,
   bestArrival: number | null,
   band: { min: number; max: number },
-): ScoredAlt {
+): { scored: ScoredAlt; tagged: TaggedNote[] } {
+  // Tagged by which criterion each note is ABOUT, so explain() can pick the
+  // note that actually supports its stated reason rather than always taking
+  // the first two in this fixed axis order. Fixed 2026-08-21: previously
+  // `why` could say "we picked this because it keeps you on an airline you
+  // hold status with" and then immediately follow with an arrival/cost
+  // detail that had nothing to do with loyalty — technically not false, but
+  // confusing exactly where a member's trust in the reasoning matters most.
+  // `score.notes` (the public field) is unaffected — same strings, same
+  // order, just also tagged internally.
+  const tagged: TaggedNote[] = [];
   const notes: string[] = [];
+  const push = (criterion: Criterion, text: string) => {
+    tagged.push({ criterion, text });
+    notes.push(text);
+  };
 
   // arrival (display)
   if (bestArrival !== null && typeof alt.arrivesAt === 'number') {
     const hoursLate = Math.max(0, (alt.arrivesAt - bestArrival) / 3_600_000);
-    notes.push(hoursLate < 0.25 ? 'Earliest arrival we found' : `Arrives ${formatHours(hoursLate)} after the earliest option`);
+    push('arrival', hoursLate < 0.25 ? 'Earliest arrival we found' : `Arrives ${formatHours(hoursLate)} after the earliest option`);
   } else {
-    notes.push('Arrival time not published by this source');
+    push('arrival', 'Arrival time not published by this source');
   }
   const arrivalPart = bestArrival !== null && typeof alt.arrivesAt === 'number'
     ? clamp01(1 - Math.max(0, (alt.arrivesAt - bestArrival) / 3_600_000) / 12)
@@ -293,51 +357,58 @@ function toScoredAlt(
   // cost (display)
   const span = Math.max(band.max - band.min, band.min * 0.1);
   const costPart = span <= 0 ? 1 : clamp01(1 - (cost.total - band.min) / span);
-  notes.push(cost.total <= band.min
+  push('cost', cost.total <= band.min
     ? 'Cheapest of everything we found'
     : `${formatMoneyish(cost.total - band.min, cost.currency)} more than the cheapest option`);
-  if (alt.quoted) notes.push(`Quoted by the supplier as ${alt.quoted.amount} ${alt.quoted.currency}, converted at market rates`);
+  if (alt.quoted) push('cost', `Quoted by the supplier as ${alt.quoted.amount} ${alt.quoted.currency}, converted at market rates`);
 
   // reliability (display) — the bookability probability tempered by the
   // alternate's own cancellation risk. `stability` feature = -pCancel/scale, so
   // pCancel = -stability * scale (scale 0.05); recover it for the member note.
   const reliabilityPart = clamp01(m.bookability);
-  if (m.bookability < 0.7) notes.push('Bookability is uncertain for this source — ranked accordingly');
+  if (m.bookability < 0.7) push('reliability', 'Bookability is uncertain for this source — ranked accordingly');
   const pCancel = Math.max(0, -m.features.stability * 0.05);
-  if (pCancel >= 0.04) notes.push(`Historically higher cancellation risk on this flight (${Math.round(pCancel * 100)}%) — weighed against it`);
+  if (pCancel >= 0.04) push('reliability', `Historically higher cancellation risk on this flight (${Math.round(pCancel * 100)}%) — weighed against it`);
 
   // cabin (display)
   const drop = Math.max(0, cabinRank(ctx.preferredCabin) - cabinRank(alt.cabin));
   const cabinPart = clamp01(1 - drop * 0.4);
-  if (drop > 0) notes.push(`A ${drop === 1 ? 'one-class' : `${drop}-class`} downgrade from ${ctx.preferredCabin}`);
+  if (drop > 0) push('cabin', `A ${drop === 1 ? 'one-class' : `${drop}-class`} downgrade from ${ctx.preferredCabin}`);
 
-  // loyalty (display)
-  const carrier = alt.code.split(/\s+/)[0]?.toUpperCase() ?? '';
-  const onPreferred = ctx.preferredCarriers.map((c) => c.toUpperCase()).includes(carrier);
+  // loyalty (display) — every leg, matching the ranking feature (see
+  // ranker/features.ts's `loyalty`); a connection whose second leg is a
+  // status carrier is still a loyalty-relevant option.
+  const legCarriers = carriersOf(alt);
+  const preferredUpper = ctx.preferredCarriers.map((c) => c.toUpperCase());
+  const matchedCarrier = legCarriers.find((c) => preferredUpper.includes(c));
+  const onPreferred = matchedCarrier !== undefined;
   const loyaltyPart = ctx.preferredCarriers.length === 0 ? 0.5 : onPreferred ? 1 : 0.35;
-  if (onPreferred) notes.push(`On ${carrier}, where you hold status`);
+  if (onPreferred) push('loyalty', `On ${matchedCarrier}, where you hold status`);
 
   // effort (display)
   const legs = alt.code.includes('+') ? alt.code.split('+').length : 1;
   const overnight = alt.id.startsWith('ovn:') ? 1 : 0;
   const effortPart = clamp01(1 - (legs - 1) * 0.3 - overnight * 0.3);
-  if (legs > 1) notes.push(`${legs - 1} connection${legs > 2 ? 's' : ''} to make`);
-  if (overnight) notes.push('An overnight stay, with transfers either side');
+  if (legs > 1) push('effort', `${legs - 1} connection${legs > 2 ? 's' : ''} to make`);
+  if (overnight) push('effort', 'An overnight stay, with transfers either side');
 
   const parts = { arrival: arrivalPart, cost: costPart, reliability: reliabilityPart, cabin: cabinPart, loyalty: loyaltyPart, effort: effortPart };
   const weights = displayWeights(m);
 
   return {
-    alt,
-    cost,
-    score: {
-      total: round3(m.choiceProbability),
-      parts: roundAll(parts),
-      weights: roundAll(weights),
-      strategy: ctx.rules.strategy,
-      notes,
+    tagged,
+    scored: {
+      alt,
+      cost,
+      score: {
+        total: round3(m.choiceProbability),
+        parts: roundAll(parts),
+        weights: roundAll(weights),
+        strategy: ctx.rules.strategy,
+        notes,
+      },
+      why: '',
     },
-    why: '',
   };
 }
 
@@ -366,8 +437,8 @@ function displayWeights(m: ModelScored): Record<Criterion, number> {
   return out;
 }
 
-function finalise(scored: ScoredAlt[], ctx: ScoreContext): ScoredAlt[] {
-  return scored.map((s) => ({ ...s, why: explain(s, ctx) }));
+function finalise(built: { scored: ScoredAlt; tagged: TaggedNote[] }[], ctx: ScoreContext): ScoredAlt[] {
+  return built.map(({ scored, tagged }) => ({ ...scored, why: explain(scored, tagged, ctx) }));
 }
 
 /**
@@ -376,7 +447,7 @@ function finalise(scored: ScoredAlt[], ctx: ScoreContext): ScoredAlt[] {
  * the only one we can confirm" are different explanations and the member
  * deserves the true one.
  */
-function explain(s: ScoredAlt, ctx: ScoreContext): string {
+function explain(s: ScoredAlt, tagged: TaggedNote[], ctx: ScoreContext): string {
   const contributions = (Object.keys(s.score.parts) as Criterion[])
     .map((k) => ({ k, v: s.score.parts[k] * s.score.weights[k] }))
     .sort((a, b) => b.v - a.v);
@@ -390,7 +461,17 @@ function explain(s: ScoredAlt, ctx: ScoreContext): string {
     effort: 'it is the least punishing way through',
   };
 
-  const detail = s.score.notes.slice(0, 2).join('. ');
+  // The detail sentence used to be "the first two notes in a fixed axis
+  // order" (arrival, then cost) regardless of which criterion actually led —
+  // so a loyalty-led pick would say "we picked this because it keeps you on
+  // an airline you hold status with" and then immediately talk about arrival
+  // time, never mentioning the carrier. Fixed 2026-08-21: prefer notes that
+  // are actually ABOUT the leading criterion, falling back to the natural
+  // order only when the leading criterion has no note of its own (e.g. it
+  // led on a margin too small to generate a specific remark).
+  const leadNotes = tagged.filter((n) => n.criterion === contributions[0].k).map((n) => n.text);
+  const otherNotes = tagged.filter((n) => n.criterion !== contributions[0].k).map((n) => n.text);
+  const detail = [...leadNotes, ...otherNotes].slice(0, 2).join('. ');
   return `You asked us to optimise for ${STRATEGY_LABEL[ctx.rules.strategy]}, so we picked this because ${lead[contributions[0].k]}. ${detail}.`;
 }
 
@@ -412,8 +493,19 @@ function clamp01(v: number) {
   return Math.max(0, Math.min(1, v));
 }
 
+/**
+ * Rounds, and is the last checkpoint before a `parts`/`weights`/`total` value
+ * reaches the public `OptionScore` a UI renders as a bar or a percentage.
+ * `bestArrival`/`band` are now guarded upstream (see rankAlts), but a
+ * candidate whose OWN cost/arrival is itself non-finite can still produce a
+ * non-finite value in ITS OWN parts even with clean shared aggregates — this
+ * is the final backstop so that candidate renders as "scores worst on this
+ * axis" (0) rather than "NaN%" or a broken bar, on the same reasoning as
+ * ranker/model.ts's utility guard: never let a broken row corrupt the
+ * display, but never hide that it IS broken by inventing a good-looking number.
+ */
 function round3(v: number) {
-  return Math.round(v * 1000) / 1000;
+  return Number.isFinite(v) ? Math.round(v * 1000) / 1000 : 0;
 }
 
 function roundAll<T extends Record<string, number>>(o: T): T {

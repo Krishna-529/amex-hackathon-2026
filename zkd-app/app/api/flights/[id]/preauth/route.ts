@@ -3,6 +3,7 @@ import * as store from '@/server/domain/store';
 import { costFor } from '@/server/domain/pricing';
 import { BILLING_CURRENCY } from '@/server/myca';
 import { requireSession } from '@/server/auth/guard';
+import { isSameOriginRequest } from '@/server/auth/csrf';
 import type { PreAuthRequest, PreAuthResponse } from '@/lib/apiTypes';
 import { parseJsonBody, isNonEmptyString } from '@/server/jsonBody';
 
@@ -23,6 +24,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireSession(req);
   if ('response' in g) return g.response;
+  // CSRF check added 2026-08-21 — this pre-authorises a real spend amount.
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ error: 'cross-site request rejected' }, { status: 403 });
+  }
 
   const { id } = await params;
   const parsed = await parseJsonBody(req, isPreAuthBody);

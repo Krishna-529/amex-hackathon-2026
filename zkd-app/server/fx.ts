@@ -87,6 +87,37 @@ const FALLBACK_RATES: Record<string, number> = {
 const RATE_TTL_MS = 12 * 60 * 60 * 1000;
 
 /**
+ * Which currency a hotel/accommodation search should ASK a supplier for,
+ * given the destination's country code (`server/airportDirectory.ts`'s
+ * `countryCodeOf`). Covers the same currencies `FALLBACK_RATES` already
+ * prices — asking for a currency this module can't convert back would defeat
+ * the point. Defaults to INR for an unmapped country: the conservative,
+ * previously-universal choice, not a guess in a new direction.
+ *
+ * Deliberately narrow (one or two representative countries per major
+ * currency zone) rather than a full ISO-3166 table — this exists to unblock
+ * a real international search (see the LHR persona in
+ * documentation/agent-specs/current §A7 P1), not to be a currency registry.
+ * Extend it the day a search for an unlisted country actually needs one.
+ */
+const CURRENCY_BY_COUNTRY: Record<string, string> = {
+  IN: 'INR',
+  GB: 'GBP',
+  US: 'USD',
+  AE: 'AED',
+  SG: 'SGD',
+  TH: 'THB',
+  JP: 'JPY',
+  AU: 'AUD',
+  CH: 'CHF',
+  DE: 'EUR', FR: 'EUR', IT: 'EUR', ES: 'EUR', NL: 'EUR', IE: 'EUR', PT: 'EUR',
+};
+
+export function currencyForCountry(countryCode: string): string {
+  return CURRENCY_BY_COUNTRY[countryCode.toUpperCase()] ?? 'INR';
+}
+
+/**
  * Frankfurter publishes the ECB's daily reference rates, needs no key and no
  * account. A keyless source matters here: anything requiring a secret would be
  * unconfigured on a fresh clone, which puts us straight back to the empty

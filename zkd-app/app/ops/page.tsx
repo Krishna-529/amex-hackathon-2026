@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePoll } from '@/lib/usePoll';
 import { hhmm, money } from '@/lib/time';
 import type { FlightSummary, DisruptionOpsView } from '@/lib/apiTypes';
@@ -62,9 +62,73 @@ function ago(at: number | null): string {
  * watcher would call. Everything below is a passive view of the same backend
  * every member device polls — this page has no special access to state.
  */
+/**
+ * Operator sign-in gate. Added 2026-08-21 alongside the API-side
+ * `requireOperator` fix — before this, the page's own copy below said "this
+ * console has no account of its own," which was true in the sense that it
+ * never checked one, not in the sense that it was actually safe. The gate is
+ * deliberately minimal (one shared key, no username) — see opsSession.ts.
+ */
+function OpsLoginGate({ onSignedIn }: { onSignedIn: () => void }) {
+  const [key, setKey] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/auth/ops-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(typeof body?.error === 'string' ? body.error : 'Sign-in failed.');
+        return;
+      }
+      onSignedIn();
+    } catch {
+      setError('Could not reach the server.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="page-h">
+      <h1>Operator console</h1>
+      <p>This console can trigger real disruptions and wipe demo state — sign in with the operator key.</p>
+      <form onSubmit={submit} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 16 }}>
+        <input
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder="Operator key"
+          autoFocus
+          style={{ padding: '8px 12px' }}
+        />
+        <button type="submit" disabled={submitting || !key}>{submitting ? 'Signing in…' : 'Sign in'}</button>
+      </form>
+      {error && <p style={{ color: 'var(--risk, #d33)' }}>{error}</p>}
+    </div>
+  );
+}
+
 export default function OpsPage() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null); // null = still checking
+
+  useEffect(() => {
+    fetch('/api/auth/ops-me')
+      .then((r) => r.json())
+      .then((d) => setSignedIn(d?.signedIn === true))
+      .catch(() => setSignedIn(false));
+  }, []);
+
   const { data: flights } = usePoll<FlightSummary[]>('/api/flights', 3000);
-  const { data: disruptions } = usePoll<DisruptionOpsView[]>('/api/disruptions', 2000);
+  const { data: disruptions } = usePoll<DisruptionOpsView[]>(signedIn ? '/api/disruptions' : null, 2000);
   const { data: health } = usePoll<HealthResponse>('/api/pipeline/health', 10000);
 
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -91,6 +155,45 @@ export default function OpsPage() {
     fetch(`/api/flights/${flightId}/warm`, { method: 'POST' }).finally(() => setWarmingId(null));
   };
 
+  /**
+   * DEMO control — ramp a flight's risk score up past the threshold, live and
+   * on screen (+1 every 250ms up to 82), so a walkthrough can show the moment
+   * the system decides a flight is at risk. The number is animated locally for
+   * the reveal; the same target is persisted via /demo-risk so every screen
+   * (and the member's own) then reads it too. Cleared by "Reset demo". This is a
+   * presenter control, not the real model — the forecast it writes is tagged
+   * `demo-override`.
+   */
+  const RAMP_TARGET = 82;
+  const rampRisk = (flightId: string) => {
+    if (ramp[flightId] !== undefined) return; // already ramping
+    const current = (flights ?? []).find((f) => f.id === flightId)?.forecast?.riskScore;
+    let v = Math.max(Math.round(current ?? 55), 55);
+    setRamp((r) => ({ ...r, [flightId]: v }));
+    fetch(`/api/flights/${flightId}/demo-risk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ riskScore: RAMP_TARGET }),
+    }).catch(() => {});
+    const iv = setInterval(() => {
+      v += 1;
+      setRamp((r) => ({ ...r, [flightId]: v }));
+      if (v >= RAMP_TARGET) clearInterval(iv);
+    }, 250);
+  };
+
+  const resetDemo = () => {
+    setResetting(true);
+    fetch('/api/ops/demo-reset', { method: 'POST' }).finally(() => {
+      setRamp({});
+      setMarked({});
+      setResetting(false);
+    });
+  };
+
+  if (signedIn === null) return null; // avoid a flash of the console before the ops-me check resolves
+  if (signedIn === false) return <OpsLoginGate onSignedIn={() => setSignedIn(true)} />;
+
   return (
     <div className="skeleton">
       <div className="page-h">
@@ -98,8 +201,9 @@ export default function OpsPage() {
         <p>
           Not part of the member experience — stands in for a live status feed. A demo can&apos;t wait
           for a real airline to actually cancel a flight, so this triggers the same detection entry
-          point a production poller would call. This console has no account of its own and no way to
-          view or act as a member — everything below is state, not a member&apos;s screen.
+          point a production poller would call. Gated by a separate operator key
+          (added 2026-08-21), not a member login — this console has no way to view or act as a
+          member; everything below is state, not a member&apos;s screen.
         </p>
       </div>
 
