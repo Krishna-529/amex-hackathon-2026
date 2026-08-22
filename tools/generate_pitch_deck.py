@@ -264,11 +264,65 @@ def create_deck():
         p_desc.font.size = Pt(12)
         p_desc.font.color.rgb = C_GRAY
 
-    # ==================== SLIDE 6: System Architecture & Multi-Device Sync ====================
+    # ==================== SLIDE 6: Policy Intelligence via RAG ====================
     slide6 = prs.slides.add_slide(blank_layout)
-    add_header(slide6, "System Architecture & Multi-Device State Sync")
+    add_header(slide6, "Policy Intelligence via RAG & Multi-Regulation Compliance")
 
-    box_arch1 = slide6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.8), Inches(5.6), Inches(4.8))
+    box_rag1 = slide6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.8), Inches(5.6), Inches(4.8))
+    box_rag1.fill.solid()
+    box_rag1.fill.fore_color.rgb = C_LIGHT
+    box_rag1.line.color.rgb = RGBColor(226, 232, 240)
+    tf1 = box_rag1.text_frame
+    tf1.word_wrap = True
+    p = tf1.paragraphs[0]
+    p.text = "Multi-Regulation Scope (Beyond DGCA)"
+    p.font.size = Pt(16)
+    p.font.bold = True
+    p.font.color.rgb = C_DARK
+    p.space_after = Pt(10)
+
+    for b in [
+        "Not just DGCA (Indian domestic aviation), but international passenger rights frameworks: **EU261** and **UK261**.",
+        "Carrier-specific contract clauses & operating terms (e.g. British Airways vs Emirates compensation entitlements).",
+        "Amex Card Product Benefit terms (`server/myca.ts`): card-holder cabin ceilings, lounge access, and per-transaction rules.",
+        "Jurisdiction routing: automatically detects which regulatory framework governs the PNR."
+    ]:
+        p = tf1.add_paragraph()
+        p.text = "• " + b
+        p.font.size = Pt(12)
+        p.font.color.rgb = C_GRAY
+        p.space_after = Pt(6)
+
+    box_rag2 = slide6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(1.8), Inches(5.7), Inches(4.8))
+    box_rag2.fill.solid()
+    box_rag2.fill.fore_color.rgb = C_LIGHT
+    box_rag2.line.color.rgb = RGBColor(226, 232, 240)
+    tf2 = box_rag2.text_frame
+    tf2.word_wrap = True
+    p = tf2.paragraphs[0]
+    p.text = "RAG & Default-Deny Policy Engine"
+    p.font.size = Pt(16)
+    p.font.bold = True
+    p.font.color.rgb = C_BLUE
+    p.space_after = Pt(10)
+
+    for b in [
+        "**RAG Ingestion:** Automatically vectorizes and indexes complex aviation regulations, carrier fare rules, and card terms.",
+        "**Context Retrieval:** Dynamically queries relevant clauses when a disruption occurs for a specific PNR and airline.",
+        "**OPA Policy Gate (`server/policy/`):** Default-deny rule engine. Every option is evaluated against retrieved policy clauses in-process (<1ms).",
+        "Incomplete policy inputs trigger default-deny — nothing executes without explicit allow."
+    ]:
+        p = tf2.add_paragraph()
+        p.text = "• " + b
+        p.font.size = Pt(12)
+        p.font.color.rgb = C_GRAY
+        p.space_after = Pt(6)
+
+    # ==================== SLIDE 7: System Architecture & Multi-Device Sync ====================
+    slide7 = prs.slides.add_slide(blank_layout)
+    add_header(slide7, "System Architecture & Multi-Device State Sync")
+
+    box_arch1 = slide7.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.8), Inches(5.6), Inches(4.8))
     box_arch1.fill.solid()
     box_arch1.fill.fore_color.rgb = C_LIGHT
     box_arch1.line.color.rgb = RGBColor(226, 232, 240)
@@ -293,7 +347,7 @@ def create_deck():
         p.font.color.rgb = C_GRAY
         p.space_after = Pt(6)
 
-    box_arch2 = slide6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(1.8), Inches(5.7), Inches(4.8))
+    box_arch2 = slide7.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(1.8), Inches(5.7), Inches(4.8))
     box_arch2.fill.solid()
     box_arch2.fill.fore_color.rgb = C_LIGHT
     box_arch2.line.color.rgb = RGBColor(226, 232, 240)
@@ -318,18 +372,17 @@ def create_deck():
         p.font.color.rgb = C_GRAY
         p.space_after = Pt(6)
 
-    # ==================== SLIDE 7: Honest Experience KPIs Matrix ====================
-    slide7 = prs.slides.add_slide(blank_layout)
-    add_header(slide7, "Customer Experience KPIs Matrix (Strictly No Revenue Proxies)")
+    # ==================== SLIDE 8: Honest Experience KPIs Matrix ====================
+    slide8 = prs.slides.add_slide(blank_layout)
+    add_header(slide8, "Customer Experience KPIs Matrix (Strictly No Revenue Proxies)")
 
-    # Add Table
     rows, cols = 5, 4
     left = Inches(0.8)
     top = Inches(1.8)
     width = Inches(11.7)
     height = Inches(4.8)
 
-    table_shape = slide7.shapes.add_table(rows, cols, left, top, width, height)
+    table_shape = slide8.shapes.add_table(rows, cols, left, top, width, height)
     table = table_shape.table
     table.columns[0].width = Inches(2.2)
     table.columns[1].width = Inches(3.2)
@@ -367,11 +420,11 @@ def create_deck():
                 p.font.bold = True
                 p.font.color.rgb = C_BLUE
 
-    # ==================== SLIDE 8: The 11-Second Recovery Breakdown ====================
-    slide8 = prs.slides.add_slide(blank_layout)
-    add_header(slide8, "Engineering Deep Dive: The 11-Second Recovery")
+    # ==================== SLIDE 9: The 11-Second Recovery Breakdown ====================
+    slide9 = prs.slides.add_slide(blank_layout)
+    add_header(slide9, "Engineering Deep Dive: The 11-Second Recovery")
 
-    box_rec1 = slide8.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.8), Inches(5.6), Inches(4.8))
+    box_rec1 = slide9.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.8), Inches(5.6), Inches(4.8))
     box_rec1.fill.solid()
     box_rec1.fill.fore_color.rgb = C_LIGHT
     box_rec1.line.color.rgb = RGBColor(226, 232, 240)
@@ -395,7 +448,7 @@ def create_deck():
         p.font.color.rgb = C_GRAY
         p.space_after = Pt(8)
 
-    box_rec2 = slide8.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(1.8), Inches(5.7), Inches(4.8))
+    box_rec2 = slide9.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(1.8), Inches(5.7), Inches(4.8))
     box_rec2.fill.solid()
     box_rec2.fill.fore_color.rgb = C_LIGHT
     box_rec2.line.color.rgb = RGBColor(226, 232, 240)
@@ -419,11 +472,11 @@ def create_deck():
         p.font.color.rgb = C_GRAY
         p.space_after = Pt(8)
 
-    # ==================== SLIDE 9: Limitations, Roadmap & Conclusion ====================
-    slide9 = prs.slides.add_slide(blank_layout)
-    add_header(slide9, "Honest Limitations, Roadmap & Conclusion")
+    # ==================== SLIDE 10: Limitations, Roadmap & Conclusion ====================
+    slide10 = prs.slides.add_slide(blank_layout)
+    add_header(slide10, "Honest Limitations, Roadmap & Conclusion")
 
-    box_lim1 = slide9.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.8), Inches(5.6), Inches(4.8))
+    box_lim1 = slide10.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.8), Inches(5.6), Inches(4.8))
     box_lim1.fill.solid()
     box_lim1.fill.fore_color.rgb = C_LIGHT
     box_lim1.line.color.rgb = RGBColor(226, 232, 240)
@@ -447,7 +500,7 @@ def create_deck():
         p.font.color.rgb = C_GRAY
         p.space_after = Pt(6)
 
-    box_lim2 = slide9.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(1.8), Inches(5.7), Inches(4.8))
+    box_lim2 = slide10.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(1.8), Inches(5.7), Inches(4.8))
     box_lim2.fill.solid()
     box_lim2.fill.fore_color.rgb = C_LIGHT
     box_lim2.line.color.rgb = RGBColor(226, 232, 240)
