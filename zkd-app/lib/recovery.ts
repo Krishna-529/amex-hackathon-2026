@@ -68,7 +68,6 @@ export const DECIDE_STEPS: Step[] = [
  *   - lib/confirmWindow.ts derives EXECUTION_BUDGET_SECONDS (11) from
  *     MACHINE_TOTAL (11.41s), and the member's entire decision window — the
  *     WAIT gate itself — is derived from that.
- *   - app/how-it-works/page.tsx quotes WARM/DECIDE/ACT totals.
  *   - app/recovery/[id]/page.tsx shows them beside the measured figures, so a
  *     reader can compare actual against budget.
  *   - zkd-android/src/screens/RecoveryScreen.tsx does the same, in a separate app.

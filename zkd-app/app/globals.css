@@ -85,20 +85,26 @@ body{
 .site-in{max-width:1160px;margin:0 auto;padding:15px 32px;display:flex;align-items:center;gap:14px}
 .logo{width:30px;height:30px;border-radius:10px;flex:none;display:flex}
 .logo svg{width:100%;height:100%;border-radius:10px}
-.site .nm{font-weight:600;font-size:16px;letter-spacing:-.015em}
+.site .nm{font-family:var(--amex-serif);font-weight:400;font-size:18.5px;letter-spacing:.002em;
+  color:var(--text)}
 .site .sp{flex:1}
 .site nav{display:flex;gap:6px}
 .site nav a{color:var(--mist);text-decoration:none;font-size:14px;padding:7px 14px;border-radius:99px;
   transition:color .2s,background .2s}
 .site nav a:hover{color:var(--text);background:var(--glass-2)}
 .site nav a.on{color:var(--text);background:var(--glass-2);box-shadow:inset 0 0 0 1px var(--edge)}
-.who{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--mist)}
-.who i{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-style:normal;
-  font-size:11.5px;font-weight:600;color:#fff;
-  background:rgba(47,127,240,.9)}
-.hdr-btn{background:var(--glass);border:1px solid var(--edge);color:var(--mist);
-  font-size:12.5px;padding:6px 10px;border-radius:99px;cursor:pointer;margin-right:4px}
-.hdr-btn:hover{color:var(--text);background:var(--glass-2)}
+.who{display:flex;align-items:center;gap:11px;font-size:13.5px;color:var(--mist);
+  padding-left:6px;margin-left:2px;border-left:1px solid var(--edge)}
+.who i{width:31px;height:31px;border-radius:50%;display:grid;place-items:center;font-style:normal;
+  font-size:11.5px;font-weight:700;color:#fff;letter-spacing:.02em;flex:none;
+  background:linear-gradient(155deg,#5aa3ff,var(--iris) 55%,#1f5fc4);
+  box-shadow:0 3px 10px -3px rgba(47,127,240,.55),inset 0 1px 0 rgba(255,255,255,.3)}
+.who span{font-weight:600;color:var(--text);letter-spacing:-.005em}
+.hdr-btn{display:inline-flex;align-items:center;background:var(--glass);border:1px solid var(--edge);color:var(--mist);
+  font-weight:500;letter-spacing:.01em;
+  font-size:12.5px;padding:7px 15px;border-radius:99px;cursor:pointer;margin-right:4px;
+  transition:color .2s,background .2s,border-color .2s}
+.hdr-btn:hover{color:var(--text);background:var(--glass-2);border-color:var(--edge-2)}
 
 /* ── /ops operator console ────────────────────────────────────────── */
 .ops-form input{background:var(--glass);border:1px solid var(--edge);color:var(--text);
@@ -317,15 +323,17 @@ footer p{margin:0;max-width:70ch}
 
 /* ══════════════ upcoming: list on the left, prediction on the right ══════════════ */
 .up{display:grid;grid-template-columns:1fr 330px;overflow:hidden}
-.up-list{padding:8px;min-width:0}
+.up-list{padding:10px;min-width:0;display:flex;flex-direction:column;gap:10px}
 .uprow{
   display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;width:100%;
-  text-align:left;font:inherit;color:inherit;cursor:pointer;background:transparent;border:0;
-  padding:18px 20px;border-radius:16px;transition:background .18s;position:relative;
+  text-align:left;font:inherit;color:inherit;cursor:pointer;background:var(--glass);
+  border:1px solid var(--edge);
+  padding:18px 20px;border-radius:14px;transition:background .18s,border-color .18s,transform .16s;
+  position:relative;
 }
-.uprow + .uprow::before{content:'';position:absolute;top:0;left:20px;right:20px;height:1px;
-  background:var(--glass-2)}
+.uprow:hover{transform:translateY(-2px);border-color:var(--edge-2)}
 .uprow:hover,.uprow.on{background:var(--glass-2)}
+.uprow.on{border-color:var(--iris)}
 .uprow.on::after{content:'';position:absolute;left:0;top:14px;bottom:14px;width:3px;
   border-radius:99px;background:var(--iris)}
 .uprow .meta{display:flex;align-items:center;gap:10px;margin-bottom:12px}
@@ -333,6 +341,10 @@ footer p{margin:0;max-width:70ch}
 .uprow .tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
   padding:3px 8px;border-radius:6px;border:1px solid var(--edge);color:var(--mist2)}
 .uprow .tag.next{color:var(--iris);border-color:rgba(47,127,240,.4);background:rgba(47,127,240,.1)}
+.uprow .foot{grid-column:1 / -1;display:flex;align-items:center;gap:8px;margin-top:14px;
+  padding-top:14px;border-top:1px solid var(--glass-2);font-size:12.5px;color:var(--mist)}
+.uprow .foot .risk-num{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  color:var(--text);font-weight:600}
 
 /* the prediction panel — its content is swapped by whichever row you hover */
 .pred{border-left:1px solid var(--edge);padding:28px 26px;display:flex;flex-direction:column;
@@ -652,21 +664,33 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 /* ── header ────────────────────────────────────────────────────────────── */
 .amex-header{background:var(--amex-card)}
 .amex-topbar{display:flex;align-items:center;gap:26px;padding:14px 32px;max-width:1160px;margin:0 auto}
-.amex-mark{display:flex;align-items:center;gap:10px;flex:none;color:inherit;text-decoration:none}
-.amex-mark .box{width:34px;height:34px;border-radius:7px;background:var(--amex-blue);
-  display:grid;place-items:center;flex:none}
-.amex-mark .wd{font-weight:700;font-size:15px;color:var(--amex-ink);letter-spacing:-.01em;white-space:nowrap}
+.amex-mark{display:flex;align-items:center;gap:11px;flex:none;color:inherit;text-decoration:none}
+.amex-mark .box{width:34px;height:34px;border-radius:9px;background:linear-gradient(155deg,#2a8ae8,var(--amex-blue) 60%,var(--amex-blue-dark));
+  display:grid;place-items:center;flex:none;box-shadow:0 3px 10px -3px rgba(1,111,208,.5)}
+.amex-mark .wd{font-family:var(--amex-serif);font-weight:400;font-size:18px;color:var(--amex-ink);
+  letter-spacing:.001em;white-space:nowrap}
 .amex-topbar nav{display:flex;gap:22px;flex:1}
 .amex-topbar nav a{color:var(--amex-blue);font-size:14px;text-decoration:none}
 .amex-topbar nav a:hover{text-decoration:underline}
 .amex-topbar .sp{flex:1}
-.amex-signin{background:var(--amex-blue);color:#fff;font-size:14px;font-weight:600;border:0;
-  padding:10px 22px;border-radius:22px;cursor:pointer;white-space:nowrap;font-family:inherit}
-.amex-signin:hover{filter:brightness(1.06)}
-.amex-who{display:flex;align-items:center;gap:12px;font-size:13.5px;color:var(--amex-mist);white-space:nowrap}
-.amex-who button{font:inherit;font-size:12.5px;background:var(--amex-card);border:1px solid var(--amex-line);
-  color:var(--amex-mist);padding:7px 14px;border-radius:99px;cursor:pointer}
-.amex-who button:hover{border-color:var(--amex-mist2);color:var(--amex-text)}
+.amex-signin{background:linear-gradient(155deg,#0d7fe0,var(--amex-blue) 65%);color:#fff;font-size:14px;
+  font-weight:600;letter-spacing:.01em;border:0;
+  padding:10px 24px;border-radius:22px;cursor:pointer;white-space:nowrap;font-family:inherit;
+  box-shadow:0 4px 14px -5px rgba(1,111,208,.55);transition:box-shadow .2s,filter .2s}
+.amex-signin:hover{filter:brightness(1.05);box-shadow:0 6px 18px -5px rgba(1,111,208,.6)}
+.amex-who{display:flex;align-items:center;gap:12px;font-size:13.5px;color:var(--amex-mist);
+  white-space:nowrap;padding-left:14px;margin-left:2px;border-left:1px solid var(--amex-line)}
+.amex-who .avatar{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;flex:none;
+  font-size:11px;font-weight:700;letter-spacing:.02em;color:#fff;
+  background:linear-gradient(155deg,#2a8ae8,var(--amex-blue) 60%,var(--amex-blue-dark));
+  box-shadow:0 3px 10px -3px rgba(1,111,208,.5),inset 0 1px 0 rgba(255,255,255,.3)}
+.amex-who .nm{font-weight:600;color:var(--amex-text);letter-spacing:-.005em}
+.amex-who button{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12.5px;
+  font-weight:500;letter-spacing:.01em;
+  background:var(--amex-card);border:1px solid var(--amex-line);
+  color:var(--amex-mist);padding:7px 15px;border-radius:99px;cursor:pointer;
+  transition:border-color .2s,color .2s,background .2s}
+.amex-who button:hover{border-color:var(--amex-mist2);color:var(--amex-text);background:var(--amex-surf)}
 .amex-subbar{background:var(--amex-blue)}
 .amex-subbar-in{display:flex;align-items:center;gap:26px;max-width:1160px;margin:0 auto;
   padding:13px 32px;color:#fff}
@@ -1223,6 +1247,8 @@ body:has(.amex-page) footer {
 }
 .amex-page .uprow {
   color: var(--amex-ink);
+  background: var(--amex-card);
+  border: 1px solid var(--amex-border);
 }
 .amex-page .uprow + .uprow::before {
   background: var(--amex-border);
@@ -1230,6 +1256,14 @@ body:has(.amex-page) footer {
 .amex-page .uprow:hover,
 .amex-page .uprow.on {
   background: var(--amex-surf);
+  border-color: var(--amex-blue);
+}
+.amex-page .uprow .foot {
+  border-top-color: var(--amex-border);
+  color: var(--amex-muted);
+}
+.amex-page .uprow .foot .risk-num {
+  color: var(--amex-ink);
 }
 .amex-page .uprow .code {
   color:var(--amex-ink);
