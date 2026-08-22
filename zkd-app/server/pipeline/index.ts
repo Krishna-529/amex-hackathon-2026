@@ -36,6 +36,7 @@ import { searchAccommodation, applyHotelRules, toHotelOpt, affordabilityVeto } f
 import { searchGround, withinGroundCap, toCabOpt } from '../ground';
 import { airport, countryCodeOf } from '../airportDirectory';
 import { adapt, type AdaptedPreferences } from '../preferences/adapt';
+import { applyOverride } from '../preferences/intent';
 import * as journal from './journal';
 import { applyHardRules, rankAlts, type ScoreContext } from './score';
 import { touchedAirports, carriersOf } from './ranker/features';
@@ -44,7 +45,7 @@ import { cityOf } from '../airportDirectory';
 import { composeConnections, needsOvernight, needsRentalCar } from './compose';
 import { runSaga } from './saga';
 import { narrate } from './narrate';
-import { MAX_REPLANS, type PipelineRun } from './types';
+import { MAX_REPLANS, MAX_MEMBER_REPLANS, type PipelineRun } from './types';
 import type { DisruptionResolution, Flight, RecoveryTask } from '../domain/types';
 
 export { snapshot, ensureRun, transition } from './journal';
@@ -213,7 +214,18 @@ async function plan(run: PipelineRun): Promise<void> {
 
   if (!journal.transition(run, 'SEARCHING', 'assembling the option portfolio').ok) return;
 
-  const prefs = await preferencesFor(run.passengerId);
+  const basePrefs = await preferencesFor(run.passengerId);
+  // The member's per-flight preference override, if they typed one into the
+  // intent box. Layered onto the MyCa-derived prefs so the fresh search,
+  // connection composition, hard-rule filter, ranking AND the hotel/ground
+  // compose below all honour it — the whole reason intent runs through plan()
+  // rather than a shallow re-rank. It NEVER writes back to MyCa: applyOverride
+  // returns a copy, and the override itself is per-flight session state
+  // (store.getSessionPrefs) discarded with the recovery. The card's cabin
+  // entitlement, set on basePrefs by preferencesFor, is preserved by
+  // applyOverride and still caps the option list.
+  const session = await store.getSessionPrefs(run.flightId, run.passengerId);
+  const prefs = session ? applyOverride(basePrefs, session.override) : basePrefs;
   const partySize = store.partySize(booking);
 
   // The member's temporary, per-flight journey window, if they set one before
@@ -238,7 +250,13 @@ async function plan(run: PipelineRun): Promise<void> {
   const refreshed = await store.getFlight(run.flightId);
   if (refreshed) flight = refreshed;
 
-  const effectiveDeadlineISO = journeyPrefs?.latestArriveISO ?? flight.hardDeadlineISO ?? null;
+  // A deadline typed into the intent box just now ("I must be in Delhi by 9pm")
+  // is the most recent explicit statement, so it wins over an older journey
+  // window or a deadline already on the flight. Like those, it is a HARD bound
+  // in applyHardRules, not a ranking weight.
+  const overrideDeadlineISO = session?.override.hard_deadline_iso ?? null;
+  const effectiveDeadlineISO =
+    overrideDeadlineISO ?? journeyPrefs?.latestArriveISO ?? flight.hardDeadlineISO ?? null;
   const flightForScoring = {
     ...flight,
     earliestDepartISO: journeyPrefs?.earliestDepartISO ?? flight.earliestDepartISO ?? null,
@@ -596,5 +614,54 @@ export async function replan(flightId: string, passengerId: string): Promise<boo
   run.replans += 1;
   if (!journal.transition(run, 'SEARCHING', 'member asked for a fresher set').ok) return false;
   await plan(run).catch((err) => halt(run, `re-plan failed: ${err}`));
+  return true;
+}
+
+/**
+ * Re-run planning because the member changed their preferences (the intent box).
+ *
+ * This is the same reversible `plan()` — fresh supplier search, connection
+ * compose, hard-rule filter, ranking, hotel/ground compose — which now reads the
+ * persisted session override the caller just wrote (store.setSessionPrefs), so
+ * the whole portfolio is rebuilt against what the member asked for. It never
+ * crosses the WAIT gate; everything it does lapses free.
+ *
+ * Unlike `replan()` it does not require HOLD_PENDING: the intent box can fire
+ * before a carrier files (the ask-early screen), when no run exists yet, or while
+ * one is still searching. It ensures a run, waits out any in-flight plan so it
+ * does not transition underneath it, and re-plans from wherever the run legally
+ * can — TRIGGERED / SEARCHING / EVALUATING / HOLD_PENDING. A terminal run
+ * (already booked, or halted with no legal edge out) is left alone: the caller
+ * surfaces the current state instead.
+ *
+ * Returns true when a re-plan ran, false when it was a no-op (terminal, or the
+ * member-replan budget is spent).
+ */
+export async function planForPreferences(flightId: string, passengerId: string): Promise<boolean> {
+  const run = journal.ensureRun(flightId, passengerId);
+  if (journal.isTerminal(run.state)) return false;
+
+  // Let any plan already in flight for this run finish before we re-run, so the
+  // two do not race the state machine (same guard the immediate-execute path
+  // gets from ensurePlanned).
+  const inflight = planning.get(run.id);
+  if (inflight) await inflight.catch(() => {});
+  if (journal.isTerminal(run.state)) return false;
+
+  if (run.memberReplans >= MAX_MEMBER_REPLANS) {
+    journal.append(run, {
+      kind: 'error',
+      detail: { note: 'member re-plan limit reached', limit: MAX_MEMBER_REPLANS },
+    });
+    return false;
+  }
+  run.memberReplans += 1;
+
+  // Move to SEARCHING from wherever we legally can. TRIGGERED/EVALUATING/
+  // HOLD_PENDING → SEARCHING are legal edges; SEARCHING → SEARCHING is a
+  // no-op short-circuit (transition() line ~180). plan() re-asserts SEARCHING
+  // the same harmless way.
+  if (!journal.transition(run, 'SEARCHING', 'member updated their preferences').ok) return false;
+  await startPlanning(run);
   return true;
 }
