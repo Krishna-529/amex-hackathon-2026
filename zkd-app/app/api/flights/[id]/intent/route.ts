@@ -112,12 +112,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const withOverride = applyOverride(base, result.override);
 
-  // A deadline the member just stated is a hard rule, and `applyHardRules`
-  // reads it off the flight rather than the rules object. Applied to a COPY:
-  // this is a preview, and a stored flight must not acquire a deadline from a
-  // sentence the member has not confirmed yet.
-  const previewFlight = result.override.hard_deadline_iso
-    ? { ...flight, hardDeadlineISO: result.override.hard_deadline_iso, hasHardConstraint: true }
+  // A deadline or a departure floor the member just stated is a hard rule, and
+  // `applyHardRules` reads both off the flight rather than the rules object.
+  // Applied to a COPY: this is a preview, and a stored flight must not acquire
+  // either from a sentence the member has not confirmed yet.
+  const previewFlight = (result.override.hard_deadline_iso || result.override.earliest_departure_iso)
+    ? {
+        ...flight,
+        ...(result.override.hard_deadline_iso
+          ? { hardDeadlineISO: result.override.hard_deadline_iso, hasHardConstraint: true }
+          : null),
+        ...(result.override.earliest_departure_iso
+          ? { earliestDepartISO: result.override.earliest_departure_iso }
+          : null),
+      }
     : flight;
 
   const scoreCtx: ScoreContext = {

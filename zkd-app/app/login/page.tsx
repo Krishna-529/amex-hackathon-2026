@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { DEMO_ACCOUNTS } from '@/lib/demoAccounts';
+import { setTabSession } from '@/lib/tabSession';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
