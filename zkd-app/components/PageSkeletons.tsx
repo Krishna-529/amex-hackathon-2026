@@ -406,31 +406,3 @@ export function OpsSkeleton() {
     </SkRoot>
   );
 }
-
-/** `/how-it-works` — static copy, but see the note on OpsSkeleton for why it
- *  still needs its own route-level placeholder. */
-export function HowItWorksSkeleton() {
-  return (
-    <SkRoot label="Loading how it works">
-      <SkPageHead w="21ch" />
-      <SkSect w="14em" />
-      <SkPanel rows={3} title="15em" why style={{ marginBottom: 16 }} />
-      <SkSect w="15em" />
-      <SkPanel rows={5} title="13em" why style={{ marginBottom: 16 }} />
-      <SkSect w="11em" />
-      <div className="g panel">
-        <h3><SkLine w="12em" /></h3>
-        {['low', 'mid', 'high', 'act', 'act'].map((cls, i) => (
-          <div className={`hiw-band ${cls}`} key={i}>
-            <span className="p"><SkLine w="4em" /></span>
-            <span className="w">
-              <SkLine w="11em" style={{ display: 'block', marginBottom: 4 }} />
-              <SkText lines={2} last="62%" />
-            </span>
-            <span className="tag"><SkLine w="5em" /></span>
-          </div>
-        ))}
-      </div>
-    </SkRoot>
-  );
-}

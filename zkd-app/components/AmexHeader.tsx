@@ -30,9 +30,6 @@ export default function AmexHeader() {
           </span>
           <span className="wd">ZKD Concierge</span>
         </Link>
-        <nav>
-          <Link href="/how-it-works">How it works</Link>
-        </nav>
         <span className="sp" />
         {loading ? (
           <div className="amex-who" aria-hidden="true">
@@ -41,8 +38,17 @@ export default function AmexHeader() {
           </div>
         ) : authed ? (
           <div className="amex-who">
-            <span>Welcome, {displayName ?? '…'}</span>
-            <button type="button" onClick={signOut}>Sign out</button>
+            <span className="avatar" aria-hidden="true">
+              {(displayName ?? '?').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()}
+            </span>
+            <span className="nm">{displayName ?? '…'}</span>
+            <button type="button" onClick={signOut}>
+              <svg viewBox="0 0 20 20" width="13" height="13" aria-hidden focusable="false">
+                <path d="M7.5 3H4.5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M13 6.5 16.5 10 13 13.5M16.2 10H8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Sign out
+            </button>
           </div>
         ) : (
           <Link href="/login" className="amex-signin">Log In</Link>

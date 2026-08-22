@@ -15,7 +15,7 @@
  * under it (`/flights/u1`, and any deeper segment added later) is in scope.
  *
  * Every OTHER route — `/recovery/[id]`, `/profile`,
- * `/settings`, `/history`, `/how-it-works`, `/ops` — keeps the original dark
+ * `/settings`, `/history`, `/ops` — keeps the original dark
  * glass theme. That is a real decision, not an omission: `/ops` is an operator
  * console rather than a member screen, and the recovery flow's urgency reads
  * better dark.
@@ -24,7 +24,7 @@ export const AMEX_ROUTES = new Set([
   '/', '/login', '/flights',
   // Every member-facing page carries the light Amex skin so the experience is
   // consistent end to end. Only /ops (the operator console) stays dark.
-  '/history', '/how-it-works', '/profile', '/settings', '/prepare',
+  '/history', '/profile', '/settings', '/prepare',
 ]);
 
 /** Routes whose entire subtree is skinned. Trailing slash is load-bearing.

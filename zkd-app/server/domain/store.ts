@@ -34,6 +34,9 @@ import type {
   Stay, Ride, JourneyPrefs,
 } from './types';
 import type { PipelineRun } from '../pipeline/types';
+// Type-only (erased at runtime, so no import cycle with preferences → adapt →
+// domain/types). SessionPrefs lives beside the PreferenceOverride it wraps.
+import type { SessionPrefs } from '../preferences/intent';
 
 async function db() {
   await ensureReady();
@@ -404,6 +407,34 @@ export async function setJourneyPrefs(rec: JourneyPrefs): Promise<void> {
 export async function clearJourneyPrefs(flightId: string, passengerId: string): Promise<void> {
   const q = await db();
   await q`delete from journey_prefs where key = ${`${flightId}:${passengerId}`}`;
+}
+
+// ------------------------------------------------------- session prefs --
+// A member's temporary, per-flight rebooking-preference override, parsed from the
+// intent box. Same storage shape and keying as journey_prefs above — and the same
+// promise: it governs this one recovery and is discarded with the flight, never
+// merged into the durable MyCa profile. Where journey_prefs carries only a window
+// + consent, this carries the full validated PreferenceOverride the pipeline's
+// plan() layers onto the member's adapted preferences before it searches.
+
+export async function getSessionPrefs(flightId: string, passengerId: string): Promise<SessionPrefs | undefined> {
+  const q = await db();
+  const rows = await q<{ data: SessionPrefs }[]>`select data from session_prefs where key = ${`${flightId}:${passengerId}`}`;
+  return rows[0]?.data;
+}
+
+export async function setSessionPrefs(rec: SessionPrefs): Promise<void> {
+  const q = await db();
+  const key = `${rec.flightId}:${rec.passengerId}`;
+  await q`
+    insert into session_prefs (key, flight_id, passenger_id, data) values (${key}, ${rec.flightId}, ${rec.passengerId}, ${q.json(rec)})
+    on conflict (key) do update set data = excluded.data
+  `;
+}
+
+export async function clearSessionPrefs(flightId: string, passengerId: string): Promise<void> {
+  const q = await db();
+  await q`delete from session_prefs where key = ${`${flightId}:${passengerId}`}`;
 }
 
 // ------------------------------------------------------------ past flights --

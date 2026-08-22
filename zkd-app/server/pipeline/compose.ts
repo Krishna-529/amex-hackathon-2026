@@ -207,7 +207,6 @@ function materialise(
  * working on it.
  */
 export function needsOvernight(flight: Flight, alt: Alt, rules: RebookingRules): boolean {
-  if (flight.rescheduledToISO) return true; // Postponed/rescheduled flights always include hotel provisioning
   if (typeof alt.departsAt !== 'number') return false;
   const originalDeparture = new Date(flight.depISO).getTime();
   const waitHours = (alt.departsAt - originalDeparture) / 3_600_000;

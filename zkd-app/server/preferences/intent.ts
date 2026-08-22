@@ -51,7 +51,7 @@
 
 import { extractJson } from '../gemini';
 import type { OptimizationStrategy, HotelAmenity } from './schema';
-import type { RebookingRules, AdaptedPreferences } from './adapt';
+import type { RebookingRules, HotelRules, GroundRules, AdaptedPreferences } from './adapt';
 import type { Money } from '../suppliers/types';
 
 export const STRATEGIES: OptimizationStrategy[] = [
@@ -105,6 +105,25 @@ export type PreferenceOverride = {
   /** what the member asked for that we cannot honour, and why */
   unsupported: { asked: string; why: string }[];
   confidence: 'high' | 'medium' | 'low';
+};
+
+/**
+ * A validated override, persisted for one flight+passenger recovery.
+ *
+ * This is the durable form of what the member typed: it is stored (see
+ * `store.setSessionPrefs`), read back by the pipeline's `plan()`, and drives the
+ * fresh search + re-compose + ranking for THIS recovery. It is discarded with the
+ * flight and **never** merged into the MyCa profile — the same discipline
+ * `JourneyPrefs` already holds itself to.
+ */
+export type SessionPrefs = {
+  flightId: string;
+  passengerId: string;
+  override: PreferenceOverride;
+  /** the model's one-sentence read-back, kept for the ledger and the UI */
+  restated: string | null;
+  /** epoch ms this override was captured */
+  setAt: number;
 };
 
 /** The JSON Schema handed to Gemini. Mirrors the type above. */
@@ -444,10 +463,24 @@ function codes(v: unknown): string[] {
 /**
  * Layers a validated override onto the member's adapted preferences.
  *
- * Returns a copy. The stored MyCa-derived preferences are the member's standing
- * profile and one sentence typed on one screen about one flight has no business
- * mutating them — this override applies to this recovery only, which is also
- * exactly what the confirm-back panel promises.
+ * Returns a copy — this function never mutates its input, and the MyCa-derived
+ * profile it is layered over is never written back. That immutability is the
+ * load-bearing promise: even though a persisted session override now DRIVES the
+ * recovery (the pipeline reads it before it searches, see store.setSessionPrefs
+ * and pipeline `plan()`), it does so as a per-flight instruction discarded with
+ * the flight — one sentence about one flight must never rewrite the member's
+ * standing profile.
+ *
+ * Covers three planes, all of which the downstream search actually consumes:
+ *   - flight `rules`   — strategy, avoided airlines, layover cap, cabin
+ *                        downgrade, out-of-pocket cap;
+ *   - `hotel` rules    — accessibility, must-have amenities, distance ceiling
+ *                        (applyHotelRules filters the accommodation search on
+ *                        exactly these);
+ *   - `ground` rules   — vehicle tier (searchGround reads it).
+ * A null field means "the member did not say this" — keep whatever the profile
+ * held. The cabin ENTITLEMENT is never touched here: callers overlay the card's
+ * ceiling after this, and an override must not be able to raise its own ceiling.
  */
 export function applyOverride(
   base: AdaptedPreferences,
@@ -463,7 +496,20 @@ export function applyOverride(
   if (override.allow_cabin_downgrade !== null) rules.allowCabinDowngrade = override.allow_cabin_downgrade;
   if (override.max_out_of_pocket) rules.outOfPocketCap = override.max_out_of_pocket;
 
-  return { ...base, rules, preferences: { ...base.preferences } };
+  // Hotel + ground planes: previously validated and shown back to the member but
+  // dropped before scoring, so a stated "accessible room, an SUV is fine" never
+  // reached the accommodation/ground search. Now wired through.
+  const hotel: HotelRules = { ...base.hotel };
+  if (override.accessibility !== null) hotel.accessibilityRequired = override.accessibility;
+  if (override.hotel_amenities.length) {
+    hotel.mustHaveAmenities = [...new Set([...hotel.mustHaveAmenities, ...override.hotel_amenities])];
+  }
+  if (override.hotel_max_distance_km !== null) hotel.maxDistanceKm = override.hotel_max_distance_km;
+
+  const ground: GroundRules = { ...base.ground };
+  if (override.vehicle_tier !== null) ground.vehicleTier = override.vehicle_tier;
+
+  return { ...base, rules, hotel, ground, preferences: { ...base.preferences } };
 }
 
 /**
