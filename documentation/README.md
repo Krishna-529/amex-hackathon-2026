@@ -20,6 +20,15 @@ Read in order. Each answers one question a judge will ask.
 | [`05-cancellation-risk-model.md`](design/05-cancellation-risk-model.md) | **Supersedes `01` §2.** The real, self-trained model that replaced the Lumo vendor call — data, features, serving, and the threshold-gated alt pre-cache |
 | [`06-experience-kpis.md`](design/06-experience-kpis.md) | How the project is measured — granular customer-experience KPIs, each marked by whether the data exists in the system today |
 
+## components/ — how the code actually works
+
+Generated from reading the source, not from intent — where `design/` and `architecture/` describe
+what the system is meant to do, `components/` describes what `zkd-app/`, `zkd-risk-model/`, and
+`zkd-android/` actually do today, one subsystem per file, each with an explicit real-vs-mocked
+accounting and a "See also" trail through the rest of the pipeline. Start at
+[`00-system-overview.md`](components/00-system-overview.md) for the map, then read one component
+file per subsystem you need.
+
 ## architecture/
 
 | Document | What it is |

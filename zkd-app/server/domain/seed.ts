@@ -8,14 +8,17 @@ import * as store from './store';
 import { ensureReady, withAdvisoryLock, SEED_LOCK_KEY } from './db';
 import { hashPassword } from '../auth/passwords';
 import { DEMO_ACCOUNTS } from '@/lib/demoAccounts';
-import type { Passenger, Flight, FlightForecast, PastFlight, Traveller, Alt } from './types';
-import { localDateParts, localTime } from '../airportDirectory';
+import type { Passenger, Flight, FlightForecast, FlightForecastSnapshot, PastFlight, Traveller, Alt } from './types';
+import { localDateParts, localTime, airport, distanceKm, isInternational } from '../airportDirectory';
 import { localHourAtAirport, localDateISOAt } from '../deadline';
 import { thresholdsFor } from '../engine/thresholds';
-import { bandFor, BAND_TONE } from '@/lib/thresholds';
+import { bandFor, BAND_TONE, type Thresholds } from '@/lib/thresholds';
 import { getThresholdConfig } from '@/lib/thresholdConfig';
 import { refreshAltsNow } from '../engine/altsCache';
 import { refreshGroundIfStale } from '../engine/groundCache';
+import { hash, mulberry32, scheduledDurationMin } from '../suppliers/mockFlights';
+import { cabinRank } from '../pipeline/ranker/features';
+import airlinesData from '../mockData/airlines.json';
 
 const now = Date.now();
 const MIN = 60_000;
@@ -230,6 +233,125 @@ const ALT_SPECS: Record<string, AltSpec[]> = {
   ],
 };
 
+/**
+ * Every demo flight's route, for the generator below — kept separate from
+ * buildDemoFlights() because ALT_SPECS (and this) are evaluated before that
+ * function runs, not after.
+ */
+const DEMO_ALT_ROUTES: Record<string, { from: string; to: string }> = {
+  u1: { from: 'MAA', to: 'DEL' },
+  u2: { from: 'DEL', to: 'LHR' },
+  u3: { from: 'BOM', to: 'DEL' },
+  'f-multi': { from: 'DEL', to: 'BLR' },
+  'f-depth': { from: 'BLR', to: 'MAA' },
+  u4: { from: 'BOM', to: 'GOI' },
+  u5: { from: 'BOM', to: 'DEL' },
+  u6: { from: 'DEL', to: 'BLR' },
+};
+
+type DemoAirlineTable = {
+  domestic: { code: string; name: string; fareIndexPerKm: number; minFare: number }[];
+  international: { code: string; name: string; fareIndexPerKm: number; minFare: number }[];
+  cabinMultiplier: Record<string, number>;
+};
+const DEMO_AIRLINES = airlinesData as DemoAirlineTable;
+
+const TIMING_BANDS: [number, string][] = [
+  [120, 'leaves within the next couple of hours'],
+  [240, 'a few hours later'],
+  [480, 'later the same day'],
+  [720, 'that evening'],
+  [Number.POSITIVE_INFINITY, 'the next morning'],
+];
+function timingPhrase(laterMin: number): string {
+  return TIMING_BANDS.find(([max]) => laterMin <= max)![1];
+}
+
+/**
+ * 200 total across the 8 demo flights, not 20 — this generates the 180 on
+ * top of the hand-written entries above, so the free-text chat has enough
+ * real variety (carriers, times, fares) to actually filter against instead
+ * of picking between two or three options every time. Reuses the same real
+ * carrier data and route-geometry fare/duration model
+ * server/suppliers/mockFlights.ts uses for live search, rather than
+ * reinventing a second one — see that file for where fareIndexPerKm and the
+ * cruise-speed duration formula come from.
+ *
+ * Deterministic per flight id (mulberry32 seeded from a hash of the id
+ * alone), so `resetDemo()` always reproduces the exact same 200-flight pool
+ * — a demo rehearsal and the live run in front of judges see identical
+ * options, which matters for a rehearsed "avoid this airline" moment to
+ * land the same way twice.
+ *
+ * Deliberately appended AFTER each flight's hand-written entries, never
+ * replacing them: those carry specific narrative weight a generator has no
+ * way to know to preserve (f-multi's 3-seat option is the reason two classes
+ * of alternative exist at all — see the comment on ALT_SPECS.f-multi).
+ */
+function generateDemoAlts(flightId: string, count: number): AltSpec[] {
+  const route = DEMO_ALT_ROUTES[flightId];
+  const originAp = route && airport(route.from);
+  const destAp = route && airport(route.to);
+  if (!route || !originAp || !destAp) return [];
+
+  const km = distanceKm(originAp, destAp);
+  const pool = isInternational(route.from, route.to) ? DEMO_AIRLINES.international : DEMO_AIRLINES.domestic;
+  if (pool.length === 0) return [];
+  const rng = mulberry32(hash(`demo-alt-pool:${flightId}`));
+
+  const raw = Array.from({ length: count }, () => {
+    const carrier = pool[Math.floor(rng() * pool.length)];
+    const laterMin = 60 + Math.floor(rng() * 22) * 30; // 1h to ~12h later, in 30-min steps
+    const durationMin = Math.max(35, scheduledDurationMin(km) + Math.floor(rng() * 20) - 10);
+    const cabinRoll = rng();
+    const cabin = cabinRoll > 0.94 ? 'First' : cabinRoll > 0.82 ? 'Business' : cabinRoll > 0.66 ? 'Premium Economy' : 'Economy';
+    const cabinMult = DEMO_AIRLINES.cabinMultiplier[cabin] ?? 1;
+    const jitter = 0.82 + rng() * 0.36; // ±18% carrier-to-carrier fare variance
+    const fare = Math.round(Math.max(carrier.minFare, km * carrier.fareIndexPerKm * cabinMult * jitter) / 10) * 10;
+    const seats = 1 + Math.floor(rng() * 9);
+    // Every seeded card member's entitlement is Economy (server/domain/seed.ts's
+    // own base() passenger default) — a generated Business/First row is
+    // therefore genuinely above entitlement, exactly like the hand-written
+    // u1/u2 Business rows already demonstrate, not a guess at policy.
+    const overEntitlement = cabinRank(cabin) > cabinRank('Economy');
+    const code = `${carrier.code} ${100 + Math.floor(rng() * 2899)}`;
+    return { code, laterMin, durationMin, cabin: cabin === 'Economy' ? undefined : cabin, seats, fare, overEntitlement, carrierName: carrier.name };
+  });
+
+  // Relative-price language ("the cheapest option here") needs the whole
+  // batch's range first — computed once, not per-row, so all 22-23 rows
+  // agree on what "cheap" means for this flight.
+  const bookableFares = raw.filter((r) => !r.overEntitlement).map((r) => r.fare);
+  const cheapest = bookableFares.length ? Math.min(...bookableFares) : 0;
+  const priciest = bookableFares.length ? Math.max(...bookableFares) : 0;
+  const spread = Math.max(1, priciest - cheapest);
+
+  return raw.map((r): AltSpec => {
+    if (r.overEntitlement) {
+      return {
+        code: r.code, laterMin: r.laterMin, durationMin: r.durationMin, cabin: r.cabin, seats: r.seats, fare: r.fare,
+        ok: false, why: `${r.cabin} — above the Economy your card entitles you to`,
+      };
+    }
+    const timing = timingPhrase(r.laterMin);
+    const priceNote =
+      r.fare === cheapest ? 'the cheapest option here'
+      : r.fare <= cheapest + spread * 0.25 ? 'one of the more affordable options'
+      : r.fare >= priciest - spread * 0.2 ? `a ${r.carrierName} fare with more flexibility if plans change again`
+      : `a mid-priced ${r.carrierName} option`;
+    const scarcity = r.seats <= 2 ? ` — only ${r.seats} seat${r.seats === 1 ? '' : 's'} left` : '';
+    return {
+      code: r.code, laterMin: r.laterMin, durationMin: r.durationMin, cabin: r.cabin, seats: r.seats, fare: r.fare,
+      why: `${priceNote}, ${timing}${scarcity}`,
+    };
+  });
+}
+
+for (const [flightId, specs] of Object.entries(ALT_SPECS)) {
+  const needed = 25 - specs.length;
+  if (needed > 0) specs.push(...generateDemoAlts(flightId, needed));
+}
+
 /** Build a flight's mock alternatives from ALT_SPECS, positioned after its own
  *  departure and rendered in each airport's local clock. */
 function buildAlts(f: Flight): Alt[] {
@@ -311,6 +433,85 @@ function seedForecast(flight: Pick<Flight, 'id' | 'depISO' | 'hasHardConstraint'
     thresholds,
     asOf: now,
   };
+}
+
+/**
+ * A believable last-8-hours trajectory ending EXACTLY at this flight's seeded
+ * pct/riskScore — the two numbers a member sees everywhere else on the page
+ * (the gauge, the audit panel's headline) must be the graph's own most recent
+ * point, or the two would visibly disagree.
+ *
+ * Without this, `ForecastAudit`'s history chart has at most the one point
+ * `seedForecast` itself produces and renders "Collecting history — 0/1
+ * points so far" for the entire demo — true, but it means a judge never sees
+ * the chart the app is built to show. A hand-picked seed number is honest
+ * about being a starting position (see `seedForecast`'s own header); a
+ * believable trajectory leading up to it is the same kind of honesty applied
+ * to the last 8 hours instead of just the current instant.
+ *
+ * Built as a trend line (a plausible earlier reading drifting toward the
+ * current one) plus a damped random walk that is forced to zero at both
+ * ends — a Brownian bridge, in effect — so the wiggle shapes the middle of
+ * the line without ever fighting the fixed start/end values. Deterministic
+ * per flight id (mulberry32 seeded from a hash, the same pattern
+ * `generateDemoAlts` below already uses), so `demo-reset` reproduces the
+ * identical trajectory every time rather than a fresh random one.
+ */
+function buildSeededHistory(
+  flightId: string,
+  endPct: number,
+  endRiskScore: number,
+  thresholds: Thresholds,
+  asOfMs: number,
+): FlightForecastSnapshot[] {
+  const rng = mulberry32(hash(`demo-history:${flightId}`));
+  const STEP_MS = 20 * MIN;
+  const STEPS = 24; // 24 * 20min = 8h
+  const n = STEPS + 1;
+
+  // A smoothed (momentum-carrying, not white-noise-jagged) random walk,
+  // then tapered to exactly 0 at both ends with a half-sine window — the
+  // trend line alone controls the two endpoints; this only perturbs the
+  // shape in between.
+  let velocity = 0;
+  const walk = new Array(n).fill(0);
+  for (let i = 1; i < n - 1; i++) {
+    velocity = velocity * 0.72 + (rng() - 0.5) * 0.9;
+    walk[i] = walk[i - 1] + velocity;
+  }
+  const maxAbs = Math.max(1e-6, ...walk.map(Math.abs));
+  const wiggle = walk.map((v, i) => (v / maxAbs) * Math.sin((Math.PI * i) / (n - 1)));
+
+  // An earlier reading plausibly lower than "now" (risk generally builds
+  // toward departure) but with enough spread that eight flights don't all
+  // draw the same shape of line.
+  const startPct = Math.max(0.3, endPct * (0.3 + rng() * 0.55));
+  const startRisk = Math.max(2, endRiskScore - (8 + rng() * 28));
+  // Sized against the gap BETWEEN this flight's own thresholds, not just
+  // against the current pct — a flight sitting deep inside one band needs a
+  // wiggle wide enough to plausibly have been in the band next door a few
+  // hours ago, which "a fraction of the current value" alone does not
+  // guarantee when the bands themselves sit close together.
+  const thresholdSpread = Math.max(1, thresholds.preAuthorise - thresholds.prepare);
+  const pctAmplitude = Math.max(1.8, thresholds.prepare * 0.8, thresholdSpread * 0.7, endPct * 0.35);
+  const riskAmplitude = Math.max(5, endRiskScore * 0.16);
+
+  const out: FlightForecastSnapshot[] = [];
+  for (let i = 0; i < n; i++) {
+    const last = i === n - 1;
+    const t = i / (n - 1);
+    const pct = last ? endPct : Math.max(0.1, Math.round((startPct + (endPct - startPct) * t + wiggle[i] * pctAmplitude) * 10) / 10);
+    const riskScore = last ? endRiskScore : Math.max(1, Math.min(99, Math.round(startRisk + (endRiskScore - startRisk) * t + wiggle[i] * riskAmplitude)));
+    out.push({
+      pct,
+      riskScore,
+      band: bandFor(pct, thresholds),
+      confidence: Math.round((0.76 + rng() * 0.08) * 100) / 100,
+      modelVersion: 'demo-override',
+      asOf: asOfMs - (n - 1 - i) * STEP_MS,
+    });
+  }
+  return out;
 }
 
 /** Per-flight starting point, chosen once here rather than left to whatever
@@ -466,16 +667,21 @@ export function buildDemoFlights(): Flight[] {
   // Alternatives are NOT seeded onto flights. They are searched only when the
   // risk gate fires — a threshold crossing (real high-risk or the /ops Ramp),
   // a manual Warm, or an actual cancellation — exactly as production behaves.
-  // Seeding them made "find alternatives" show on low-risk flights before any
-  // crossing, which is wrong. The supplier layer (server/suppliers) is the
-  // single source of alternatives now.
-  //
-  // Forecasts ARE seeded, deliberately, unlike alts — see seedForecast's
-  // header. A member's very first view must show a real-looking number, not
-  // "—" while the risk-model service warms up.
+  // Seeding them for a flight that HASN'T crossed keeps that rule intact —
+  // "find alternatives" showing before any real risk crossing is still wrong.
+  // But a flight seeded straight into 'prepare' band or above (see
+  // SEED_FORECASTS) HAS already crossed by definition — the whole point of
+  // seeding that band was "already at risk from the first login" — so
+  // withholding alternatives there isn't honesty, it's just a slower demo
+  // waiting on a live search that may not even be needed yet (views.ts's
+  // own auto-warm covers the live case; this is what a member sees in the
+  // gap before that round trip lands, or if it fails outright).
   for (const f of flights) {
     const spec = SEED_FORECASTS[f.id];
-    if (spec) f.forecast = seedForecast(f, spec);
+    if (!spec) continue;
+    f.forecast = seedForecast(f, spec);
+    f.forecastHistory = buildSeededHistory(f.id, spec.pct, spec.riskScore, f.forecast.thresholds, f.forecast.asOf);
+    if (f.forecast.band !== 'watch') f.candidates.alts = buildAlts(f);
   }
   return flights;
 }

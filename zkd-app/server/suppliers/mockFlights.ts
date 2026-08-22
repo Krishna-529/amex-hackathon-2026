@@ -48,7 +48,7 @@ export function mulberry32(seed: number): () => number {
 /** Cruise + taxi/climb model, tuned to land close to real scheduled block
  *  times for Indian domestic (e.g. MAA-DEL ~2h35m at 1700km) and long-haul
  *  international sectors, without a per-route lookup table. */
-function scheduledDurationMin(km: number): number {
+export function scheduledDurationMin(km: number): number {
   const cruiseKmh = km > 4000 ? 870 : 780;
   return Math.round((km / cruiseKmh) * 60 + 35);
 }

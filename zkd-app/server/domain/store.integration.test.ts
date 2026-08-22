@@ -281,6 +281,7 @@ describe.skipIf(!hasDb)('store.ts against real Postgres', () => {
     const override: import('../preferences/intent').PreferenceOverride = {
       restated_intent: 'Avoid Air India, an SUV is fine',
       strategy: null, hard_deadline_iso: null, deadline_reason: null,
+      earliest_departure_iso: null, clarifying_question: null,
       avoid_airlines: ['AI'], prefer_airlines: [], max_layovers: null,
       allow_cabin_downgrade: null, max_out_of_pocket: null, overnight_ok: null,
       needs_hotel: null, hotel_max_distance_km: null, hotel_amenities: [],
