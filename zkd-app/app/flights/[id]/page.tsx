@@ -14,6 +14,7 @@ import type { FlightDetail, FlightForecast, ReverifyResult, PreAuthResponse } fr
 import type { PastFlight } from '@/server/domain/types';
 import ForecastAudit from '@/components/ForecastAudit';
 import { FlightDetailSkeleton, RiskBodySkeleton } from '@/components/PageSkeletons';
+import { AnimatedScore } from '@/components/AnimatedScore';
 
 const RING = 2 * Math.PI * 92;
 
@@ -86,6 +87,14 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const [hotelId, setHotelId] = useState<string | null>(null);
   const [cabId, setCabId] = useState<string | null>(null);
 
+  // Pre-authorise ("Yes — do this if it cancels") request state. Without this the
+  // button POSTed and ignored the result, so a rejected request looked identical
+  // to a successful one — the member had no way to tell their instruction never
+  // landed.
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authDone, setAuthDone] = useState(false);
+
   // Free-text intent. This is a PREVIEW: nothing it returns is applied to the
   // member's profile or to any recovery until they confirm, which is what makes
   // it safe to let a language model near the input at all.
@@ -93,11 +102,15 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const [thinking, setThinking] = useState(false);
   const [intent, setIntent] = useState<IntentResult | null>(null);
 
-  // The member as a detection source. Behind a confirm, because pressing it
-  // starts a real recovery — for them immediately, and for everyone else on the
-  // flight only once corroborated (server/engine/memberReports.ts).
+  // The member as a detection source. Behind our own confirm modal (not the
+  // browser's), because pressing it checks the flight against our airline data:
+  // if it really is cancelled we mark it and start rebooking; if not we tell them
+  // so and give them a helpline (server/engine/memberReports.ts).
+  const [reportOpen, setReportOpen] = useState(false);
   const [reporting, setReporting] = useState(false);
-  const [reported, setReported] = useState<{ message: string; confirmed: boolean } | null>(null);
+  const [reportResult, setReportResult] = useState<
+    { status: 'cancelled' | 'not-cancelled'; message: string; helpline?: string | null } | null
+  >(null);
 
   const upcoming = schedule?.upcoming.find((x) => x.id === id);
   const past = schedule?.past.find((x) => x.id === id);
@@ -139,29 +152,62 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
       .finally(() => setThinking(false));
   };
 
-  const reportCancelled = () => {
+  const openReport = () => { setReportResult(null); setReportOpen(true); };
+  const closeReport = () => { if (!reporting) setReportOpen(false); };
+
+  const runReportCheck = () => {
     if (reporting) return;
-    const ok = window.confirm(
-      'Tell us this flight has been cancelled?\n\n'
-      + 'We will start rebooking you straight away. We will check it against the airline before '
-      + 'moving anyone else on this flight, and nothing is charged without telling you first.',
-    );
-    if (!ok) return;
     setReporting(true);
     fetch(`/api/flights/${id}/report-cancellation`, { method: 'POST' })
       .then((r) => r.json())
-      .then((r) => setReported({ message: r.message ?? r.error ?? 'Reported.', confirmed: !!r.confirmed }))
-      .catch(() => setReported({ message: 'We could not send that just now — please try again.', confirmed: false }))
+      .then((r) =>
+        setReportResult({
+          status: r.status === 'cancelled' || r.confirmed ? 'cancelled' : 'not-cancelled',
+          message: r.message ?? r.error ?? 'Checked.',
+          helpline: r.helpline ?? null,
+        }),
+      )
+      .catch(() =>
+        setReportResult({
+          status: 'not-cancelled',
+          message: 'We could not reach our systems just now — please try again in a moment.',
+          helpline: null,
+        }),
+      )
       .finally(() => setReporting(false));
   };
 
-  const authorise = () => {
-    fetch(`/api/flights/${id}/preauth`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ altId, hotelId, cabId }),
-    }).then(() => setIntent(null));
+  const authorise = async () => {
+    // Send the RESOLVED selection, not the raw pickers. `hotelId`/`cabId` state
+    // has no UI on this screen and is always null; `alt`/`hotel`/`cab` (below)
+    // already resolve to the chosen row or a sensible default. Only the
+    // alternative is required — hotel/cab ride along when they exist.
+    if (authBusy || !alt?.id) return;
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const res = await fetch(`/api/flights/${id}/preauth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ altId: alt.id, hotelId: hotel?.id ?? null, cabId: cab?.id ?? null }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setAuthError(body.error ?? `Could not save that instruction (${res.status}).`);
+        return;
+      }
+      setAuthDone(true);
+      setIntent(null);
+    } catch {
+      setAuthError('We could not reach the service just now — please try again.');
+    } finally {
+      setAuthBusy(false);
+    }
   };
+
+  // Changing the chosen alternative invalidates a previous confirmation — clear
+  // the "saved" tick and any error so the button reflects the current choice.
+  useEffect(() => { setAuthDone(false); setAuthError(null); }, [altId]);
 
   // Reverify lives here (not inside ForecastAudit) because its trigger sits
   // next to the headline score, not in the audit panel below. liveForecast
@@ -303,12 +349,15 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const planning = atOrAbove(fc?.band, PLAN_AT);
 
   // The intent preview re-orders the list; without one we show what the scorer
-  // already decided. Either way the member is looking at a real ranking.
-  const orderedAlts = intent?.understood && intent.options?.length
+  // already decided. Either way the member is looking at a real ranking. Capped
+  // to the ranker's top 5 — a member choosing a replacement does not want to
+  // scroll a whole inventory, and anything past the fifth-best is noise.
+  const orderedAlts = (intent?.understood && intent.options?.length
     ? (intent.options
         .map((o) => usableAlts.find((a) => a.id === o.id))
         .filter(Boolean) as typeof usableAlts)
-    : usableAlts;
+    : usableAlts
+  ).slice(0, 5);
 
   const alt = orderedAlts.find((a) => a.id === altId) ?? orderedAlts[0];
   const hotel = detail.candidates.hotels.find((h) => h.id === hotelId)
@@ -355,7 +404,7 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
                 />
               </svg>
               <div className="val">
-                <div className={`n ${tone}`}>{headline ?? '—'}</div>
+                <div className={`n ${tone}`}><AnimatedScore value={headline} /></div>
                 <div className="c">
                   risk score
                   {fc && (
@@ -687,8 +736,21 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
                   </p>
                 ) : null}
 
-                <button className="cta" onClick={authorise} style={{ width: '100%' }}>
-                  Yes — do this if it cancels
+                {authError && (
+                  <p className="why" style={{ color: 'var(--risk)' }}>{authError}</p>
+                )}
+
+                <button
+                  className="cta"
+                  onClick={authorise}
+                  disabled={authBusy || !alt?.id}
+                  style={{ width: '100%' }}
+                >
+                  {authBusy
+                    ? 'Saving…'
+                    : authDone
+                      ? 'Saved — we act the second it cancels'
+                      : 'Yes — do this if it cancels'}
                 </button>
               </div>
             </>
@@ -703,14 +765,12 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
               If the airline has told you this flight is cancelled and we have not caught it yet,
               tell us and we will start straight away rather than wait for the feed.
             </p>
-            {reported ? (
-              <p className="why" style={{ color: reported.confirmed ? 'var(--safe)' : undefined }}>
-                {reported.message}
+            {reportResult && !reportOpen ? (
+              <p className="why" style={{ color: reportResult.status === 'cancelled' ? 'var(--safe)' : undefined }}>
+                {reportResult.message}
               </p>
             ) : (
-              <button onClick={reportCancelled} disabled={reporting}>
-                {reporting ? 'Sending…' : 'This flight was cancelled'}
-              </button>
+              <button onClick={openReport}>This flight was cancelled</button>
             )}
           </div>
         </div>
@@ -719,6 +779,52 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
       {fc && (
         <div style={{ marginTop: 16 }}>
           <ForecastAudit forecast={fc} history={detail.forecastHistory} depISO={f.depISO} />
+        </div>
+      )}
+
+      {reportOpen && (
+        <div className="zkd-modal-scrim" role="dialog" aria-modal="true" onClick={closeReport}>
+          <div className="zkd-modal" onClick={(e) => e.stopPropagation()}>
+            {!reportResult ? (
+              <>
+                <h3>Sorry for the inconvenience</h3>
+                <p>
+                  Before we do anything, let us check {detail.code} against the airline&apos;s own
+                  records. If it really has been cancelled we&apos;ll mark it and start rebooking you
+                  right away — and nothing is charged without telling you first.
+                </p>
+                <div className="zkd-modal-acts">
+                  <button className="zkd-btn primary" onClick={runReportCheck} disabled={reporting}>
+                    {reporting ? 'Checking…' : 'Check now'}
+                  </button>
+                  <button className="zkd-btn ghost" onClick={closeReport} disabled={reporting}>Not now</button>
+                </div>
+              </>
+            ) : reportResult.status === 'cancelled' ? (
+              <>
+                <h3 style={{ color: 'var(--safe)' }}>We&apos;ve marked it cancelled</h3>
+                <p>{reportResult.message}</p>
+                <div className="zkd-modal-acts">
+                  <a className="zkd-btn primary" href={`/recovery/${id}`}>See your rebooking →</a>
+                  <button className="zkd-btn ghost" onClick={closeReport}>Close</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3>Good news — it&apos;s not cancelled</h3>
+                <p>{reportResult.message}</p>
+                {reportResult.helpline && (
+                  <p className="zkd-help">
+                    Helpline:{' '}
+                    <a href={`tel:${reportResult.helpline.replace(/\s+/g, '')}`}>{reportResult.helpline}</a>
+                  </p>
+                )}
+                <div className="zkd-modal-acts">
+                  <button className="zkd-btn primary" onClick={closeReport}>Got it</button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

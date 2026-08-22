@@ -177,7 +177,7 @@ export type PipelineRun = {
   changedAt: number;
   replans: number;
   /** ids of the chosen plan, in the domain's own vocabulary */
-  plan: { altId: string; hotelId: string; cabId: string } | null;
+  plan: { altId: string; hotelId: string | null; cabId: string | null } | null;
   /** per-source status from the last search, for /ops */
   sources: Record<string, string>;
   /** components actually committed, in order — the rollback stack */

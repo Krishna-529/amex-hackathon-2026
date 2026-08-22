@@ -7,10 +7,17 @@ import { isSameOriginRequest } from '@/server/auth/csrf';
 import type { PreAuthRequest, PreAuthResponse } from '@/lib/apiTypes';
 import { parseJsonBody, isNonEmptyString } from '@/server/jsonBody';
 
+/** Only the alternative is mandatory. Hotel and cab are optional add-ons to the
+ *  pre-authorised plan (the detail screen offers no picker for them), so each
+ *  must be either a non-empty string or explicitly null — anything else is a
+ *  malformed body. */
+function isNullableString(v: unknown): v is string | null {
+  return v === null || isNonEmptyString(v);
+}
 function isPreAuthBody(v: unknown): v is PreAuthRequest {
   if (typeof v !== 'object' || v === null) return false;
   const o = v as Record<string, unknown>;
-  return isNonEmptyString(o.altId) && isNonEmptyString(o.hotelId) && isNonEmptyString(o.cabId);
+  return isNonEmptyString(o.altId) && isNullableString(o.hotelId) && isNullableString(o.cabId);
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

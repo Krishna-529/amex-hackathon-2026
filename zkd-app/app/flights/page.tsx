@@ -10,6 +10,7 @@ import { usePoll } from '@/lib/usePoll';
 import { dayLabel } from '@/lib/time';
 import type { PreAuthResponse } from '@/lib/apiTypes';
 import { FlightsSkeleton } from '@/components/PageSkeletons';
+import { AnimatedScore } from '@/components/AnimatedScore';
 
 export default function FlightsPage() {
   const { passengerId, schedule } = useWorld();
@@ -196,7 +197,7 @@ export default function FlightsPage() {
                       label underneath says the same thing in words.
                     */}
                     <div className={`n ${active?.forecast?.tone ?? 'low'}`}>
-                      {active?.forecast ? Math.round(active.forecast.riskScore ?? active.forecast.pct) : '—'}
+                      <AnimatedScore value={active?.forecast ? Math.round(active.forecast.riskScore ?? active.forecast.pct) : null} />
                       {active?.forecast && <span className="n-den">/100</span>}
                     </div>
                     <div className="lb">

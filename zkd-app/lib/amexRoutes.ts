@@ -20,10 +20,17 @@
  * console rather than a member screen, and the recovery flow's urgency reads
  * better dark.
  */
-export const AMEX_ROUTES = new Set(['/', '/login', '/flights']);
+export const AMEX_ROUTES = new Set([
+  '/', '/login', '/flights',
+  // Every member-facing page carries the light Amex skin so the experience is
+  // consistent end to end. Only /ops (the operator console) stays dark.
+  '/history', '/how-it-works', '/profile', '/settings', '/prepare',
+]);
 
-/** Routes whose entire subtree is skinned. Trailing slash is load-bearing. */
-const AMEX_PREFIXES = ['/flights/'];
+/** Routes whose entire subtree is skinned. Trailing slash is load-bearing.
+ *  `/recovery/` and `/prepare/` are skinned too so the member stays on the
+ *  light Amex theme through those flows instead of jumping to the dark glass. */
+const AMEX_PREFIXES = ['/flights/', '/recovery/', '/prepare/'];
 
 export function isAmexRoute(pathname: string): boolean {
   if (AMEX_ROUTES.has(pathname)) return true;
