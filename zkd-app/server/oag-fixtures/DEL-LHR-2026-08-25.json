@@ -403,6 +403,7 @@
       }
     },
     "elapsedTime": 585,
+    "cargoTonnage": 0,
     "aircraftType": {
       "iata": "351",
       "icao": "A35K"
@@ -483,6 +484,7 @@
       }
     },
     "elapsedTime": 585,
+    "cargoTonnage": 0,
     "aircraftType": {
       "iata": "351",
       "icao": "A35K"
