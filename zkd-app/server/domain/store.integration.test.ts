@@ -240,7 +240,7 @@ describe.skipIf(!hasDb)('store.ts against real Postgres', () => {
     const run = {
       id: `pr-${flightId}:${passengerId}`, flightId, passengerId,
       state: 'TRIGGERED' as const, startedAt: Date.now(), changedAt: Date.now(),
-      replans: 0, plan: null, sources: {}, committed: [], orphans: [],
+      replans: 0, memberReplans: 0, plan: null, sources: {}, committed: [], orphans: [],
       mutationsEnabled: false, journal: [],
     };
     store.setPipelineRun(run);
@@ -273,5 +273,31 @@ describe.skipIf(!hasDb)('store.ts against real Postgres', () => {
 
     await store.clearPreAuth(flightA, passengerId);
     await store.clearPreAuth(flightB, passengerId);
+  });
+
+  test('session prefs round-trip through Postgres, isolate per flight+passenger, and clear', async () => {
+    const flightId = `flt-session-${Date.now()}`;
+    const passengerId = `p-session-${Date.now()}`;
+    const override: import('../preferences/intent').PreferenceOverride = {
+      restated_intent: 'Avoid Air India, an SUV is fine',
+      strategy: null, hard_deadline_iso: null, deadline_reason: null,
+      avoid_airlines: ['AI'], prefer_airlines: [], max_layovers: null,
+      allow_cabin_downgrade: null, max_out_of_pocket: null, overnight_ok: null,
+      needs_hotel: null, hotel_max_distance_km: null, hotel_amenities: [],
+      vehicle_tier: 'xl', accessibility: null, unsupported: [], confidence: 'high',
+    };
+    await store.setSessionPrefs({ flightId, passengerId, override, restated: override.restated_intent, setAt: Date.now() });
+
+    const back = await store.getSessionPrefs(flightId, passengerId);
+    expect(back?.override.avoid_airlines).toEqual(['AI']);
+    expect(back?.override.vehicle_tier).toBe('xl');
+    expect(back?.restated).toBe('Avoid Air India, an SUV is fine');
+
+    // Keyed per flight+passenger, exactly like journey_prefs: another passenger
+    // on the same flight has their own (here, none).
+    expect(await store.getSessionPrefs(flightId, `${passengerId}-other`)).toBeUndefined();
+
+    await store.clearSessionPrefs(flightId, passengerId);
+    expect(await store.getSessionPrefs(flightId, passengerId)).toBeUndefined();
   });
 });

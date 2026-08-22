@@ -24,6 +24,7 @@ function runAt(state: PipelineState): PipelineRun {
     startedAt: now,
     changedAt: now,
     replans: 0,
+    memberReplans: 0,
     plan: null,
     sources: {},
     committed: [],
