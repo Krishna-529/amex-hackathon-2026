@@ -1,6 +1,7 @@
 /** Response-shaping helpers — turn domain entities into the API contract shapes in lib/apiTypes.ts. */
 import * as store from './store';
 import { refreshIfStale } from '../engine/forecast';
+import { refreshAltsNow } from '../engine/altsCache';
 import { altsForParty } from './altsForParty';
 import { costFor } from './pricing';
 import { estimateRefund } from './refund';
@@ -134,6 +135,12 @@ export async function convertAltsToBillingCurrency(alts: Alt[]): Promise<Alt[]> 
  * would be visible to anyone who could reach this flight's id).
  */
 export async function toFlightDetail(flight: Flight, viewerPassengerId: string): Promise<FlightDetail> {
+  const highRisk = flight.forecast && (flight.forecast.band !== 'watch' || (flight.forecast.riskScore ?? 0) >= 55);
+  if (flight.candidates.alts.length === 0 && highRisk) {
+    await refreshAltsNow(flight.id, 'auto-warm on high risk').catch(() => {});
+    const updated = await store.getFlight(flight.id);
+    if (updated) flight = updated;
+  }
   const bookings = await store.getBookingsForFlight(flight.id);
   const own = bookings.find((b) => b.passengerId === viewerPassengerId);
   const partySize = own ? store.partySize(own) : 1;
