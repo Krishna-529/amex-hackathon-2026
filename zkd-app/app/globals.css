@@ -1492,13 +1492,27 @@ body:has(.amex-page) footer {
   --sk-hi: rgba(255, 255, 255, .13);
 }
 /* The light skin: the page itself, and the white account bar of its header
-   (which is a sibling of `.amex-page`, not a descendant, so it needs saying). */
+   (which is a sibling of `.amex-page`, not a descendant, so it needs saying).
+   The base is a clear step below the white card so a placeholder actually reads
+   as content-shaped, and the sweep highlight is near-white — the base->hi gap is
+   what animates, and the old values (#e3e7ee over #f5f8fc) were too close to
+   move visibly. */
 .amex-page,
 .amex-header {
-  --sk-base: #e3e7ee;
-  --sk-hi: var(--amex-surf);
+  --sk-base: #d7dde7;
+  --sk-hi: #f6f9fd;
 }
-/* ...but the blue sub-bar nested inside that header is dark ground again. */
+/* The Amex pages also respond to the dark toggle, so their skeletons have to
+   flip too — without this the light base/hi above stayed put and dark mode got a
+   pale-grey block with an inverted (dark) shimmer. Mirrors the default dark
+   values, a touch brighter so the sweep reads on the dark --amex-card. */
+:root[data-theme='dark'] .amex-page,
+:root[data-theme='dark'] .amex-header {
+  --sk-base: rgba(255, 255, 255, .06);
+  --sk-hi: rgba(255, 255, 255, .14);
+}
+/* ...but the blue sub-bar nested inside that header is dark ground in both
+   themes, so its white-on-blue values are already correct. */
 .amex-subbar {
   --sk-base: rgba(255, 255, 255, .22);
   --sk-hi: rgba(255, 255, 255, .42);

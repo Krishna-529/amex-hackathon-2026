@@ -38,6 +38,14 @@ export async function register() {
     const { startBatchScorer } = await import('./server/engine/batchScorer');
     startBatchScorer();
 
+    // The alt-flight ranker's offline trainer (server/pipeline/ranker/train.ts)
+    // used to be a manual-only CLI script with no automatic trigger — member
+    // choices could accumulate in Postgres indefinitely with nothing ever
+    // learning from them. Mirrors startBatchScorer()'s self-starting interval
+    // pattern; cheap to tick when there is nothing new to fit.
+    const { startRankerTrainer } = await import('./server/pipeline/ranker/schedule');
+    startRankerTrainer();
+
     // Asking whether the thing we predicted actually happened. Until this
     // existed, the only way a cancellation ever reached the system was a human
     // pressing a button on /ops — the AviationStack lookup and the classifier

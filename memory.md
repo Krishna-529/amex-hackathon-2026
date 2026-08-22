@@ -1495,3 +1495,50 @@ pre-existing DB-connectivity failures as baseline — `memberReports.test.ts` ×
 unrelated to anything touched this session), `node --experimental-strip-types
 server/pipeline/verify.ts` (all scorer checks pass), and a full production build with dummy
 `SESSION_SECRET`/`OPS_SECRET`/`OPS_ACCESS_KEY`/`OPS_SESSION_SECRET` env vars.
+
+---
+
+## 2026-08-22 — The learned ranker had a real learning mechanism and no way to ever run it
+
+Asked directly: is the alt-flight ranker actually adaptive/learning like a recsys, or static
+weights dressed up to look adaptive? Read `weights.ts`/`train.ts` fresh rather than trusting the
+prior session's memory of them, and the honest answer had two parts.
+
+The mechanism itself is real: `resolveWeights()`'s 4-layer chain (strategy prior -> MyCa warm start
+-> empirical-Bayes-shrunk global learned -> empirical-Bayes-shrunk member learned), and `train.ts`'s
+conditional-logit fit with L2-to-prior, monotone projection, and held-out promotion before anything
+ships. Not a fake. But `model.json`'s own `note` field admits `learnedByStrategy`/`learnedByMember`
+are both empty — every ranking today runs on hand-set priors only — and `grep`-confirmed `train.ts`
+had no caller anywhere except a human typing the CLI command. Architecturally adaptive, operationally
+static, because nothing ever triggered the trainer.
+
+Fixed by extracting `train.ts`'s CLI body into an exported `runTrainingPass()` and adding
+`server/pipeline/ranker/schedule.ts` — a self-starting interval, deliberately shaped exactly like
+`batchScorer.ts` (globalThis guard, self-rescheduling `setTimeout`, re-reads its interval each tick)
+because that is the one pattern already proven in this codebase for "the app needs to do something
+on a clock, independent of any page view." Wired into `instrumentation.ts` next to
+`startBatchScorer()`. `RANKER_RETRAIN_INTERVAL_MS` overrides the 30-minute default. Cheap to tick
+immediately at startup (unlike `batchScorer`'s real supplier-cost concern) because
+`buildObservations` returning `[]` short-circuits the whole per-strategy fit loop before any
+gradient descent runs — an empty tick costs a few cheap Postgres reads, nothing more.
+
+**A second, real bug found while wiring this, not by going looking for it**: `weights.ts`'s
+`getArtifact()` caches `model.json` in an in-process variable and never re-reads it —
+`loadArtifact()`'s own docstring claimed "re-reading only when the file changes," which was never
+actually implemented. Training now runs in the SAME process as serving (via the scheduler), so
+without a fix a promotion would write a new `model.json` to disk that the very process that just
+wrote it would never see, silently, until its next restart — the scheduler would have looked like it
+was working (logs, a version bump, a new file on disk) while serving kept ranking on the stale
+cached vector forever. Fixed by having `schedule.ts` call `loadArtifact()` immediately after a
+successful promotion, forcing the cache. Kept `getArtifact()`'s no-fs.stat hot-path cheap on
+purpose — it runs on every ranking — rather than adding a per-call mtime check to fix the same gap
+a different way.
+
+Smoke-tested directly against no reachable Postgres (this dev machine has none running): fails fast
+with a real `ECONNREFUSED`, caught by `startRankerTrainer()`'s own `.catch()`, no crash, no hang —
+matching every other `instrumentation.ts` hook's established degrade-honestly convention.
+
+**Still genuinely cold-started** — the loop is now fully wired end to end, but no real interaction
+history exists on this branch yet, so there is nothing for the first several ticks to promote. That
+is an honest, expected state, not a bug: real learning starts accumulating the moment real recovery
+choices happen against a running instance of this branch.

@@ -346,8 +346,19 @@ issues found; 9 fixed same-session, 2 documented as genuine larger efforts (see 
   now awaits rung-3 delivery, grants one 5-minute grace retry, and halts to a human rather than
   booking blind if delivery still can't be confirmed. See "EXECUTE plane" section above.
 - ~~The learned ranker cannot learn~~ — **fixed 2026-08-21**: `train.ts` now reconciles resolved
-  `RecoveryTask`s against the shown-set log offline (`reconcile.ts`). Still cold-started in
-  practice — no accumulated resolution history exists yet on this branch to learn from.
+  `RecoveryTask`s against the shown-set log offline (`reconcile.ts`).
+- ~~The learned ranker had no automatic trigger~~ — **fixed 2026-08-22**: `train.ts`'s fit
+  (`runTrainingPass`) was reachable only via a manual CLI invocation — `weights.ts`'s 4-layer
+  `resolveWeights` chain (prior -> MyCa warm start -> global learned -> member learned) was
+  architecturally adaptive but operationally static. New `server/pipeline/ranker/schedule.ts`
+  mirrors `batchScorer.ts`'s self-starting interval pattern (30 min default, `RANKER_RETRAIN_INTERVAL_MS`
+  override, wired into `instrumentation.ts`). Also fixed a real bug this surfaced: `weights.ts`'s
+  `getArtifact()` caches `model.json` forever and never re-reads it, so a promoted model would have
+  sat on disk unused by the very process that trained it — `schedule.ts` now calls `loadArtifact()`
+  after every promotion. **Still cold-started in practice** — no accumulated resolution history
+  exists yet on this branch, so `model.json`'s `learnedByStrategy`/`learnedByMember` stay empty and
+  every ranking still runs on the hand-set prior + MyCa offsets until real interaction volume
+  exists. The loop is now fully wired; it has nothing to learn from yet.
 - ~~`@temporalio/client`/`@langchain/*` dead dependencies~~ — **removed 2026-08-21** (all three had
   zero live references), `npm install` clean, `tsc` clean.
 - **Cross-lineage opportunity**: this branch's risk model (2-country, ROC-AUC 0.804) is measurably

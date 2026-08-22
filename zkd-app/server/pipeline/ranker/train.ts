@@ -4,6 +4,14 @@
  * strategy, and writes a new model.json. Same cadence and shape as the weekly
  * risk-model retrain: a job, an artifact, a metrics line.
  *
+ * The actual fit-and-maybe-write logic is `runTrainingPass()`, called from two
+ * places: the CLI entrypoint at the bottom of this file (manual, one-shot,
+ * prints per-strategy detail) and `server/pipeline/ranker/schedule.ts` (a
+ * self-starting interval, mirroring `batchScorer.ts`'s pattern, wired into
+ * `instrumentation.ts`) — added 2026-08-22 because this file previously had
+ * no automatic trigger at all: interaction data could accumulate in Postgres
+ * indefinitely without anything ever learning from it.
+ *
  * The maths is a maximum-likelihood conditional logit with three anti-overfit
  * controls stacked on top, because a learned ranker in a spend path has to be
  * conservative by construction, not by luck:
@@ -294,42 +302,82 @@ async function loadResolvedChoicesFromDb(): Promise<ReturnType<typeof reconcileC
   }
 }
 
+export type TrainingPassResult = {
+  observations: number;
+  reconciledFromDb: number;
+  directlyLogged: number;
+  fits: StrategyFit[];
+  promoted: boolean;
+  newVersion?: number;
+};
+
+/**
+ * Read every log, fit every strategy with enough data, and write a new
+ * model.json if anything cleared its promotion bar. Cheap to call when there
+ * is nothing to learn from yet: `buildObservations` returning [] means the
+ * strategy loop below never runs — no gradient descent, no writes — which is
+ * what makes it safe for `schedule.ts` to call this on a short, immediate-at-
+ * startup interval rather than the manual, occasional cadence the CLI
+ * entrypoint below originally assumed.
+ */
+export async function runTrainingPass(): Promise<TrainingPassResult> {
+  const art = loadArtifactFrom();
+  const { loadShownSetsFromDb, loadChoicesFromDb } = await import('./decisionLog.ts');
+  const shown = await loadShownSetsFromDb();
+  const loggedChoices = await loadChoicesFromDb();
+  const reconciled = await loadResolvedChoicesFromDb();
+
+  // Merge, preferring a directly-logged choice over a reconciled one for the
+  // same decisionId (a real future live wiring would be more authoritative
+  // than an offline nearest-match heuristic) — dedupe on decisionId.
+  const byDecisionId = new Map<string, { decisionId: string; chosenAltId: string }>();
+  for (const c of reconciled) byDecisionId.set(c.decisionId, c);
+  for (const c of loggedChoices) byDecisionId.set(c.decisionId, c);
+  const choices = [...byDecisionId.values()];
+
+  const obs = buildObservations(shown, choices);
+
+  const byStrategy = new Map<string, Observation[]>();
+  for (const o of obs) (byStrategy.get(o.strategy) ?? byStrategy.set(o.strategy, []).get(o.strategy)!).push(o);
+
+  const fits: StrategyFit[] = [];
+  for (const [strategy, os] of byStrategy) fits.push(fitStrategy(art, strategy, os));
+
+  let promoted = false;
+  let newVersion: number | undefined;
+  if (fits.some((f) => f.promoted)) {
+    const next = updateArtifact(art, fits, {});
+    writeFileSync(ARTIFACT_PATH, JSON.stringify(next, null, 2) + '\n');
+    promoted = true;
+    newVersion = next.version;
+  }
+
+  return {
+    observations: obs.length,
+    reconciledFromDb: reconciled.length,
+    directlyLogged: loggedChoices.length,
+    fits,
+    promoted,
+    newVersion,
+  };
+}
+
 // Run directly: `node --experimental-strip-types server/pipeline/ranker/train.ts`
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}` || process.argv[1]?.endsWith('train.ts')) {
   (async () => {
-    const art = loadArtifactFrom();
-    const { loadShownSetsFromDb, loadChoicesFromDb } = await import('./decisionLog.ts');
-    const shown = await loadShownSetsFromDb();
-    const loggedChoices = await loadChoicesFromDb();
-    const reconciled = await loadResolvedChoicesFromDb();
+    const result = await runTrainingPass();
 
-    // Merge, preferring a directly-logged choice over a reconciled one for the
-    // same decisionId (a real future live wiring would be more authoritative
-    // than an offline nearest-match heuristic) — dedupe on decisionId.
-    const byDecisionId = new Map<string, { decisionId: string; chosenAltId: string }>();
-    for (const c of reconciled) byDecisionId.set(c.decisionId, c);
-    for (const c of loggedChoices) byDecisionId.set(c.decisionId, c);
-    const choices = [...byDecisionId.values()];
-
-    const obs = buildObservations(shown, choices);
-
-    const byStrategy = new Map<string, Observation[]>();
-    for (const o of obs) (byStrategy.get(o.strategy) ?? byStrategy.set(o.strategy, []).get(o.strategy)!).push(o);
-
-    const fits: StrategyFit[] = [];
-    for (const [strategy, os] of byStrategy) fits.push(fitStrategy(art, strategy, os));
-
-    console.log(`observations: ${obs.length} (${reconciled.length} reconciled from Postgres, ${loggedChoices.length} directly logged)`);
-    for (const f of fits) {
+    console.log(
+      `observations: ${result.observations} (${result.reconciledFromDb} reconciled from Postgres, ${result.directlyLogged} directly logged)`,
+    );
+    for (const f of result.fits) {
       console.log(
         `  ${f.strategy}: n=${f.n} held-out NLL ${f.heldOutNllChallenger.toFixed(4)} vs incumbent ${f.heldOutNllIncumbent.toFixed(4)} → ${f.promoted ? 'PROMOTE' : 'keep prior'}`,
       );
     }
 
-    if (fits.some((f) => f.promoted)) {
-      const next = updateArtifact(art, fits, {});
-      writeFileSync(ARTIFACT_PATH, JSON.stringify(next, null, 2) + '\n');
-      console.log(`wrote model.json v${next.version}`);
+    if (result.promoted) {
+      console.log(`wrote model.json v${result.newVersion}`);
     } else {
       console.log('no promotion — model.json unchanged');
     }
