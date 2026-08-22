@@ -1,63 +1,60 @@
 """
-ZKD Concierge logo generator. One master vector shape (a paper-plane dart,
-evoking "departure"), rendered at every size Android and the web app need.
-Brand colors pulled directly from zkd-app/app/globals.css and app.json —
-iris blue #2f7ff0 accent, #080c14 near-black background.
+ZKD Concierge logo generator. One master raster (assets/brand/zkd-logo.png —
+the globe + departing-plane mark) rendered at every size the web app, the
+website builds and the Android app need.
+
+Previously this script drew a procedural paper-plane dart with PIL primitives;
+there was no source image. It now resizes the real master into each output
+instead, so replacing the brand mark going forward is "swap the master PNG and
+re-run this," not "redraw the polygon math."
+
+Run from the repo root: `python tools/build_logo.py`.
 """
-from PIL import Image, ImageDraw, ImageFont
-import math
+from PIL import Image, ImageDraw
 
-IRIS = (47, 127, 240, 255)      # #2f7ff0
-NAVY = (8, 12, 20, 255)         # #080c14
-WHITE = (255, 255, 255, 255)
-
-# Plane silhouette in a 100x100 box: classic paper-plane/dart shape (nose at
-# top-right, concave notch at the tail) pointing up-right — "departure".
-PLANE_PTS = [
-    (94, 12),   # nose tip
-    (8, 42),    # back, top wingtip
-    (52, 56),   # tail notch (concave point)
-    (30, 92),   # back, bottom wingtip
-]
-
-def plane_polygon(size, scale=0.62, dx=0, dy=0):
-    """Return PLANE_PTS scaled/centered into a `size`x`size` canvas."""
-    cx = cy = 50
-    pts = []
-    for x, y in PLANE_PTS:
-        # center on origin, scale, then place at canvas center + offset
-        px = (x - cx) * scale
-        py = (y - cy) * scale
-        pts.append((size / 2 + px + dx, size / 2 + py + dy))
-    return pts
+MASTER_PATH = 'assets/brand/zkd-logo.png'
+IRIS = (47, 127, 240, 255)   # #2f7ff0 — kept as the adaptive-icon background only
 
 
-def draw_plane(d, size, scale, color, dx=0, dy=0):
-    d.polygon(plane_polygon(size, scale=scale, dx=dx, dy=dy), fill=color)
-
-
-def icon_square(size, bg=IRIS, fg=WHITE):
-    im = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    d.rectangle([0, 0, size, size], fill=bg)
-    draw_plane(d, size, scale=size * 0.72 / 100, color=fg)
+def load_master() -> Image.Image:
+    im = Image.open(MASTER_PATH).convert('RGBA')
+    if im.width != im.height:
+        # Center-crop to square first — every output below assumes a square
+        # source. The current master already is square; this just makes a
+        # future non-square replacement fail safely instead of distorting.
+        side = min(im.size)
+        left = (im.width - side) // 2
+        top = (im.height - side) // 2
+        im = im.crop((left, top, left + side, top + side))
     return im
 
 
-def icon_rounded(size, bg=IRIS, fg=WHITE, radius_ratio=0.22):
-    im = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    d.rounded_rectangle([0, 0, size - 1, size - 1], radius=int(size * radius_ratio), fill=bg)
-    draw_plane(d, size, scale=size * 0.66 / 100, color=fg)
+def resized(master: Image.Image, size: int) -> Image.Image:
+    return master.resize((size, size), Image.LANCZOS)
+
+
+def rounded(master: Image.Image, size: int, radius_ratio: float) -> Image.Image:
+    """Full-bleed resize with a rounded-rect alpha mask — the same rounded
+    brand-tile look the old procedural icons had."""
+    im = resized(master, size).convert('RGBA')
+    mask = Image.new('L', (size, size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        [0, 0, size - 1, size - 1], radius=int(size * radius_ratio), fill=255,
+    )
+    im.putalpha(mask)
     return im
 
 
-def splash_logo(size, color=IRIS):
-    """Transparent background (composited over the native white splash bg)."""
-    im = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    draw_plane(d, size, scale=size * 0.62 / 100, color=color)
-    return im
+def inset_on_transparent(master: Image.Image, canvas: int, scale: float) -> Image.Image:
+    """The master scaled to `scale` of `canvas`, centered on a transparent
+    square — for Android's adaptive-icon foreground, which the OS masks and
+    which must leave room in its safe zone rather than fill edge-to-edge."""
+    inner = int(canvas * scale)
+    fg = resized(master, inner)
+    out = Image.new('RGBA', (canvas, canvas), (0, 0, 0, 0))
+    off = (canvas - inner) // 2
+    out.paste(fg, (off, off), fg)
+    return out
 
 
 ANDROID_SIZES = {
@@ -69,16 +66,32 @@ SPLASH_SIZES = {
 
 ANDROID_RES = 'zkd-android/android/app/src/main/res'
 
+master = load_master()
+
+# Android native launcher icons. ic_launcher.webp full-bleed, ic_launcher_round
+# rounded-rect — same pairing the old script used, just swapping what's drawn.
 for density, sz in ANDROID_SIZES.items():
-    icon_square(sz).save(f'{ANDROID_RES}/mipmap-{density}/ic_launcher.webp', 'WEBP', lossless=True)
-    icon_rounded(sz).save(f'{ANDROID_RES}/mipmap-{density}/ic_launcher_round.webp', 'WEBP', lossless=True)
+    resized(master, sz).save(f'{ANDROID_RES}/mipmap-{density}/ic_launcher.webp', 'WEBP', lossless=True)
+    rounded(master, sz, 0.22).save(f'{ANDROID_RES}/mipmap-{density}/ic_launcher_round.webp', 'WEBP', lossless=True)
 
+# Splash-screen logo tile, one per density, composited by the OS over the
+# native splash backgroundColor (app.json's #080c14).
 for density, sz in SPLASH_SIZES.items():
-    splash_logo(sz).save(f'{ANDROID_RES}/drawable-{density}/splashscreen_logo.png', 'PNG')
+    resized(master, sz).save(f'{ANDROID_RES}/drawable-{density}/splashscreen_logo.png', 'PNG')
 
-# Web: favicon + a standalone brand mark PNG for reference/social use
-icon_rounded(512, radius_ratio=0.22).save('zkd-app/public/brand/icon-512.png', 'PNG')
-icon_rounded(192, radius_ratio=0.22).save('zkd-app/public/brand/icon-192.png', 'PNG')
-icon_rounded(32, radius_ratio=0.28).save('zkd-app/public/favicon-32.png', 'PNG')
+# Expo config assets (app.json), separate from the native res/ tree above.
+resized(master, 1024).save('zkd-android/assets/icon.png', 'PNG')
+resized(master, 1024).save('zkd-android/assets/splash.png', 'PNG')
+# Adaptive icon foreground: Android masks this per-OEM shape, so content must
+# sit inside a safe zone rather than fill the canvas — the visible ring is
+# app.json's adaptiveIcon.backgroundColor (#2f7ff0).
+inset_on_transparent(master, 1024, 0.66).save('zkd-android/assets/adaptive-icon.png', 'PNG')
+# The in-app header mark (src/ui.tsx, rendered at 28x28 with borderRadius 9).
+resized(master, 168).save('zkd-android/assets/logo.png', 'PNG')
+
+# Web: favicon + rounded brand-mark PNGs used by the app header and manifest.
+rounded(master, 512, 0.22).save('zkd-app/public/brand/icon-512.png', 'PNG')
+rounded(master, 192, 0.22).save('zkd-app/public/brand/icon-192.png', 'PNG')
+rounded(master, 32, 0.28).save('zkd-app/public/favicon-32.png', 'PNG')
 
 print('done')

@@ -13,7 +13,11 @@ export const metadata: Metadata = {
   description:
     'Watches every booking, detects a disruption the moment the airline files it, and rebooks your flight, hotel and ground legs inside your policy.',
   icons: {
-    icon: '/favicon.svg',
+    icon: [
+      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/brand/icon-192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: '/brand/icon-192.png',
   },
 };
 

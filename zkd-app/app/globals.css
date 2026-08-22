@@ -84,7 +84,7 @@ body{
   border-bottom:1px solid var(--edge)}
 .site-in{max-width:1160px;margin:0 auto;padding:15px 32px;display:flex;align-items:center;gap:14px}
 .logo{width:30px;height:30px;border-radius:10px;flex:none;display:flex}
-.logo svg{width:100%;height:100%;border-radius:10px}
+.logo svg,.logo img{width:100%;height:100%;border-radius:10px;object-fit:cover}
 .site .nm{font-family:var(--amex-serif);font-weight:400;font-size:18.5px;letter-spacing:.002em;
   color:var(--text)}
 .site .sp{flex:1}
@@ -666,7 +666,8 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 .amex-topbar{display:flex;align-items:center;gap:26px;padding:14px 32px;max-width:1160px;margin:0 auto}
 .amex-mark{display:flex;align-items:center;gap:11px;flex:none;color:inherit;text-decoration:none}
 .amex-mark .box{width:34px;height:34px;border-radius:9px;background:linear-gradient(155deg,#2a8ae8,var(--amex-blue) 60%,var(--amex-blue-dark));
-  display:grid;place-items:center;flex:none;box-shadow:0 3px 10px -3px rgba(1,111,208,.5)}
+  display:grid;place-items:center;flex:none;box-shadow:0 3px 10px -3px rgba(1,111,208,.5);overflow:hidden}
+.amex-mark .box img{width:30px;height:30px;border-radius:5px;object-fit:cover}
 .amex-mark .wd{font-family:var(--amex-serif);font-weight:400;font-size:18px;color:var(--amex-ink);
   letter-spacing:.001em;white-space:nowrap}
 .amex-topbar nav{display:flex;gap:22px;flex:1}
