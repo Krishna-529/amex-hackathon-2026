@@ -203,7 +203,7 @@ export function RiskBodySkeleton() {
                 <SkLine w="4em" h={9.5} />
               </div>
               {/* the real contribution track, empty — not a bar of its own */}
-              <div style={{ flex: 1, height: 16, background: 'rgba(255,255,255,.04)', borderRadius: 3 }} />
+              <div style={{ flex: 1, height: 16, background: 'var(--sk-base)', borderRadius: 3 }} />
               <SkLine w={44} h={10.5} style={{ opacity: i % 2 ? 0.8 : 1 }} />
             </div>
           ))}
