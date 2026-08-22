@@ -1,0 +1,916 @@
+[
+  {
+    "carrier": {
+      "iata": "MH",
+      "icao": "MAS"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 5272,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-08-31"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "GOI",
+        "icao": "VOGO"
+      },
+      "terminal": "",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-09-01"
+      },
+      "time": {
+        "local": "06:05",
+        "utc": "00:35"
+      }
+    },
+    "elapsedTime": 65,
+    "cargoTonnage": 4.6,
+    "aircraftType": {
+      "iata": "321",
+      "icao": "A321"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 425,
+      "accumulatedGreatCircleMiles": 264,
+      "accumulatedGreatCircleNauticalMiles": 229,
+      "greatCircleKilometers": 425,
+      "greatCircleMiles": 264,
+      "greatCircleNauticalMiles": 229
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "6361",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "1bb3e0b28d69213d1c7c2fc0c8a26d1fc15877b86cf4114b6c73b1a20b870f00",
+    "statusKey": "02fcd5b0886246398126483e7dc32f6b8bc58c3c61958c61549db80f9c73fdfd"
+  },
+  {
+    "carrier": {
+      "iata": "AF",
+      "icao": "AFR"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 6052,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-08-31"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "GOI",
+        "icao": "VOGO"
+      },
+      "terminal": "",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-09-01"
+      },
+      "time": {
+        "local": "06:05",
+        "utc": "00:35"
+      }
+    },
+    "elapsedTime": 65,
+    "cargoTonnage": 25.5,
+    "aircraftType": {
+      "iata": "32Q",
+      "icao": "A21N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 425,
+      "accumulatedGreatCircleMiles": 264,
+      "accumulatedGreatCircleNauticalMiles": 229,
+      "greatCircleKilometers": 425,
+      "greatCircleMiles": 264,
+      "greatCircleNauticalMiles": 229
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "cockpitCrewEmployer": {
+        "code": "6E",
+        "name": "",
+        "number": "4"
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "6361",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "2923226ffd554b9ed2019f68103ae2bb9638e07cdd27afeee84f96b847688ce6",
+    "statusKey": "02fcd5b0886246398126483e7dc32f6b8bc58c3c61958c61549db80f9c73fdfd"
+  },
+  {
+    "carrier": {
+      "iata": "KL",
+      "icao": "KLM"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 3680,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-08-31"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "GOI",
+        "icao": "VOGO"
+      },
+      "terminal": "",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-09-01"
+      },
+      "time": {
+        "local": "06:05",
+        "utc": "00:35"
+      }
+    },
+    "elapsedTime": 65,
+    "cargoTonnage": 25.5,
+    "aircraftType": {
+      "iata": "32Q",
+      "icao": "A21N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 425,
+      "accumulatedGreatCircleMiles": 264,
+      "accumulatedGreatCircleNauticalMiles": 229,
+      "greatCircleKilometers": 425,
+      "greatCircleMiles": 264,
+      "greatCircleNauticalMiles": 229
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "6361",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "2da5d41aeefd72b734ee6f6eaf53ed8a31f900c01c844caa9f7813eb1de378a6",
+    "statusKey": "02fcd5b0886246398126483e7dc32f6b8bc58c3c61958c61549db80f9c73fdfd"
+  },
+  {
+    "carrier": {
+      "iata": "VS",
+      "icao": "VIR"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 8546,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-08-31"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "GOI",
+        "icao": "VOGO"
+      },
+      "terminal": "",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-09-01"
+      },
+      "time": {
+        "local": "06:05",
+        "utc": "00:35"
+      }
+    },
+    "elapsedTime": 65,
+    "cargoTonnage": 4.6,
+    "aircraftType": {
+      "iata": "321",
+      "icao": "A321"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 425,
+      "accumulatedGreatCircleMiles": 264,
+      "accumulatedGreatCircleNauticalMiles": 229,
+      "greatCircleKilometers": 425,
+      "greatCircleMiles": 264,
+      "greatCircleNauticalMiles": 229
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "6E",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "6E",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "6E",
+        "serviceNumber": "6361",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "35f5e1c7c8ce9db79ef71889ffaa46865d05a093e1e3e03fc82706adde155351",
+    "statusKey": "02fcd5b0886246398126483e7dc32f6b8bc58c3c61958c61549db80f9c73fdfd"
+  },
+  {
+    "carrier": {
+      "iata": "6E",
+      "icao": "IGO"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 6361,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-08-31"
+      },
+      "time": {
+        "local": "05:00",
+        "utc": "23:30"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "GOI",
+        "icao": "VOGO"
+      },
+      "terminal": "",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-09-01"
+      },
+      "time": {
+        "local": "06:05",
+        "utc": "00:35"
+      }
+    },
+    "elapsedTime": 65,
+    "cargoTonnage": 25.5,
+    "aircraftType": {
+      "iata": "32Q",
+      "icao": "A21N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 425,
+      "accumulatedGreatCircleMiles": 264,
+      "accumulatedGreatCircleNauticalMiles": 229,
+      "greatCircleKilometers": 425,
+      "greatCircleMiles": 264,
+      "greatCircleNauticalMiles": 229
+    },
+    "codeshare": {
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [
+        {
+          "code": "AF",
+          "serviceNumber": "6052",
+          "suffix": ""
+        },
+        {
+          "code": "KL",
+          "serviceNumber": "3680",
+          "suffix": ""
+        },
+        {
+          "code": "MH",
+          "serviceNumber": "5272",
+          "suffix": ""
+        },
+        {
+          "code": "VS",
+          "serviceNumber": "8546",
+          "suffix": ""
+        }
+      ]
+    },
+    "scheduleInstanceKey": "ce273a30cf2d9114197ac19da590985ead2b5bda19aff0ac23c6438d862ecfd2",
+    "statusKey": "02fcd5b0886246398126483e7dc32f6b8bc58c3c61958c61549db80f9c73fdfd"
+  },
+  {
+    "carrier": {
+      "iata": "UL",
+      "icao": "ALK"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 3640,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-08-31"
+      },
+      "time": {
+        "local": "05:10",
+        "utc": "23:40"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "GOI",
+        "icao": "VOGO"
+      },
+      "terminal": "",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-09-01"
+      },
+      "time": {
+        "local": "06:30",
+        "utc": "01:00"
+      }
+    },
+    "elapsedTime": 80,
+    "cargoTonnage": 6.7,
+    "aircraftType": {
+      "iata": "319",
+      "icao": "A319"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 425,
+      "accumulatedGreatCircleMiles": 264,
+      "accumulatedGreatCircleNauticalMiles": 229,
+      "greatCircleKilometers": 425,
+      "greatCircleMiles": 264,
+      "greatCircleNauticalMiles": 229
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "AI",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "AI",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "AI",
+        "serviceNumber": "603",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "ccf4007e1e0d2813fc282dc1facecaca124b1f52e439d3f7e3e3223688fc60ab",
+    "statusKey": "1a55f43998928f759de106015eefd8769d20f967728cb939a8bb10d4136a77b2"
+  },
+  {
+    "carrier": {
+      "iata": "AI",
+      "icao": "AIC"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 603,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-08-31"
+      },
+      "time": {
+        "local": "05:10",
+        "utc": "23:40"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "GOI",
+        "icao": "VOGO"
+      },
+      "terminal": "",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-09-01"
+      },
+      "time": {
+        "local": "06:30",
+        "utc": "01:00"
+      }
+    },
+    "elapsedTime": 80,
+    "cargoTonnage": 20,
+    "aircraftType": {
+      "iata": "32N",
+      "icao": "A20N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 425,
+      "accumulatedGreatCircleMiles": 264,
+      "accumulatedGreatCircleNauticalMiles": 229,
+      "greatCircleKilometers": 425,
+      "greatCircleMiles": 264,
+      "greatCircleNauticalMiles": 229
+    },
+    "codeshare": {
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [
+        {
+          "code": "MS",
+          "serviceNumber": "9569",
+          "suffix": ""
+        },
+        {
+          "code": "MK",
+          "serviceNumber": "8040",
+          "suffix": ""
+        },
+        {
+          "code": "LH",
+          "serviceNumber": "5312",
+          "suffix": ""
+        },
+        {
+          "code": "LX",
+          "serviceNumber": "9874",
+          "suffix": ""
+        },
+        {
+          "code": "UL",
+          "serviceNumber": "3640",
+          "suffix": ""
+        }
+      ]
+    },
+    "scheduleInstanceKey": "e4413f41b8e222cf7f80b38ce67c16ef42e92738732ab858fb74720965c13f50",
+    "statusKey": "1a55f43998928f759de106015eefd8769d20f967728cb939a8bb10d4136a77b2"
+  },
+  {
+    "carrier": {
+      "iata": "MK",
+      "icao": "MAU"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 8040,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-08-31"
+      },
+      "time": {
+        "local": "05:10",
+        "utc": "23:40"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "GOI",
+        "icao": "VOGO"
+      },
+      "terminal": "",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-09-01"
+      },
+      "time": {
+        "local": "06:30",
+        "utc": "01:00"
+      }
+    },
+    "elapsedTime": 80,
+    "cargoTonnage": 20,
+    "aircraftType": {
+      "iata": "32N",
+      "icao": "A20N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 425,
+      "accumulatedGreatCircleMiles": 264,
+      "accumulatedGreatCircleNauticalMiles": 229,
+      "greatCircleKilometers": 425,
+      "greatCircleMiles": 264,
+      "greatCircleNauticalMiles": 229
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "AI",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "AI",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "AI",
+        "serviceNumber": "603",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "0e44b7c6cb488b8e65cf1385c5548e22ff1141d20efabe70144fc7d660a3889a",
+    "statusKey": "1a55f43998928f759de106015eefd8769d20f967728cb939a8bb10d4136a77b2"
+  },
+  {
+    "carrier": {
+      "iata": "LX",
+      "icao": "SWR"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 9874,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-08-31"
+      },
+      "time": {
+        "local": "05:10",
+        "utc": "23:40"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "GOI",
+        "icao": "VOGO"
+      },
+      "terminal": "",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-09-01"
+      },
+      "time": {
+        "local": "06:30",
+        "utc": "01:00"
+      }
+    },
+    "elapsedTime": 80,
+    "cargoTonnage": 20,
+    "aircraftType": {
+      "iata": "32N",
+      "icao": "A20N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 425,
+      "accumulatedGreatCircleMiles": 264,
+      "accumulatedGreatCircleNauticalMiles": 229,
+      "greatCircleKilometers": 425,
+      "greatCircleMiles": 264,
+      "greatCircleNauticalMiles": 229
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "AI",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "AI",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "AI",
+        "serviceNumber": "603",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "38addead764d26768de9a956e64f46e144b7ec32911323e57d110bd4cf9fe953",
+    "statusKey": "1a55f43998928f759de106015eefd8769d20f967728cb939a8bb10d4136a77b2"
+  },
+  {
+    "carrier": {
+      "iata": "LH",
+      "icao": "DLH"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 5312,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "BOM",
+        "icao": "VABB"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-08-31"
+      },
+      "time": {
+        "local": "05:10",
+        "utc": "23:40"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "GOI",
+        "icao": "VOGO"
+      },
+      "terminal": "",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-09-01",
+        "utc": "2026-09-01"
+      },
+      "time": {
+        "local": "06:30",
+        "utc": "01:00"
+      }
+    },
+    "elapsedTime": 80,
+    "cargoTonnage": 20,
+    "aircraftType": {
+      "iata": "32N",
+      "icao": "A20N"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 425,
+      "accumulatedGreatCircleMiles": 264,
+      "accumulatedGreatCircleNauticalMiles": 229,
+      "greatCircleKilometers": 425,
+      "greatCircleMiles": 264,
+      "greatCircleNauticalMiles": 229
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "AI",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "AI",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "AI",
+        "serviceNumber": "603",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "7ae3edd32ffbe7280a529aaaf8be9349b2ceca6d25c43e844b5849ebbd102f48",
+    "statusKey": "1a55f43998928f759de106015eefd8769d20f967728cb939a8bb10d4136a77b2"
+  }
+]

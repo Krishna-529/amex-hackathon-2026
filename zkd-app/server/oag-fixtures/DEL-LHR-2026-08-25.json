@@ -1,0 +1,878 @@
+[
+  {
+    "carrier": {
+      "iata": "AI",
+      "icao": "AIC"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 161,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "00:55",
+        "utc": "19:25"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "LHR",
+        "icao": "EGLL"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "GB"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-25"
+      },
+      "time": {
+        "local": "07:30",
+        "utc": "06:30"
+      }
+    },
+    "elapsedTime": 665,
+    "cargoTonnage": 53.3,
+    "aircraftType": {
+      "iata": "359",
+      "icao": "A359"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 6731,
+      "accumulatedGreatCircleMiles": 4183,
+      "accumulatedGreatCircleNauticalMiles": 3635,
+      "greatCircleKilometers": 6731,
+      "greatCircleMiles": 4183,
+      "greatCircleNauticalMiles": 3635
+    },
+    "codeshare": {
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [
+        {
+          "code": "SQ",
+          "serviceNumber": "4921",
+          "suffix": ""
+        },
+        {
+          "code": "TP",
+          "serviceNumber": "7023",
+          "suffix": ""
+        },
+        {
+          "code": "AC",
+          "serviceNumber": "6453",
+          "suffix": ""
+        }
+      ]
+    },
+    "scheduleInstanceKey": "c0f83abedbb855b7b62099c741f15f9d57913809aff3939b62f5e8384e94b5df",
+    "statusKey": "100097cd2ed38d14c26d89dc1636dc5d7cf1cf13fc2d951e8a4c44eab3bcb8ce"
+  },
+  {
+    "carrier": {
+      "iata": "SQ",
+      "icao": "SIA"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 4921,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "00:55",
+        "utc": "19:25"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "LHR",
+        "icao": "EGLL"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "GB"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-25"
+      },
+      "time": {
+        "local": "07:30",
+        "utc": "06:30"
+      }
+    },
+    "elapsedTime": 665,
+    "cargoTonnage": 53.3,
+    "aircraftType": {
+      "iata": "359",
+      "icao": "A359"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 6731,
+      "accumulatedGreatCircleMiles": 4183,
+      "accumulatedGreatCircleNauticalMiles": 3635,
+      "greatCircleKilometers": 6731,
+      "greatCircleMiles": 4183,
+      "greatCircleNauticalMiles": 3635
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "AI",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "AI",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "AI",
+        "serviceNumber": "161",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "fb4d0753b24ca775b1f36d75338409a37ab9a66443bd85129825b30353787297",
+    "statusKey": "100097cd2ed38d14c26d89dc1636dc5d7cf1cf13fc2d951e8a4c44eab3bcb8ce"
+  },
+  {
+    "carrier": {
+      "iata": "TP",
+      "icao": "TAP"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 7023,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "00:55",
+        "utc": "19:25"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "LHR",
+        "icao": "EGLL"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "GB"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-25"
+      },
+      "time": {
+        "local": "07:30",
+        "utc": "06:30"
+      }
+    },
+    "elapsedTime": 665,
+    "cargoTonnage": 53.3,
+    "aircraftType": {
+      "iata": "359",
+      "icao": "A359"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 6731,
+      "accumulatedGreatCircleMiles": 4183,
+      "accumulatedGreatCircleNauticalMiles": 3635,
+      "greatCircleKilometers": 6731,
+      "greatCircleMiles": 4183,
+      "greatCircleNauticalMiles": 3635
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "AI",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "AI",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "AI",
+        "serviceNumber": "161",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "f73b69a75d4d9ed6c0a9b173fb25e4ae819f7383e13f489a22e8503bb9bcfa0f",
+    "statusKey": "100097cd2ed38d14c26d89dc1636dc5d7cf1cf13fc2d951e8a4c44eab3bcb8ce"
+  },
+  {
+    "carrier": {
+      "iata": "AC",
+      "icao": "ACA"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 6453,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "00:55",
+        "utc": "19:25"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "LHR",
+        "icao": "EGLL"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "GB"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-25"
+      },
+      "time": {
+        "local": "07:30",
+        "utc": "06:30"
+      }
+    },
+    "elapsedTime": 665,
+    "cargoTonnage": 53.3,
+    "aircraftType": {
+      "iata": "359",
+      "icao": "A359"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 6731,
+      "accumulatedGreatCircleMiles": 4183,
+      "accumulatedGreatCircleNauticalMiles": 3635,
+      "greatCircleKilometers": 6731,
+      "greatCircleMiles": 4183,
+      "greatCircleNauticalMiles": 3635
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "AI",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "AI",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "AI",
+        "serviceNumber": "161",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "140ed3a20a6849ba706fffca46dfe4b9fbf057246997e53f3fb208208fb426f6",
+    "statusKey": "100097cd2ed38d14c26d89dc1636dc5d7cf1cf13fc2d951e8a4c44eab3bcb8ce"
+  },
+  {
+    "carrier": {
+      "iata": "BA",
+      "icao": "BAW"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 142,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "01:35",
+        "utc": "20:05"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "LHR",
+        "icao": "EGLL"
+      },
+      "terminal": "5",
+      "country": {
+        "code": "GB"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-25"
+      },
+      "time": {
+        "local": "06:50",
+        "utc": "05:50"
+      }
+    },
+    "elapsedTime": 585,
+    "aircraftType": {
+      "iata": "351",
+      "icao": "A35K"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 6731,
+      "accumulatedGreatCircleMiles": 4183,
+      "accumulatedGreatCircleNauticalMiles": 3635,
+      "greatCircleKilometers": 6731,
+      "greatCircleMiles": 4183,
+      "greatCircleNauticalMiles": 3635
+    },
+    "codeshare": {
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [
+        {
+          "code": "AA",
+          "serviceNumber": "6662",
+          "suffix": ""
+        }
+      ]
+    },
+    "scheduleInstanceKey": "8ab22a1dabaf6a9be848bbb6524161a2ec8cf40b6fad937c28b5e4f4bd62b917",
+    "statusKey": "dbe8c8365753ed08dc3cf75d0176ce4d69eb31b489172481ef4217016b0d6b3f"
+  },
+  {
+    "carrier": {
+      "iata": "AA",
+      "icao": "AAL"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 6662,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "01:35",
+        "utc": "20:05"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "LHR",
+        "icao": "EGLL"
+      },
+      "terminal": "5",
+      "country": {
+        "code": "GB"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-25"
+      },
+      "time": {
+        "local": "06:50",
+        "utc": "05:50"
+      }
+    },
+    "elapsedTime": 585,
+    "aircraftType": {
+      "iata": "351",
+      "icao": "A35K"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 6731,
+      "accumulatedGreatCircleMiles": 4183,
+      "accumulatedGreatCircleNauticalMiles": 3635,
+      "greatCircleKilometers": 6731,
+      "greatCircleMiles": 4183,
+      "greatCircleNauticalMiles": 3635
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "BA",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "BA",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "BA",
+        "serviceNumber": "142",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "5192e10ecf608883a8ff9c586f824be186319f2fbdd3316fbdc3d323135b98df",
+    "statusKey": "dbe8c8365753ed08dc3cf75d0176ce4d69eb31b489172481ef4217016b0d6b3f"
+  },
+  {
+    "carrier": {
+      "iata": "DL",
+      "icao": "DAL"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 5949,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "02:05",
+        "utc": "20:35"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "LHR",
+        "icao": "EGLL"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "GB"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-25"
+      },
+      "time": {
+        "local": "07:20",
+        "utc": "06:20"
+      }
+    },
+    "elapsedTime": 585,
+    "cargoTonnage": 40.2,
+    "aircraftType": {
+      "iata": "789",
+      "icao": "B789"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 6731,
+      "accumulatedGreatCircleMiles": 4183,
+      "accumulatedGreatCircleNauticalMiles": 3635,
+      "greatCircleKilometers": 6731,
+      "greatCircleMiles": 4183,
+      "greatCircleNauticalMiles": 3635
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "VS",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "VS",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "VS",
+        "serviceNumber": "303",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "671eadc2035dacd74bee68574e1f3f58975976b5e3b7e581cdd84c392b43e498",
+    "statusKey": "82782f018dcb32090f6f97a10966fe11025c2a81e2e1551677adbbb1baca53cb"
+  },
+  {
+    "carrier": {
+      "iata": "VS",
+      "icao": "VIR"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 303,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "02:05",
+        "utc": "20:35"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "LHR",
+        "icao": "EGLL"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "GB"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-25"
+      },
+      "time": {
+        "local": "07:20",
+        "utc": "06:20"
+      }
+    },
+    "elapsedTime": 585,
+    "cargoTonnage": 40.2,
+    "aircraftType": {
+      "iata": "789",
+      "icao": "B789"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 6731,
+      "accumulatedGreatCircleMiles": 4183,
+      "accumulatedGreatCircleNauticalMiles": 3635,
+      "greatCircleKilometers": 6731,
+      "greatCircleMiles": 4183,
+      "greatCircleNauticalMiles": 3635
+    },
+    "codeshare": {
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [
+        {
+          "code": "DL",
+          "serviceNumber": "5949",
+          "suffix": ""
+        },
+        {
+          "code": "VN",
+          "serviceNumber": "3193",
+          "suffix": ""
+        }
+      ]
+    },
+    "scheduleInstanceKey": "74412aa6a27f4325213494e148c56daef25588ddbaf539dc7f953e3a7b17137d",
+    "statusKey": "82782f018dcb32090f6f97a10966fe11025c2a81e2e1551677adbbb1baca53cb"
+  },
+  {
+    "carrier": {
+      "iata": "AI",
+      "icao": "AIC"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 111,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "04:55",
+        "utc": "23:25"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "LHR",
+        "icao": "EGLL"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "GB"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-25"
+      },
+      "time": {
+        "local": "11:30",
+        "utc": "10:30"
+      }
+    },
+    "elapsedTime": 665,
+    "cargoTonnage": 40.2,
+    "aircraftType": {
+      "iata": "789",
+      "icao": "B789"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 6731,
+      "accumulatedGreatCircleMiles": 4183,
+      "accumulatedGreatCircleNauticalMiles": 3635,
+      "greatCircleKilometers": 6731,
+      "greatCircleMiles": 4183,
+      "greatCircleNauticalMiles": 3635
+    },
+    "codeshare": {
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [
+        {
+          "code": "TP",
+          "serviceNumber": "7029",
+          "suffix": ""
+        },
+        {
+          "code": "AC",
+          "serviceNumber": "6451",
+          "suffix": ""
+        }
+      ]
+    },
+    "scheduleInstanceKey": "f5d986442dfc814223e748be787e8348bdf30a9e39e5b45168440c3d2bff22f1",
+    "statusKey": "3833d96d70b6b150bd392dedfc2318c99391cf3318e3b176944d519e44c55d92"
+  },
+  {
+    "carrier": {
+      "iata": "TP",
+      "icao": "TAP"
+    },
+    "serviceSuffix": "",
+    "flightNumber": 7029,
+    "sequenceNumber": 1,
+    "flightType": "Scheduled",
+    "departure": {
+      "airport": {
+        "iata": "DEL",
+        "icao": "VIDP"
+      },
+      "terminal": "3",
+      "country": {
+        "code": "IN"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-24"
+      },
+      "time": {
+        "local": "04:55",
+        "utc": "23:25"
+      }
+    },
+    "arrival": {
+      "airport": {
+        "iata": "LHR",
+        "icao": "EGLL"
+      },
+      "terminal": "2",
+      "country": {
+        "code": "GB"
+      },
+      "date": {
+        "local": "2026-08-25",
+        "utc": "2026-08-25"
+      },
+      "time": {
+        "local": "11:30",
+        "utc": "10:30"
+      }
+    },
+    "elapsedTime": 665,
+    "cargoTonnage": 40.2,
+    "aircraftType": {
+      "iata": "789",
+      "icao": "B789"
+    },
+    "serviceType": {
+      "iata": "J"
+    },
+    "segmentInfo": {
+      "numberOfStops": 0,
+      "intermediateAirports": {
+        "iata": []
+      }
+    },
+    "distance": {
+      "accumulatedGreatCircleKilometers": 6731,
+      "accumulatedGreatCircleMiles": 4183,
+      "accumulatedGreatCircleNauticalMiles": 3635,
+      "greatCircleKilometers": 6731,
+      "greatCircleMiles": 4183,
+      "greatCircleNauticalMiles": 3635
+    },
+    "codeshare": {
+      "operatingAirlineDisclosure": {
+        "code": "AI",
+        "name": "",
+        "number": "2"
+      },
+      "aircraftOwner": {
+        "code": "AI",
+        "name": ""
+      },
+      "jointOperationAirlineDesignators": [],
+      "marketingFlights": [],
+      "operatingFlight": {
+        "code": "AI",
+        "serviceNumber": "111",
+        "suffix": ""
+      }
+    },
+    "scheduleInstanceKey": "189a8527789e4b0a7c65ad7508b623c54d12925d1110c9afec82fddf823ae3b2",
+    "statusKey": "3833d96d70b6b150bd392dedfc2318c99391cf3318e3b176944d519e44c55d92"
+  }
+]
