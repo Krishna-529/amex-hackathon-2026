@@ -20,6 +20,7 @@ Read in order. Each answers one question a judge will ask.
 | [`05-cancellation-risk-model.md`](design/05-cancellation-risk-model.md) | **Supersedes `01` §2.** The real, self-trained model that replaced the Lumo vendor call — data, features, serving, and the threshold-gated alt pre-cache |
 | [`06-experience-kpis.md`](design/06-experience-kpis.md) | How the project is measured — granular customer-experience KPIs, each marked by whether the data exists in the system today |
 | [`06a-amex-kpi-mapping.md`](design/06a-amex-kpi-mapping.md) | The same 20 KPIs, regrouped against Amex's three named targets — engagement, satisfaction, experience — and which of the three is weakest today |
+| [`09-problem-scale-and-incidents.md`](design/09-problem-scale-and-incidents.md) | Is this problem actually big — global/India disruption statistics, and three recent incidents (IndiGo, Southwest, CrowdStrike) that show why |
 
 ## architecture/
 
