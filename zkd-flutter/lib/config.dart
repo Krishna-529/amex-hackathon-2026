@@ -5,13 +5,13 @@
 ///
 ///   flutter build apk --release --dart-define=API_BASE_URL=http://192.168.0.30:5176
 ///
-/// The default is this desktop's Wi-Fi address (verified 2026-08-19 by `ipconfig`:
-/// Wireless LAN adapter Wi-Fi = 192.168.0.144). A standalone APK cannot use
-/// localhost — the phone is not tethered, so it has to dial the desktop directly.
-/// If DHCP moves that address, rebuild with --dart-define rather than patching here.
+/// The default is the hosted AWS box (51.20.144.50:5176), not a LAN address —
+/// changed 2026-08-23 so a standalone APK works off-network without a
+/// --dart-define override. A phone tethered to the same LAN as a dev machine
+/// can still point at that machine's Wi-Fi address via --dart-define.
 ///
 /// Plain HTTP, which is why AndroidManifest.xml sets usesCleartextTraffic.
 const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://localhost:5176',
+  defaultValue: 'http://51.20.144.50:5176',
 );
