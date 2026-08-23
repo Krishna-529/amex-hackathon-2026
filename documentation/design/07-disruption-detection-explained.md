@@ -1,4 +1,4 @@
-# How disruption detection actually works — OAG, SABRE/GDS, and the production design
+# How disruption detection actually works — OAG and the production design
 
 **ZKD Concierge · Codestreet 2026 / American Express**
 
@@ -6,7 +6,7 @@ This file exists to answer one question precisely: **how does the system know a 
 cancelled, in the real-world/production design** — not the demo shortcut, the rehearsal button, or
 a guess at how it "probably" works. Everything below is either `verified` (read directly from the
 current source in `amex/zkd-app/server/`) or a direct quote from
-[`02-data-sources-and-apis.md`](02-data-sources-and-apis.md) §1/§4, which is the evidence-tier
+[`02-data-sources-and-apis.md`](02-data-sources-and-apis.md) §1, which is the evidence-tier
 discipline this repo already uses (see `AGENTS.md`). It complements that file and the code map in
 `amex/CLAUDE.md`; it supersedes nothing.
 
@@ -65,30 +65,7 @@ sweep stays — the design position above holds regardless of which push provide
 
 ---
 
-## 3. Where SABRE and other GDS fit, for real — and where they don't
-
-**No GDS is a source of the cancellation signal, in the production design or in the code.** Sabre
-Dev Studio and Travelport belong to a different part of the system entirely: §4, "Booking and
-inventory — where the money moves":
-
-> | **Sabre Dev Studio** | Shop, price, book; broad Indian carrier coverage | Authenticates against
-> cert; every route tried returns no results. Degrades to empty, never blocks the others |
-> `wired (unpopulated)` |
-
-Sabre and Travelport are candidate **suppliers of replacement inventory**, consumed once a
-cancellation is already known — they feed `searchInventory()` in `zkd-app/server/suppliers/`, which
-fans out across every supplier with `Promise.allSettled`, normalises offers to a common shape
-carrying currency and expiry, and de-duplicates the same physical flight arriving from two sources.
-That function is called *after* `detectDisruption` has already fired, to find the member a new seat
-— it never triggers detection itself.
-
-Detection and re-booking are two separate supplier relationships. Keeping that boundary explicit
-matters: a GDS integration, however good its coverage, answers "what can I book," not "did this
-flight just cancel."
-
----
-
-## 4. The three detection lanes racing each other — the actual production architecture
+## 3. The three detection lanes racing each other — the actual production architecture
 
 This is the real mechanism, not a fallback stack bolted on around a manual button. Quoted from the
 header of `zkd-app/server/webhooks/index.ts`, the file's own account of why it exists:
@@ -247,7 +224,7 @@ export async function widenDetection(flightId: string): Promise<void> {
 }
 ```
 
-Note this confirms §5's mechanism again from a different angle: `getBookingsForFlight` — the same
+Note this confirms §4's mechanism again from a different angle: `getBookingsForFlight` — the same
 relational read used by the webhook and poller lanes — is what "updating every user" actually means
 here. There is no reporter-only restriction in practice today: `detectDisruption(id)` is called
 without `onlyForPassengerId` from this route, so the very first confirmed report already fans out
@@ -295,7 +272,7 @@ flight none of the three real lanes cover, not a peer detection lane.
 
 ---
 
-## 5. How a cancellation reaches every affected passenger
+## 4. How a cancellation reaches every affected passenger
 
 The mental model — *"when a member books a flight, check whether we're already monitoring it; if
 not, start monitoring it; if another passenger later books the same flight, they join the same
@@ -349,7 +326,7 @@ not "who is on it."
 
 ---
 
-## 6. End-to-end trace
+## 5. End-to-end trace
 
 1. A member books a flight → `store.createBooking()` inserts a row with that `flightId`.
 2. If this flight has no active webhook subscription yet, `syncSubscriptions()` registers one
@@ -367,7 +344,7 @@ not "who is on it."
 
 ---
 
-## 7. Current build status — a snapshot, not the design (as of 2026-08-23)
+## 6. Current build status — a snapshot, not the design (as of 2026-08-23)
 
 This section is deliberately separated from everything above it: it describes today's prototype
 constraints, not the architecture.
@@ -379,8 +356,7 @@ constraints, not the architecture.
   app today only for search, not as a status watcher (§2 above explains why: budget, not
   capability).
 - **Inert for this app's flows**: the Duffel webhook adapter (order-level events; this app books no
-  Duffel orders today) and Sabre/Travelport on the booking side (both authenticate but return zero
-  live results in every route tried — degrades to empty, never blocks the others).
+  Duffel orders today).
 - **Defined but not currently exercised**: `detectDisruption`'s `onlyForPassengerId` restriction
   parameter, meant to let a single uncorroborated member report act for the reporter alone before
   corroboration widens it to everyone on the flight. No live caller currently passes it — every

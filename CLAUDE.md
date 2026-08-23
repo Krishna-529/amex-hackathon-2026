@@ -63,7 +63,7 @@ Decided in mentor meeting 2; see `documentation/project/mentor-meetings.md`.
 |---|---|
 | Every external dependency, its cost, and which we cannot get | [`design/02-data-sources-and-apis.md`](documentation/design/02-data-sources-and-apis.md) |
 | Can we detect a cancellation, and does OAG provide it? | `design/02-data-sources-and-apis.md` §1 — *Detection versus prediction* |
-| How does detection actually work end to end — the three lanes, OAG/SABRE's real roles, and how a cancellation reaches every passenger? | [`design/07-disruption-detection-explained.md`](documentation/design/07-disruption-detection-explained.md) |
+| How does detection actually work end to end — the three lanes, OAG's real role, and how a cancellation reaches every passenger? | [`design/07-disruption-detection-explained.md`](documentation/design/07-disruption-detection-explained.md) |
 | What does Amex/MyCa hold about the member and their family? | `design/02-data-sources-and-apis.md` §6 |
 | What does it cost to run, and why is there no GPU on the critical path? | [`design/04-infrastructure-and-cost.md`](documentation/design/04-infrastructure-and-cost.md) |
 
