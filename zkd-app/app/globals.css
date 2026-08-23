@@ -15,6 +15,7 @@
   --mist2:rgba(228,234,244,.38);
   --mist3:rgba(228,234,244,.28);          /* faint text */
   --hairline:rgba(228,234,244,.06);       /* faint divider */
+  --sk-dot:rgba(255,255,255,.14);         /* skeleton timeline bubble */
 
   --iris:#2f7ff0;          /* the single accent */
   --iris-soft:rgba(47,127,240,.13);
@@ -48,6 +49,7 @@
   --mist2:rgba(27,32,48,.46);
   --mist3:rgba(27,32,48,.34);
   --hairline:rgba(20,26,40,.08);
+  --sk-dot:#dfe3ea;                        /* soft grey bubble, a step off the white card */
   --iris-soft:rgba(1,111,208,.10);
   --lift:0 8px 24px -14px rgba(20,30,60,.28), inset 0 1px 0 rgba(255,255,255,.7);
 }
@@ -406,6 +408,11 @@ footer p{margin:0;max-width:70ch}
 .ev.warm::after{color:#0b0f18}
 .ev.warm .n{color:var(--mist)}
 .tl:has(.ev.warm)::before{background:linear-gradient(180deg,var(--mist3),var(--hairline))}
+/* Skeleton timeline dots are placeholders, not real markers: a soft neutral
+   bubble in the --sk shimmer family, never the solid --mist2 blob (which read
+   as heavy dark dots on the light theme). Scoped to .skeleton so a real
+   .ev.done.warm marker keeps its iris fill and blue halo. */
+.skeleton .ev.warm::before{border-color:var(--sk-dot);background:var(--sk-dot);box-shadow:none}
 .tl{position:relative;padding-left:32px}
 .tl::before{content:'';position:absolute;left:9px;top:6px;bottom:16px;width:2px;
   background:linear-gradient(180deg,var(--iris),rgba(47,127,240,.12))}
