@@ -62,38 +62,41 @@ function HistoryChart({
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
-  // pct — the real calibrated probability the thresholds themselves are
-  // defined against (see page.tsx's own threshold bar) — not riskScore, a
-  // 0-100 percentile RANK with no fixed relationship to those thresholds at
-  // all. Plotting riskScore here while drawing threshold reference lines in
-  // pct terms would put both on the same axis without them sharing a scale.
+  // riskScore — the 0-100 percentile RANK of this flight against the live
+  // score distribution (server/engine/riskModel.ts) — is what this chart
+  // plots, matching FlightForecastSnapshot.riskScore's own doc. pct (the
+  // calibrated probability) still drives the gauge and every member-facing
+  // banner; the rank is what this audit surface tracks over time. One
+  // consequence, handled below: the prepare / pre-authorise reference bands
+  // are defined in pct and have no fixed position on a rank axis, so they are
+  // not drawn — per-point colour carries the band instead. Points recorded
+  // before riskScore existed carry no rank and are skipped as a gap, exactly
+  // as that field's doc notes.
   const usable = useMemo(() => {
-    const withPct = history.filter((h) => typeof h.pct === 'number');
-    if (withPct.length === 0) return withPct;
-    const latest = withPct[withPct.length - 1].asOf;
-    const windowed = withPct.filter((h) => h.asOf >= latest - HISTORY_WINDOW_MS);
+    const withScore = history.filter((h) => typeof h.riskScore === 'number');
+    if (withScore.length === 0) return withScore;
+    const latest = withScore[withScore.length - 1].asOf;
+    const windowed = withScore.filter((h) => h.asOf >= latest - HISTORY_WINDOW_MS);
     // A brand-new flight with one real point outside any sensible window is
     // still worth showing that one point, rather than an empty chart.
-    return windowed.length > 0 ? windowed : withPct.slice(-1);
+    return windowed.length > 0 ? windowed : withScore.slice(-1);
   }, [history]);
 
-  // Real scores cluster tightly — a fixed 0-100 axis pins the line flat
-  // against the bottom and makes real movement invisible. Scale to what the
-  // data actually did, anchored at 0 (never zoomed into a sub-range that
-  // would exaggerate trivial noise into a dramatic-looking swing), but never
-  // tighter than the highest threshold — the reference lines must stay on
-  // the chart, not get clipped off the top.
+  // A rank can sit anywhere in 0-100, but a low-risk flight clusters low and a
+  // fixed 0-100 axis would pin the line flat against the bottom and hide real
+  // movement. Scale to what the data actually did, anchored at 0 (never a
+  // sub-range that would exaggerate trivial noise into a dramatic-looking
+  // swing), padded, and capped at 100 — a rank cannot exceed it.
   const domain = useMemo(() => {
     if (usable.length === 0) return { min: 0, max: 10 };
-    const values = usable.map((h) => h.pct);
-    const rawMax = Math.max(...values, thresholds.preAuthorise);
+    const values = usable.map((h) => h.riskScore as number);
+    const rawMax = Math.max(...values);
     const pad = Math.max(rawMax * 0.25, 1);
-    return { min: 0, max: Math.max(4, Math.ceil(rawMax + pad)) };
-  }, [usable, thresholds.preAuthorise]);
+    return { min: 0, max: Math.min(100, Math.max(10, Math.ceil(rawMax + pad))) };
+  }, [usable]);
 
   const yOf = (v: number) =>
     PAD.top + (1 - (v - domain.min) / (domain.max - domain.min)) * plotH;
-  const clampY = (y: number) => Math.min(PAD.top + plotH, Math.max(PAD.top, y));
 
   const points = useMemo(() => {
     if (usable.length === 0) return [];
@@ -102,7 +105,9 @@ function HistoryChart({
     const span = Math.max(1, t1 - t0);
     return usable.map((h) => ({
       x: PAD.left + ((h.asOf - t0) / span) * plotW,
-      y: yOf(h.pct),
+      y: yOf(h.riskScore as number),
+      // Colour still encodes the real risk BAND (a pct-space classification),
+      // so severity reads off the line even though its height is now the rank.
       color: colorFor(h.pct, thresholds),
       h,
     }));
@@ -110,7 +115,8 @@ function HistoryChart({
   }, [usable, plotW, plotH, domain, thresholds]);
 
   const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-  const tickFmt = (v: number) => `${Math.round(v * 10) / 10}%`;
+  // Bare rank numbers, not percentages — the axis is a 0-100 rank now.
+  const tickFmt = (v: number) => String(Math.round(v));
   const ticks = Array.from({ length: 5 }, (_, i) => domain.min + (i * (domain.max - domain.min)) / 4);
 
   if (usable.length < 2) {
@@ -126,7 +132,7 @@ function HistoryChart({
 
   return (
     <div style={{ position: 'relative' }}>
-      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Cancellation-risk history over the last 8 hours">
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Risk-score rank history over the last 8 hours">
         <defs>
           {/* One colour stop per real point, positioned at its own x — the line
               itself shifts from green to amber to red exactly where the
@@ -139,13 +145,11 @@ function HistoryChart({
           </linearGradient>
         </defs>
 
-        {/* Band-reference lines, in the SAME pct scale the line itself is
-            plotted in — a threshold this flight has actually adopted, not a
-            decorative zone. */}
-        <rect x={PAD.left} y={clampY(yOf(domain.max))} width={plotW} height={clampY(yOf(thresholds.preAuthorise)) - clampY(yOf(domain.max))} fill="rgba(217,97,90,.08)" />
-        <rect x={PAD.left} y={clampY(yOf(thresholds.preAuthorise))} width={plotW} height={clampY(yOf(thresholds.prepare)) - clampY(yOf(thresholds.preAuthorise))} fill="rgba(211,160,63,.07)" />
+        {/* No threshold reference bands here: prepare / pre-authorise are pct
+            thresholds and have no fixed height on this rank axis. Severity is
+            carried by each point's colour instead. */}
 
-        {/* Recessive grid — ticks span the real auto-scaled domain, not a fixed 0-100% */}
+        {/* Recessive grid — ticks span the real auto-scaled rank domain */}
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD.left} x2={W - PAD.right} y1={yOf(t)} y2={yOf(t)} stroke="rgba(255,255,255,.06)" strokeWidth={1} />
@@ -184,7 +188,7 @@ function HistoryChart({
           }}
         >
           <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: hovered.color }}>
-            {hovered.h.pct}% <span style={{ color: 'var(--mist2)', fontWeight: 400 }}>· {hovered.h.band} ({hovered.h.riskScore}/100 rank)</span>
+            {hovered.h.riskScore}<span style={{ color: 'var(--mist2)', fontWeight: 400 }}>/100 rank · {hovered.h.band}</span>
           </div>
           <div style={{ color: 'var(--mist2)' }}>{fmtCountdown(depMs, hovered.h.asOf)}</div>
         </div>
