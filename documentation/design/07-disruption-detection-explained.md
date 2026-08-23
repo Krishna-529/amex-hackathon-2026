@@ -172,11 +172,113 @@ The file's own header explains why this lane must exist even with two automated 
 > A member standing at a gate knows before any feed does. ... Somebody in the terminal, looking at
 > the board, is the highest-quality signal available.
 
+This is the lane that catches exactly the failure mode push and poll cannot fix themselves: **the
+carrier's webhook silently stops delivering, or the poller's budget is already spent, so the system
+sits there believing the flight is still fine.** A member who knows better can say so — but the
+system does not simply take their word for it. Pitched in the deck (slide 3, "Live demo," bullet
+03) as its own rehearsed beat:
+
+> **Edge case: self-cancel** — Member-initiated changes, a clean hand-off (handed-over), and
+> zero-friction state sync.
+
 A report is treated as a **claim, not an event** — acting on a false one spends real money on every
-other passenger's card, so it is corroborated cheapest-first (an operator's own mark, three
-independent member reports, the flight already flagged cancelled in stored data, the forecast
-already at the highest risk band, or — as a last resort — one spent AviationStack lookup) before it
-fans out beyond the reporter.
+other passenger's card. `report()` (`memberReports.ts`) records the claim keyed by passenger — a
+member pressing the button five times is still one report, not five — then runs `corroborate()`,
+which checks progressively more expensive evidence, **cheapest first, and stops at the first thing
+that settles it**:
+
+1. An operator's own mark on the console — free, confirms immediately.
+2. Three independent member reports on the same flight — free, confirms immediately.
+3. The flight is already flagged cancelled in stored data (`flight.cancelledInData`) — free,
+   confirms immediately.
+4. The forecast is already at the highest risk band — noted, but **not enough on its own**; it is
+   held in reserve as a tie-breaker only, never a sole confirmer up front.
+5. **Only if none of the above settled it**, one AviationStack call is spent to ask the provider
+   directly — this is the "we are polling to the provider" step:
+
+```ts
+const match = await lookupFlightStatus(flight.code.replace(/\s+/g, '')).catch(() => null);
+if (match) {
+  const classification = classify({ ... });
+  if (classification.kind === 'cancellation') {
+    return { confirmed: true, evidence, reports: count };
+  }
+  if (classification.kind === 'none') {
+    return { confirmed: false, evidence, reports: count };   // provider says: still active
+  }
+  // otherwise (e.g. a delay, not a cancellation) falls through to the risk-band tie-breaker
+}
+```
+
+The poll result branches exactly where the member expects it to:
+
+- **Provider confirms it's not cancelled** (`classification.kind === 'none'`) — this is an explicit
+  contradiction and returns `confirmed: false` immediately, even if the forecast was already
+  worried. Nothing is stored beyond the member's own report entry and a ledger log line. The route
+  (`app/api/flights/[id]/report-cancellation/route.ts`) responds with `status: 'not-cancelled'` and
+  a helpline number; **no fan-out happens** — no other passenger is touched or notified.
+- **Provider confirms the cancellation** — `corroborate()` returns `confirmed: true`. The route then
+  calls `detectDisruption(id)` followed by `widenDetection(id)`:
+
+```ts
+const repeat = hasReported(id, g.passenger.id);
+const verdict = await report(id, g.passenger.id, 'member');
+if (!repeat && verdict.confirmed) {
+  await detectDisruption(id);
+  await widenDetection(id);
+}
+```
+
+`widenDetection` (`zkd-app/server/engine/simulation.ts`) is what turns "the reporter is confirmed"
+into "every passenger is updated" — its own header states this directly:
+
+> Called when a member report that started as one person's word is later corroborated — by other
+> passengers, by the carrier's own feed, or by an operator. The passengers already handled are
+> skipped by `createTaskForBooking`'s own idempotence, so this is safe to call more than once for
+> the same flight.
+
+```ts
+export async function widenDetection(flightId: string): Promise<void> {
+  restrictedTo.delete(flightId);
+  for (const booking of await store.getBookingsForFlight(flightId)) {
+    if (await store.getRecoveryTask(flightId, booking.passengerId)) continue;
+    void createTaskForBooking(event, flight, booking);
+  }
+}
+```
+
+Note this confirms §5's mechanism again from a different angle: `getBookingsForFlight` — the same
+relational read used by the webhook and poller lanes — is what "updating every user" actually means
+here. There is no reporter-only restriction in practice today: `detectDisruption(id)` is called
+without `onlyForPassengerId` from this route, so the very first confirmed report already fans out
+unrestricted; `widenDetection`'s job is to be safely callable again if corroboration completes
+later (e.g. a second passenger's report, or an operator mark, arriving after the first).
+
+**Flow, end to end:**
+
+```mermaid
+flowchart TD
+    A["Member taps<br/>'This flight was cancelled'"] --> B["POST /report-cancellation<br/>report(flightId, passengerId)"]
+    B --> C{"Cheap checks first:<br/>ops mark? 3+ reports?<br/>cancelledInData flag?"}
+    C -- "yes, any one" --> H["confirmed = true"]
+    C -- "no" --> D["Poll the provider:<br/>one AviationStack lookup"]
+    D --> E{"What does the<br/>provider say?"}
+    E -- "still active" --> F["confirmed = false<br/>(explicit contradiction)"]
+    E -- "cancelled" --> H
+    E -- "delay / no clear signal" --> G{"Was the forecast<br/>already high-risk?"}
+    G -- "yes" --> H
+    G -- "no" --> F
+    F --> I["Response: status = 'not-cancelled'<br/>+ helpline number<br/>NO fan-out — nobody else notified"]
+    H --> J["detectDisruption(flightId)<br/>+ widenDetection(flightId)"]
+    J --> K["getBookingsForFlight(flightId)"]
+    K --> L["createTaskForBooking()<br/>for every passenger without<br/>an existing recovery task"]
+    L --> M["Notification ladder fires<br/>for every passenger on the flight"]
+```
+
+The UI reflects both branches honestly rather than only celebrating the positive one
+(`zkd-app/app/flights/[id]/page.tsx`): a **"Good news — it's not cancelled"** modal with a `tel:`
+link to the helpline when the provider contradicts the member, versus a **"We've marked it
+cancelled"** modal with a `See your rebooking →` link when it's confirmed.
 
 ### The order
 
