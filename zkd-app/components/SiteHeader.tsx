@@ -11,16 +11,12 @@ const NAV = [
   { href: '/flights', label: 'My flights' },
   { href: '/history', label: 'History' },
   { href: '/profile', label: 'My details' },
-  { href: '/how-it-works', label: 'How it works' },
 ];
 
 function Mark() {
   return (
     <Link href="/flights" className="logo" aria-label="ZKD Concierge home">
-      <svg viewBox="0 0 100 100" width="30" height="30" aria-hidden focusable="false">
-        <rect width="100" height="100" rx="22" fill="#2f7ff0" />
-        <polygon points="79.04,24.92 22.28,44.72 51.32,53.96 36.8,77.72" fill="#ffffff" />
-      </svg>
+      <img src="/brand/icon-192.png" width={30} height={30} alt="" aria-hidden />
     </Link>
   );
 }
@@ -93,7 +89,13 @@ export default function SiteHeader() {
           ))}
         </nav>
         <span className="sp" />
-        <button type="button" className="hdr-btn" onClick={signOut}>Sign out</button>
+        <button type="button" className="hdr-btn" onClick={signOut}>
+          <svg viewBox="0 0 20 20" width="12" height="12" aria-hidden focusable="false" style={{ marginRight: 6, verticalAlign: -1 }}>
+            <path d="M7.5 3H4.5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M13 6.5 16.5 10 13 13.5M16.2 10H8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Sign out
+        </button>
         <Link href="/profile" className="who" aria-label="Your card and permissions">
           <i>{initials}</i><span>{name}</span>
         </Link>

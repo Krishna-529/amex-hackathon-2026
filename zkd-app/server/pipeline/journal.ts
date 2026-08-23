@@ -71,6 +71,7 @@ export function ensureRun(flightId: string, passengerId: string): PipelineRun {
     startedAt: now,
     changedAt: now,
     replans: 0,
+    memberReplans: 0,
     plan: null,
     sources: {},
     committed: [],

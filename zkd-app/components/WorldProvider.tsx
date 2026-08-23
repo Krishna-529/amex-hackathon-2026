@@ -3,6 +3,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { usePoll } from '@/lib/usePoll';
+// Side-effecting import: patches window.fetch so every request this tab makes
+// — starting with the GET /api/auth/me two lines below — carries this tab's
+// own captured identity, not whatever the shared cookie currently says. See
+// that module's header for the multi-tab bug this fixes.
+import { clearTabSession } from '@/lib/tabSession';
 import type { PassengerScheduleResponse } from '@/lib/apiTypes';
 import type { Consent } from '@/server/domain/types';
 
@@ -86,6 +91,7 @@ export function WorldProvider({ children }: { children: React.ReactNode }) {
   }, [passengerId]);
 
   const signOut = useCallback(() => {
+    clearTabSession();
     fetch('/api/auth/logout', { method: 'POST' })
       .finally(() => window.location.assign('/login'));
   }, []);

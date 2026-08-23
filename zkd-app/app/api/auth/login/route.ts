@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as store from '@/server/domain/store';
 import { ensureSeeded } from '@/server/domain/seed';
 import { verifyPassword, DUMMY_HASH } from '@/server/auth/passwords';
-import { setSessionCookie } from '@/server/auth/session';
+import { setSessionCookie, signSession } from '@/server/auth/session';
 import { checkRateLimit } from '@/server/rateLimit';
 
 export async function POST(req: NextRequest) {
@@ -11,9 +11,16 @@ export async function POST(req: NextRequest) {
   // Added 2026-08-21: the dummy-hash compare below defends against
   // email-enumeration timing, not brute force — without a rate limit, a
   // script can try unlimited password guesses against a known demo email
-  // at network speed. 8 burst / 8-per-minute: generous for a real member
-  // mistyping a password a few times, tight against automated guessing.
-  const limited = checkRateLimit(req, 'login', { capacity: 8, refillPerMinute: 8 });
+  // at network speed.
+  //
+  // Raised 2026-08-22 from 8/8-per-minute: the rate limiter's key is the
+  // client IP (server/rateLimit.ts), which collapses to one shared bucket
+  // per machine — so signing into several demo accounts across several tabs
+  // from one laptop (the exact multi-device convergence demo this app is
+  // built to show) could exhaust the old ceiling before a single real
+  // mistyped password. 30/30 keeps this a real defense against an automated
+  // guessing loop while giving a demo real headroom.
+  const limited = checkRateLimit(req, 'login', { capacity: 30, refillPerMinute: 30 });
   if (!limited.allowed) {
     return NextResponse.json({ error: 'too many attempts, try again shortly' }, { status: 429 });
   }
@@ -39,7 +46,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Those details do not match an account.' }, { status: 401 });
   }
 
-  const res = NextResponse.json({ id: passenger.id, displayName: passenger.displayName, consent: passenger.consent });
-  setSessionCookie(res, passenger.id, req);
+  // Signed once, given to both the cookie and the body: sessionToken lets
+  // this browser tab (via lib/tabSession.ts) keep acting as this passenger
+  // even after a different tab in the same browser signs in as someone else
+  // and overwrites the shared cookie — see session.ts's header.
+  const token = signSession(passenger.id);
+  const res = NextResponse.json({
+    id: passenger.id,
+    displayName: passenger.displayName,
+    consent: passenger.consent,
+    sessionToken: token,
+  });
+  setSessionCookie(res, token, req);
   return res;
 }

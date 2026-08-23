@@ -168,6 +168,18 @@ export default function FlightsPage() {
                         <span className="when">{dayLabel(new Date(f.depISO), new Date())}</span>
                       </div>
                       <RouteLine f={f} />
+                      <div className="foot">
+                        {cancelled ? (
+                          <span style={{ color: 'var(--risk)' }}>Cancelled by the airline</span>
+                        ) : f.forecast ? (
+                          <>
+                            <span className="risk-num">{Math.round(f.forecast.riskScore ?? f.forecast.pct)}/100</span>
+                            <span>· {BAND_LABEL[f.forecast.band].toLowerCase()}</span>
+                          </>
+                        ) : (
+                          <span>awaiting forecast</span>
+                        )}
+                      </div>
                     </div>
                   </Link>
                 );

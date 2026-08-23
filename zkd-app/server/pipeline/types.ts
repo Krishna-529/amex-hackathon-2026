@@ -100,6 +100,15 @@ export const IRREVERSIBLE_EDGE = { from: 'HOLD_PENDING', to: 'CONFIRMED' } as co
 /** A re-plan loop that never terminates is worse than an honest halt. */
 export const MAX_REPLANS = 3;
 
+/**
+ * Member-driven re-plans (from the intent box) are bounded separately and more
+ * generously than the internal `MAX_REPLANS` cascade budget: a person retyping
+ * their preferences is an explicit, human-paced action, not a runaway loop, and
+ * the real cost ceiling is server/governor.ts rate-limiting the supplier calls
+ * underneath. This only stops a pathological client from spinning the pipeline.
+ */
+export const MAX_MEMBER_REPLANS = 12;
+
 // ── Portfolio ──────────────────────────────────────────────────────────────
 
 /**
@@ -176,6 +185,8 @@ export type PipelineRun = {
   startedAt: number;
   changedAt: number;
   replans: number;
+  /** re-plans triggered by the member updating their intent, bounded separately (MAX_MEMBER_REPLANS) */
+  memberReplans: number;
   /** ids of the chosen plan, in the domain's own vocabulary */
   plan: { altId: string; hotelId: string | null; cabId: string | null } | null;
   /** per-source status from the last search, for /ops */

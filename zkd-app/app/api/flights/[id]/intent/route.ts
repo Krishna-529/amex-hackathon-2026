@@ -1,51 +1,70 @@
 /**
- * "Tell us what you'd prefer" — free text in, re-ranked options out.
+ * "Tell us what you'd prefer" — free text in, a real re-search out.
  *
- * **This route applies nothing.** It reads the member's sentence, turns it into
- * a validated preference delta, re-runs the ordinary deterministic scorer with
- * that delta layered on, and returns the result *for the member to look at*.
- * Their stored preferences are untouched and no recovery is altered until they
- * confirm, at which point `/api/flights/[id]/preauth` records it.
+ * **This route now DRIVES the recovery.** It reads the member's sentence, turns
+ * it into a validated preference override, **persists it as per-flight session
+ * state** (`store.setSessionPrefs`), and **re-runs the pipeline** — a fresh
+ * supplier search, connection composition, hotel + ground re-compose, and
+ * ranking — all against those preferences (`planForPreferences` → `plan()`). The
+ * portfolio the member then sees, and the plan that would be pre-authed/booked,
+ * both reflect what they asked for. Earlier this route applied nothing and only
+ * re-ranked the already-cached alternatives; that was a preview, and the member
+ * asked for a real re-book.
  *
- * That read-only stance is the whole design. A member typing a sentence into a
- * box at the moment their flight is about to cancel should be able to see what
- * it would do before it does it — and if the model misreads them, the cost of
- * that mistake should be a list they disagree with, not a booking they did not
- * want.
+ * What is deliberately preserved is the one invariant that actually matters:
+ * the override is scoped to THIS flight+passenger recovery and is discarded with
+ * it. It is **never** merged into the durable MyCa profile — one sentence about
+ * one flight must not rewrite a member's standing preferences. And nothing
+ * irreversible happens here: `plan()` stays entirely left of the WAIT gate, so a
+ * misread costs a re-search, never a booking. DELETE clears the override and
+ * re-plans on the member's plain MyCa preferences — the "Undo".
  */
 import { NextRequest, NextResponse } from 'next/server';
 import * as store from '@/server/domain/store';
 import { requireSession } from '@/server/auth/guard';
 import { parseJsonBody, isNonEmptyString } from '@/server/jsonBody';
 import { fetchProfile, BILLING_CURRENCY } from '@/server/myca';
-import { adapt } from '@/server/preferences/adapt';
-import { readIntent, applyOverride, type IntentContext } from '@/server/preferences/intent';
+import { adapt, type AdaptedPreferences } from '@/server/preferences/adapt';
+import { readIntent, applyOverride, cleanIntent, MAX_HISTORY_TURNS, type IntentContext } from '@/server/preferences/intent';
 import { altsForParty } from '@/server/domain/altsForParty';
 import { applyHardRules, rankAlts, type ScoreContext } from '@/server/pipeline/score';
+import { planForPreferences, preferredPlan } from '@/server/pipeline';
 import { logMemberIntent } from '@/server/decisionLedger';
+import type { Flight } from '@/server/domain/types';
 
-type IntentBody = { text: string };
+type HistoryTurn = { role: 'member' | 'assistant'; text: string };
+type IntentBody = { text: string; history?: unknown };
 
 function isIntentBody(v: unknown): v is IntentBody {
   return typeof v === 'object' && v !== null && isNonEmptyString((v as { text?: unknown }).text);
 }
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const g = await requireSession(req);
-  if ('response' in g) return g.response;
+/**
+ * The chat sends its own turn history back on every message — this route
+ * stays stateless between requests (the conversation itself lives nowhere
+ * server-side), so the client is the only place it can live. That makes it
+ * untrusted input, same as the live message itself: cap the turn count and
+ * re-run every turn's text through the exact same cleaning the live message
+ * gets, rather than trusting that a shape the client sent back to us is the
+ * shape we originally sent it.
+ */
+function sanitizeHistory(raw: unknown): HistoryTurn[] {
+  if (!Array.isArray(raw)) return [];
+  const turns: HistoryTurn[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) continue;
+    const role = (item as { role?: unknown }).role;
+    const text = cleanIntent((item as { text?: unknown }).text);
+    if ((role === 'member' || role === 'assistant') && text) turns.push({ role, text });
+  }
+  // Most recent turns, not the oldest — see MAX_HISTORY_TURNS's own comment.
+  return turns.slice(-MAX_HISTORY_TURNS);
+}
 
-  const { id } = await params;
-  const parsed = await parseJsonBody(req, isIntentBody);
-  if ('response' in parsed) return parsed.response;
-
-  const flight = await store.getFlight(id);
-  if (!flight) return NextResponse.json({ error: 'not found' }, { status: 404 });
-
-  const bookings = await store.getBookingsForFlight(id);
-  const booking = bookings.find((b) => b.passengerId === g.passenger.id);
-  const partySize = booking ? store.partySize(booking) : 1;
-
-  const profile = await fetchProfile(g.passenger.id);
+/** The member's plain MyCa-derived preferences (no override). Shared by the model
+ *  context and by the base re-rank the DELETE path uses. */
+async function basePreferencesFor(passengerId: string) {
+  const profile = await fetchProfile(passengerId);
   const base = adapt(
     {
       traveler_identity: {
@@ -70,7 +89,105 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     profile.payment.billingCurrency,
   );
   base.preferences.cabinEntitlement = profile.preferences.cabinEntitlement;
+  return { profile, base };
+}
 
+/**
+ * Rank the flight's CURRENT candidates for presentation. This is the member's
+ * browsable list; the authoritative chosen plan is `preferredPlan()` (the
+ * pipeline's own richer ranking, which also carries the risk signals this
+ * presentation rank omits). Kept in sync by pinning the pipeline's choice to the
+ * front below.
+ */
+function rankPortfolio(
+  flight: Flight,
+  prefs: AdaptedPreferences,
+  partySize: number,
+  extraPreferredCarriers: string[],
+  deadlineISO: string | null,
+) {
+  const hardDeadlineISO = deadlineISO ?? flight.hardDeadlineISO ?? null;
+  const scoredFlight: Flight = {
+    ...flight,
+    hardDeadlineISO,
+    hasHardConstraint: flight.hasHardConstraint || hardDeadlineISO != null,
+  };
+  const ctx: ScoreContext = {
+    flight: scoredFlight,
+    rules: prefs.rules,
+    preferredCabin: prefs.preferredCabin,
+    partySize,
+    displayCurrency: BILLING_CURRENCY,
+    preferredCarriers: [...extraPreferredCarriers, ...prefs.preferences.preferredCarriers],
+    hasHardConstraint: scoredFlight.hasHardConstraint,
+  };
+  const party = altsForParty(flight.candidates.alts, partySize);
+  const { kept, removed } = applyHardRules(party, ctx);
+  return { ranked: rankAlts(kept, ctx), removed, kept };
+}
+
+/** The response body shared by POST and DELETE — a freshly searched portfolio. */
+function portfolioResponse(
+  flight: Flight,
+  ranked: ReturnType<typeof rankPortfolio>['ranked'],
+  removed: ReturnType<typeof rankPortfolio>['removed'],
+  plan: { altId: string; hotelId: string | null; cabId: string | null } | null,
+  extra: Record<string, unknown>,
+) {
+  // Float the plan the pipeline actually chose to the top, so the member's
+  // highlighted leader is the thing that would be booked even when the two
+  // rankers order the tail slightly differently.
+  const options = ranked.map((s) => ({
+    id: s.alt.id,
+    code: s.alt.code,
+    dep: s.alt.dep,
+    arr: s.alt.arr,
+    cabin: s.alt.cabin,
+    partyFare: s.alt.partyFare,
+    currency: s.alt.currency,
+    quoted: s.alt.quoted ?? null,
+    ok: s.alt.ok,
+    why: s.why,
+    score: s.score.total,
+  }));
+  if (plan?.altId) {
+    const i = options.findIndex((o) => o.id === plan.altId);
+    if (i > 0) options.unshift(options.splice(i, 1)[0]);
+  }
+  return NextResponse.json({
+    understood: true,
+    removed,
+    options,
+    plan,
+    // The re-composed bundle. Empty when this recovery does not need an overnight
+    // (a same-day seat), exactly as the pipeline decides.
+    hotels: flight.candidates.hotels,
+    cabs: flight.candidates.cabs,
+    ...extra,
+  });
+}
+
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const g = await requireSession(req);
+  if ('response' in g) return g.response;
+
+  const { id } = await params;
+  const parsed = await parseJsonBody(req, isIntentBody);
+  if ('response' in parsed) return parsed.response;
+
+  const flight = await store.getFlight(id);
+  if (!flight) return NextResponse.json({ error: 'not found' }, { status: 404 });
+
+  const bookings = await store.getBookingsForFlight(id);
+  const booking = bookings.find((b) => b.passengerId === g.passenger.id);
+  const partySize = booking ? store.partySize(booking) : 1;
+
+  const { profile, base } = await basePreferencesFor(g.passenger.id);
+
+  // The options the model sees, for resolving references like "the IndiGo one"
+  // and noticing when nothing meets the ask. Read BEFORE the re-plan, from the
+  // candidates currently in hand — the model translates the sentence, it does
+  // not need the fresh search to do so.
   const party = altsForParty(flight.candidates.alts, partySize);
 
   const ctx: IntentContext = {
@@ -95,50 +212,72 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       code: a.code, dep: a.dep, arr: a.arr, cabin: a.cabin,
       fare: a.partyFare, currency: a.currency, seats: a.seats, ok: a.ok,
     })),
+    history: sanitizeHistory(parsed.body.history),
   };
 
-  const result = await readIntent(parsed.body.text, ctx);
+  const read = await readIntent(parsed.body.text, ctx);
 
   // Failure is "no change", explicitly. An unconfigured key, a timeout or an
   // unparseable answer must never leave the member with half an instruction
-  // applied — they keep exactly what they had and are told we could not read it.
-  if (!result) {
+  // applied — they keep exactly what they had. But *why* it failed matters:
+  // a real, observed Gemini overload (see server/gemini.ts's header) is not
+  // the member's fault and "try rephrasing" is actively bad advice for it —
+  // retried automatically already, this is what's left after that.
+  if (!read.ok) {
     return NextResponse.json({
       understood: false,
       message:
-        'We could not read that. Your existing preferences are unchanged — you can pick an option yourself below, or try rephrasing.',
+        read.reason === 'overloaded'
+          ? "Our assistant is briefly overloaded and couldn't respond — this isn't about how you phrased it. Your existing preferences are unchanged; wait a few seconds and try again, or pick an option yourself below."
+          : 'We could not read that. Your existing preferences are unchanged — you can pick an option yourself below, or try rephrasing.',
     });
   }
+  const result = read.intent;
 
-  const withOverride = applyOverride(base, result.override);
+  // Persist the override as per-flight session state, THEN re-plan. plan() reads
+  // exactly this record, so the fresh search + compose + rank all honour it.
+  await store.setSessionPrefs({
+    flightId: id,
+    passengerId: g.passenger.id,
+    override: result.override,
+    restated: result.override.restated_intent,
+    setAt: Date.now(),
+  });
+  await planForPreferences(id, g.passenger.id).catch(() => {});
 
-  // A deadline the member just stated is a hard rule, and `applyHardRules`
-  // reads it off the flight rather than the rules object. Applied to a COPY:
-  // this is a preview, and a stored flight must not acquire a deadline from a
-  // sentence the member has not confirmed yet.
-  const previewFlight = result.override.hard_deadline_iso
-    ? { ...flight, hardDeadlineISO: result.override.hard_deadline_iso, hasHardConstraint: true }
-    : flight;
+  // Read back the freshly searched + re-composed flight and the pipeline's choice.
+  const freshFlight = (await store.getFlight(id)) ?? flight;
+  const plan = preferredPlan(id, g.passenger.id);
 
-  const scoreCtx: ScoreContext = {
-    flight: previewFlight,
-    rules: withOverride.rules,
-    preferredCabin: withOverride.preferredCabin,
+  // A deadline or a departure floor the member just stated is a hard rule, and
+  // `applyHardRules` reads both off the flight rather than the rules object.
+  // Applied to a COPY of the freshly re-planned flight, not the stale one: this
+  // presentation rank must reflect it even on the first turn `earliest_departure_iso`
+  // is stated, whether or not the real replan above already threaded it through —
+  // a preview that still showed an option the member just excluded would look
+  // broken regardless of what the pipeline would actually book.
+  const previewFlight = (result.override.hard_deadline_iso || result.override.earliest_departure_iso)
+    ? {
+        ...freshFlight,
+        ...(result.override.hard_deadline_iso
+          ? { hardDeadlineISO: result.override.hard_deadline_iso, hasHardConstraint: true }
+          : null),
+        ...(result.override.earliest_departure_iso
+          ? { earliestDepartISO: result.override.earliest_departure_iso }
+          : null),
+      }
+    : freshFlight;
+
+  const { ranked, removed } = rankPortfolio(
+    previewFlight,
+    // The route's presentation rank layers the same override the pipeline used,
+    // so the browsable list and the pipeline's chosen plan agree.
+    applyOverride(base, result.override),
     partySize,
-    displayCurrency: BILLING_CURRENCY,
-    preferredCarriers: [
-      ...result.override.prefer_airlines,
-      ...withOverride.preferences.preferredCarriers,
-    ],
-    hasHardConstraint: previewFlight.hasHardConstraint,
-  };
+    result.override.prefer_airlines,
+    result.override.hard_deadline_iso,
+  );
 
-  const { kept, removed } = applyHardRules(party, scoreCtx);
-  const ranked = rankAlts(kept, scoreCtx);
-
-  // What a member asked for, in their own words, is exactly the kind of claim
-  // that should be checkable afterwards — especially now that a stated budget
-  // is a hard rule and a stated deadline can remove every option.
   try {
     logMemberIntent({
       flightId: id,
@@ -148,35 +287,41 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       changes: result.diff.changes,
       clamped: result.diff.clamped,
       unsupported: result.diff.unsupported.map((u) => u.asked),
-      keptCount: kept.length,
+      keptCount: ranked.length,
       removedCount: removed.length,
     });
   } catch {
     // Ledger I/O must never break the member's screen.
   }
 
-  return NextResponse.json({
-    understood: true,
+  return portfolioResponse(freshFlight, ranked, removed, plan, {
     restated: result.override.restated_intent,
     confidence: result.override.confidence,
     diff: result.diff,
     override: result.override,
-    // Everything excluded, with the rule that excluded it. "We found nothing"
-    // and "your own instruction excluded everything" are different answers and
-    // the member is owed the second one.
-    removed,
-    options: ranked.map((s) => ({
-      id: s.alt.id,
-      code: s.alt.code,
-      dep: s.alt.dep,
-      arr: s.alt.arr,
-      cabin: s.alt.cabin,
-      partyFare: s.alt.partyFare,
-      currency: s.alt.currency,
-      quoted: s.alt.quoted ?? null,
-      ok: s.alt.ok,
-      why: s.why,
-      score: s.score.total,
-    })),
   });
+}
+
+/** Undo: drop the session override and re-plan on plain MyCa preferences. */
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const g = await requireSession(req);
+  if ('response' in g) return g.response;
+
+  const { id } = await params;
+  const flight = await store.getFlight(id);
+  if (!flight) return NextResponse.json({ error: 'not found' }, { status: 404 });
+
+  const bookings = await store.getBookingsForFlight(id);
+  const booking = bookings.find((b) => b.passengerId === g.passenger.id);
+  const partySize = booking ? store.partySize(booking) : 1;
+
+  await store.clearSessionPrefs(id, g.passenger.id);
+  await planForPreferences(id, g.passenger.id).catch(() => {});
+
+  const { base } = await basePreferencesFor(g.passenger.id);
+  const freshFlight = (await store.getFlight(id)) ?? flight;
+  const plan = preferredPlan(id, g.passenger.id);
+  const { ranked, removed } = rankPortfolio(freshFlight, base, partySize, [], null);
+
+  return portfolioResponse(freshFlight, ranked, removed, plan, { cleared: true });
 }
