@@ -19,6 +19,7 @@ Read in order. Each answers one question a judge will ask.
 | [`04-infrastructure-and-cost.md`](design/04-infrastructure-and-cost.md) | What it costs to run, and why there is no GPU on the critical path |
 | [`05-cancellation-risk-model.md`](design/05-cancellation-risk-model.md) | **Supersedes `01` §2.** The real, self-trained model that replaced the Lumo vendor call — data, features, serving, and the threshold-gated alt pre-cache |
 | [`06-experience-kpis.md`](design/06-experience-kpis.md) | How the project is measured — granular customer-experience KPIs, each marked by whether the data exists in the system today |
+| [`06a-amex-kpi-mapping.md`](design/06a-amex-kpi-mapping.md) | The same 20 KPIs, regrouped against Amex's three named targets — engagement, satisfaction, experience — and which of the three is weakest today |
 
 ## architecture/
 
