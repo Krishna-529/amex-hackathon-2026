@@ -12,7 +12,9 @@ type Theme = 'light' | 'dark';
  * persists the choice to localStorage under `zkd-theme`.
  */
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>('dark');
+  // Matches the layout.tsx pre-hydration script's default (light), so the
+  // icon is right on first paint rather than flashing from a 'dark' guess.
+  const [theme, setTheme] = useState<Theme>('light');
 
   // Read whatever the pre-hydration script already stamped on <html>.
   useEffect(() => {
