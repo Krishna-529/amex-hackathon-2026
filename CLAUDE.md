@@ -65,6 +65,7 @@ Decided in mentor meeting 2; see `documentation/project/mentor-meetings.md`.
 | Can we detect a cancellation, and does OAG provide it? | `design/02-data-sources-and-apis.md` §1 — *Detection versus prediction* |
 | How does detection actually work end to end — the three lanes, OAG's real role, and how a cancellation reaches every passenger? | [`design/07-disruption-detection-explained.md`](documentation/design/07-disruption-detection-explained.md) |
 | Does Flutter's push notification / FCM token registration actually work? | [`design/08-flutter-notifications.md`](documentation/design/08-flutter-notifications.md) — short answer: not yet, local-only |
+| Is this problem actually big enough to matter, with real incidents, not just the demo? | [`design/09-problem-scale-and-incidents.md`](documentation/design/09-problem-scale-and-incidents.md) — base rates plus four named incidents (IndiGo, Southwest, CrowdStrike, American Airlines) |
 | What does Amex/MyCa hold about the member and their family? | `design/02-data-sources-and-apis.md` §6 |
 | What does it cost to run, and why is there no GPU on the critical path? | [`design/04-infrastructure-and-cost.md`](documentation/design/04-infrastructure-and-cost.md) |
 

@@ -12,6 +12,37 @@
 
 ## Recent work
 
+- 2026-08-24 (added `documentation/design/09-problem-scale-and-incidents.md` to `finale_finale`,
+  and updated it for the incident) — **This doc existed only on a diverged, unmerged worktree
+  branch (`worktree-amex-kpi-mapping`, itself branched from a much older lineage — no `07`/`08`
+  docs, no relation to `finale_finale`'s current commits) and was never on this branch at all.**
+  Ported it over rather than merging the branch (the two lineages have unrelated histories and
+  merging would pull in unrelated, possibly-superseded work), and dropped its reference to a
+  `06a-amex-kpi-mapping.md` companion doc that also only exists on that other branch — verified
+  the `A1`/`A4`/`E4` KPI codes it cites still match this branch's `06-experience-kpis.md` before
+  keeping those references as-is.
+  - **Updated content, not just a straight port**: this repo's knowledge cutoff is January 2026 and
+    the doc's newest incident was December 2025, so before publishing it on `finale_finale` (dated
+    2026-08-24) it needed a real web-search pass, not just a copy. Confirmed the IndiGo crisis's
+    actual resolution (DGCA closed its inquiry 2026-01-18 with a ~₹22cr fine, found the root cause
+    was over-optimised scheduling with weak buffers — not an external shock; IndiGo raised pilot
+    layover allowances the same month) and added a **fourth incident**: American Airlines' own-tech
+    outage on 2026-07-28, the **third** FAA-ordered nationwide ground stop tied to American's
+    systems in under two years (after Christmas Eve 2024 and June 2025). That recurrence is the
+    reason it earned a full §2.4 rather than a footnote — the existing three incidents (IndiGo,
+    Southwest, CrowdStrike) already covered "different root causes, same member experience";
+    American's repeat failure is the first evidence in this doc that detection also has to assume
+    the *same* carrier can produce the *same* failure mode again, which changes the KPI argument in
+    §3 (`A1` framing now explicitly says "we've seen this before" is not itself a mitigation).
+  - Also fixed a real, separate staleness gap while touching `documentation/README.md`'s design-doc
+    index: it never listed `07-disruption-detection-explained.md` or `08-flutter-notifications.md`
+    either (both already existed on `finale_finale`, just never indexed) — added all three (`07`,
+    `08`, `09`) in the same edit rather than leaving `07`/`08` stale a second time. Added a matching
+    row to root `CLAUDE.md`'s doc map.
+  - Evidence tier is `external` throughout, consistent with the doc's own stated convention — every
+    new figure is sourced and cited (DGCA, Tech Times, VisaVerge, Live 5 News, NomadLawyer); nothing
+    in this repo can independently verify any of it, same as before this edit.
+
 - 2026-08-21 (full-codebase security & robustness audit) — **On the user's explicit request to
   find anything "not built up to the standards and scale of Amex," ran four parallel read-only
   research passes (security/access-control, data layer/state machine, API route surface,

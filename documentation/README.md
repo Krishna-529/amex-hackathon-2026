@@ -19,6 +19,9 @@ Read in order. Each answers one question a judge will ask.
 | [`04-infrastructure-and-cost.md`](design/04-infrastructure-and-cost.md) | What it costs to run, and why there is no GPU on the critical path |
 | [`05-cancellation-risk-model.md`](design/05-cancellation-risk-model.md) | **Supersedes `01` §2.** The real, self-trained model that replaced the Lumo vendor call — data, features, serving, and the threshold-gated alt pre-cache |
 | [`06-experience-kpis.md`](design/06-experience-kpis.md) | How the project is measured — granular customer-experience KPIs, each marked by whether the data exists in the system today |
+| [`07-disruption-detection-explained.md`](design/07-disruption-detection-explained.md) | How detection actually works end to end — the three lanes, OAG's real role, and how a cancellation reaches every passenger |
+| [`08-flutter-notifications.md`](design/08-flutter-notifications.md) | Whether Flutter's push notification / FCM token registration actually works (short answer: not yet, local-only) |
+| [`09-problem-scale-and-incidents.md`](design/09-problem-scale-and-incidents.md) | How big the problem really is — global/India disruption base rates and four named real-world incidents (IndiGo, Southwest, CrowdStrike, American Airlines) |
 
 ## architecture/
 
