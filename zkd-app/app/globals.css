@@ -1966,7 +1966,13 @@ body:has(.amex-page) { background: var(--amex-bg) }
 @keyframes intentBubbleIn{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
 .intent-chat-bubble p{margin:0}
 .intent-chat-bubble p + p{margin-top:8px}
-.intent-chat-bubble.member{background:var(--iris);color:#fff;border-bottom-right-radius:4px}
+/* Plain white on the raw --iris blue only hits ~3.9:1 contrast — under the
+   4.5:1 WCAG AA floor for 13px body text — so the member's own messages read
+   as washed-out/grey rather than legible. Darkening the background (mixed
+   from the same token, so it tracks --iris under every theme, including the
+   Amex skin's --amex-blue re-point) clears ~5.9:1 without introducing a new
+   colour. */
+.intent-chat-bubble.member{background:color-mix(in srgb, var(--iris) 78%, black 22%);color:#fff;border-bottom-right-radius:4px}
 .intent-chat-bubble.assistant{background:var(--edge-2, var(--edge));color:var(--text);border-bottom-left-radius:4px}
 .intent-chat-bubble.assistant.error{background:color-mix(in srgb, var(--risk) 12%, var(--edge-2, var(--edge)));color:var(--risk)}
 .intent-chat-typing{display:flex;gap:4px;padding:12px 13px}
