@@ -67,9 +67,27 @@ PARAMS = {
     "our_share": (0.02, 0.06),
 
     # --- prediction ------------------------------------------------------
-    # Weather / rotational disruptions are forecastable; technical, ATC and
-    # crew events largely are not.
-    "p_prediction_lead": 0.55,
+    # DATA-DERIVED, not hand-picked, as of this revision. Earlier versions of
+    # this file guessed 0.55 from the "weather is forecastable, ATC/crew
+    # mostly isn't" argument alone. We now have a real trained model
+    # (documentation/design/05-cancellation-risk-model.md: XGBoost on
+    # 7.9M real BTS+ANAC rows, ROC-AUC 0.804, PR-AUC 0.123) and its real
+    # decile lift table (zkd-risk-model/reports/model_metrics.json).
+    #
+    # The production alt-search pre-cache gate fires at riskScore >= 75,
+    # i.e. the top 25% of flights by calibrated risk percentile (05 §6).
+    # Reconstructing recall at that exact cutoff from the real lift table:
+    #   top 20% of flights by risk capture 66.0% of real cancellations
+    #   top 30% of flights by risk capture 74.7% of real cancellations
+    # linearly interpolated to the top-25% production cutoff -> ~70.3%.
+    # That is "prediction lead" in this model's own terms: the fraction of
+    # disruption cases where the real scorer would have crossed the gate
+    # and triggered alt-search before the cancellation confirmed. Rounded
+    # to 0.70. This number moves if the model is retrained or the gate
+    # threshold changes - re-derive from model_metrics.json's lift_table,
+    # don't hand-edit it back to a guess. Full derivation:
+    # documentation/design/10-monte-carlo-revision-2026-08.md §1.
+    "p_prediction_lead": 0.70,
 
     # --- passenger constraints -------------------------------------------
     # Fraction with a binding onward connection or hard time commitment.

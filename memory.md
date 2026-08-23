@@ -12,6 +12,42 @@
 
 ## Recent work
 
+- 2026-08-24 (re-ran `iropssim.py` against the real trained risk model's own performance data,
+  wrote `documentation/design/10-monte-carlo-revision-2026-08.md`) — **`PARAMS["p_prediction_lead"]`
+  was a hand-picked 0.55 with only a qualitative justification ("weather is forecastable, ATC/crew
+  mostly isn't"). Replaced it with 0.70, derived from the real trained risk model's own decile lift
+  table** (`zkd-risk-model/reports/model_metrics.json`), interpolated at the production alt-search
+  pre-cache gate's real cutoff (`riskScore >= 75`, top 25% of flights by risk — `05` §6): top 20% of
+  flights by risk capture 66.0% of real cancellations, top 30% capture 74.7%, interpolated to the
+  25% gate gives ~70.3%, rounded to 0.70. Full derivation and the reasoning for why no other
+  `PARAMS` value changed (none of them have a real trained-model/data source behind them yet) is in
+  the new doc's §0–1.
+  - **Headline moves same-day recovery from 65.48% to 69.57%** (+4.09pp), concentrated in the
+    systemic regime (+6.26pp vs. +2.82pp isolated) — consistent with `09-problem-scale-and-
+    incidents.md`'s four named systemic incidents being exactly where earlier prediction lead
+    protects the most inventory before the airline's own reactive re-accommodation consumes it.
+  - **Updated every document that quoted the old numbers, not just the headline**: the frozen `A2`
+    outcome-taxonomy table across all four canon agent specs (`documentation/agent-specs/current/
+    *_v2.0.md`) — edited identically as one scripted change-set per `AGENTS.md`'s own rule, then
+    re-verified byte-identical (`A2` hash `e705f831e981c858` on all four, matching before and
+    after); `architecture.md`'s outcome table; `03-action-policy.md` §9. Grepped for every old
+    figure (65.48, 93.12, 52.61, 12.87, 27.64, 6.88, 81.22, 38.15, and the sensitivity/stability
+    numbers) across `documentation/`, `README.md`, `context.md`, `AGENTS.md`, `CLAUDE.md` after
+    editing — zero stale references remain. Indexed the new doc in `documentation/README.md` and
+    root `CLAUDE.md`.
+  - **Verified both canonical reproducibility checks from `AGENTS.md` before and after**:
+    `python3 iropssim.py | diff - iropssim-output.json` empty both times; all four agent specs'
+    `A2` block hashes identical both times.
+  - **Process note**: `EnterWorktree` with `name` defaults to branching from `origin/<default-
+    branch>` (`main`/`demo`), not the session's actual current branch (`finale_finale`) — the first
+    attempt at this task silently branched off the wrong lineage (missing `06a`/`07`/`08`/`09`
+    entirely) and the mistake was only caught by checking `git log` and `ls documentation/design/`
+    against what the conversation already knew should be there. Fixed by exiting, running
+    `git worktree add <path> -b <branch> HEAD` manually from the correct checkout, then
+    `EnterWorktree` with `path` to enter that pre-made worktree. **When a worktree needs to branch
+    from the session's current branch rather than the repo default, don't trust `EnterWorktree
+    name=` — make the worktree with `git worktree add ... HEAD` first and enter it by `path`.**
+
 - 2026-08-24 (ported `documentation/design/06a-amex-kpi-mapping.md` to `finale_finale` as a
   follow-up to the `09` port below) — **This was the companion doc `09` originally referenced and
   dropped on the first port** (it lived only on the same diverged `worktree-amex-kpi-mapping`

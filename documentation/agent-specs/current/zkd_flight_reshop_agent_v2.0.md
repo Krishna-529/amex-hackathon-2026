@@ -224,22 +224,26 @@ acceptable outcome or a failure — **same system, same inventory, opposite verd
 
 | Outcome | Definition | Modelled | Proof |
 |---|---|---|---|
-| **A** | Same-day seat **and** the hard constraint held | 52.61% | `sim-outcome-a` |
-| **B** | Same-day seat, but arrives past the member's slack | 12.87% | `sim-outcome-b` |
-| **C** | No reachable same-day seat; next-day flight + hotel + duty of care | 27.64% | `sim-outcome-c` |
-| **D** | Escalated to a human | 6.88% | `sim-outcome-d` |
+| **A** | Same-day seat **and** the hard constraint held | 57.08% | `sim-outcome-a` |
+| **B** | Same-day seat, but arrives past the member's slack | 12.49% | `sim-outcome-b` |
+| **C** | No reachable same-day seat; next-day flight + hotel + duty of care | 23.65% | `sim-outcome-c` |
+| **D** | Escalated to a human | 6.77% | `sim-outcome-d` |
 
-Same-day recovery (A+B) is **65.48%** (`sim-same-day`) and is the headline because it discriminates.
-Seed-to-seed spread at n=40,000: mean 65.67, stdev 0.469, range [64.49, 66.12] (`sim-stability`).
+Same-day recovery (A+B) is **69.57%** (`sim-same-day`) and is the headline because it discriminates.
+Seed-to-seed spread at n=40,000: mean 69.43, stdev 0.409, range [68.94, 70.43] (`sim-stability`).
 **Same-day cutoff is 12 h**; beyond it a recovery becomes an overnight case with hotel and duty of
-care. By regime: isolated **81.22%**, systemic **38.15%**.
+care. By regime: isolated **84.04%**, systemic **44.41%**.
 
-**Closed-without-a-human (93.12%) is NOT a model finding — do not lead with it, and be ready to say
+**Closed-without-a-human (93.23%) is NOT a model finding — do not lead with it, and be ready to say
 why.** It is the `p_intrinsically_complex` **assumption** echoed back, near 1:1: hold every other
-parameter and vary that one alone and the metric tracks it — 97.06% at 0.0, 95.16% at 0.02, 93.12% at
-our assumed 0.04, 87.39% at 0.10, 77.69% at 0.20 (proof `sens-escalation-floor`). Its apparent
+parameter and vary that one alone and the metric tracks it — 96.97% at 0.0, 95.26% at 0.02, 93.25% at
+our assumed 0.04, 87.41% at 0.10, 77.75% at 0.20 (proof `sens-escalation-floor`). Its apparent
 stability across the other levers is not robustness; it is the metric being independent of everything
 those levers touch. Quote it only as *"our assumed escalation floor, restated"*, tier `assumed`.
+
+*(Revised 2026-08-24: `p_prediction_lead` moved from a hand-picked 0.55 to a data-derived 0.70,
+reconstructed from the trained risk model's real decile lift table at the production alt-search
+gate's actual cutoff — `documentation/design/10-monte-carlo-revision-2026-08.md`.)*
 
 **Latency (proof `latency-budget`, tier `budget`).** **~10 s** from carrier event to confirmed
 alternative **on the prepared path**. Of the 53 s cold path, **42 s is done in advance during WARM**

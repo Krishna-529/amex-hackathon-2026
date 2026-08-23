@@ -23,6 +23,7 @@ Read in order. Each answers one question a judge will ask.
 | [`07-disruption-detection-explained.md`](design/07-disruption-detection-explained.md) | How detection actually works end to end — the three lanes, OAG's real role, and how a cancellation reaches every passenger |
 | [`08-flutter-notifications.md`](design/08-flutter-notifications.md) | Whether Flutter's push notification / FCM token registration actually works (short answer: not yet, local-only) |
 | [`09-problem-scale-and-incidents.md`](design/09-problem-scale-and-incidents.md) | How big the problem really is — global/India disruption base rates and four named real-world incidents (IndiGo, Southwest, CrowdStrike, American Airlines) |
+| [`10-monte-carlo-revision-2026-08.md`](design/10-monte-carlo-revision-2026-08.md) | The Monte Carlo re-run against the real trained risk model's own performance data — replaces a hand-picked `p_prediction_lead` with one derived from the model's real decile lift table, full before/after |
 
 ## architecture/
 

@@ -48,7 +48,7 @@
       0.02,
       0.06
     ],
-    "p_prediction_lead": 0.55,
+    "p_prediction_lead": 0.7,
     "p_hard_constraint": 0.3,
     "slack_hard": [
       2.0,
@@ -63,21 +63,21 @@
   },
   "headline": {
     "n": 250000,
-    "events": 39314,
+    "events": 39311,
     "counts": {
-      "A_same_day_constraints_met": 131530,
-      "B_same_day_compromised": 32164,
-      "C_next_day_duty_of_care": 69105,
-      "D_escalated": 17201
+      "A_same_day_constraints_met": 142706,
+      "B_same_day_compromised": 31227,
+      "C_next_day_duty_of_care": 59136,
+      "D_escalated": 16931
     },
     "pct": {
-      "A_same_day_constraints_met": 52.61,
-      "B_same_day_compromised": 12.87,
-      "C_next_day_duty_of_care": 27.64,
-      "D_escalated": 6.88
+      "A_same_day_constraints_met": 57.08,
+      "B_same_day_compromised": 12.49,
+      "C_next_day_duty_of_care": 23.65,
+      "D_escalated": 6.77
     },
-    "same_day_seat_pct": 65.48,
-    "closed_without_human_pct": 93.12,
+    "same_day_seat_pct": 69.57,
+    "closed_without_human_pct": 93.23,
     "median_delay_h": 6.0,
     "p90_delay_h": 10.5
   },
@@ -86,139 +86,139 @@
       "n": 120000,
       "events": 19234,
       "counts": {
-        "A_same_day_constraints_met": 80988,
-        "B_same_day_compromised": 16478,
-        "C_next_day_duty_of_care": 17787,
+        "A_same_day_constraints_met": 85947,
+        "B_same_day_compromised": 14909,
+        "C_next_day_duty_of_care": 14397,
         "D_escalated": 4747
       },
       "pct": {
-        "A_same_day_constraints_met": 67.49,
-        "B_same_day_compromised": 13.73,
-        "C_next_day_duty_of_care": 14.82,
+        "A_same_day_constraints_met": 71.62,
+        "B_same_day_compromised": 12.42,
+        "C_next_day_duty_of_care": 12.0,
         "D_escalated": 3.96
       },
-      "same_day_seat_pct": 81.22,
+      "same_day_seat_pct": 84.04,
       "closed_without_human_pct": 96.04,
-      "median_delay_h": 6.0,
+      "median_delay_h": 4.5,
       "p90_delay_h": 9.0
     },
     "systemic": {
       "n": 120000,
-      "events": 18162,
+      "events": 18189,
       "counts": {
-        "A_same_day_constraints_met": 32777,
-        "B_same_day_compromised": 13006,
-        "C_next_day_duty_of_care": 60297,
-        "D_escalated": 13920
+        "A_same_day_constraints_met": 38647,
+        "B_same_day_compromised": 14643,
+        "C_next_day_duty_of_care": 52942,
+        "D_escalated": 13768
       },
       "pct": {
-        "A_same_day_constraints_met": 27.31,
-        "B_same_day_compromised": 10.84,
-        "C_next_day_duty_of_care": 50.25,
-        "D_escalated": 11.6
+        "A_same_day_constraints_met": 32.21,
+        "B_same_day_compromised": 12.2,
+        "C_next_day_duty_of_care": 44.12,
+        "D_escalated": 11.47
       },
-      "same_day_seat_pct": 38.15,
-      "closed_without_human_pct": 88.4,
-      "median_delay_h": 9.0,
+      "same_day_seat_pct": 44.41,
+      "closed_without_human_pct": 88.53,
+      "median_delay_h": 7.5,
       "p90_delay_h": 12.0
     }
   },
   "sensitivity": [
     {
       "lever": "BASELINE",
-      "closed_without_human_pct": 93.15,
-      "same_day_seat_pct": 65.49,
+      "closed_without_human_pct": 93.25,
+      "same_day_seat_pct": 69.2,
       "delta_same_day": 0.0
     },
     {
       "lever": "Single-carrier access only (0.30)",
-      "closed_without_human_pct": 92.92,
-      "same_day_seat_pct": 40.06,
-      "delta_same_day": -25.43
+      "closed_without_human_pct": 92.91,
+      "same_day_seat_pct": 43.56,
+      "delta_same_day": -25.64
     },
     {
       "lever": "Full multi-supplier access (0.90)",
-      "closed_without_human_pct": 93.27,
-      "same_day_seat_pct": 72.11,
-      "delta_same_day": 6.62
+      "closed_without_human_pct": 93.4,
+      "same_day_seat_pct": 75.97,
+      "delta_same_day": 6.77
     },
     {
       "lever": "Breadth capped at 1 alternative",
-      "closed_without_human_pct": 93.15,
-      "same_day_seat_pct": 27.64,
-      "delta_same_day": -37.85
+      "closed_without_human_pct": 93.25,
+      "same_day_seat_pct": 32.84,
+      "delta_same_day": -36.36
     },
     {
       "lever": "Breadth capped at 2 alternatives",
-      "closed_without_human_pct": 93.15,
-      "same_day_seat_pct": 41.58,
-      "delta_same_day": -23.91
+      "closed_without_human_pct": 93.25,
+      "same_day_seat_pct": 47.96,
+      "delta_same_day": -21.24
     },
     {
       "lever": "Breadth capped at 3 alternatives",
-      "closed_without_human_pct": 93.15,
-      "same_day_seat_pct": 50.6,
-      "delta_same_day": -14.89
+      "closed_without_human_pct": 93.25,
+      "same_day_seat_pct": 56.03,
+      "delta_same_day": -13.17
     },
     {
       "lever": "Breadth capped at 5 alternatives",
-      "closed_without_human_pct": 93.15,
-      "same_day_seat_pct": 60.79,
-      "delta_same_day": -4.7
+      "closed_without_human_pct": 93.25,
+      "same_day_seat_pct": 65.06,
+      "delta_same_day": -4.14
     },
     {
       "lever": "No prediction lead at all",
       "closed_without_human_pct": 92.96,
       "same_day_seat_pct": 51.33,
-      "delta_same_day": -14.16
+      "delta_same_day": -17.87
     },
     {
       "lever": "Perfect prediction lead",
       "closed_without_human_pct": 93.36,
       "same_day_seat_pct": 77.18,
-      "delta_same_day": 11.69
+      "delta_same_day": 7.98
     },
     {
       "lever": "Our share 2% (low self-contention)",
-      "closed_without_human_pct": 93.42,
-      "same_day_seat_pct": 76.88,
-      "delta_same_day": 11.39
+      "closed_without_human_pct": 93.52,
+      "same_day_seat_pct": 80.72,
+      "delta_same_day": 11.52
     },
     {
       "lever": "Our share 25% (heavy self-contention)",
-      "closed_without_human_pct": 92.58,
-      "same_day_seat_pct": 29.54,
-      "delta_same_day": -35.95
+      "closed_without_human_pct": 93.01,
+      "same_day_seat_pct": 32.99,
+      "delta_same_day": -36.21
     },
     {
       "lever": "Share 25% + breadth capped at 1",
-      "closed_without_human_pct": 92.58,
-      "same_day_seat_pct": 4.68,
-      "delta_same_day": -60.81
+      "closed_without_human_pct": 93.01,
+      "same_day_seat_pct": 5.61,
+      "delta_same_day": -63.59
     },
     {
       "lever": "p_intrinsically_complex = 0.0",
-      "closed_without_human_pct": 97.06,
-      "same_day_seat_pct": 68.13,
-      "delta_same_day": 2.64
+      "closed_without_human_pct": 96.97,
+      "same_day_seat_pct": 72.09,
+      "delta_same_day": 2.89
     },
     {
       "lever": "p_intrinsically_complex = 0.02",
-      "closed_without_human_pct": 95.16,
-      "same_day_seat_pct": 67.01,
-      "delta_same_day": 1.52
+      "closed_without_human_pct": 95.26,
+      "same_day_seat_pct": 70.84,
+      "delta_same_day": 1.64
     },
     {
       "lever": "p_intrinsically_complex = 0.1",
-      "closed_without_human_pct": 87.39,
-      "same_day_seat_pct": 61.26,
-      "delta_same_day": -4.23
+      "closed_without_human_pct": 87.41,
+      "same_day_seat_pct": 65.23,
+      "delta_same_day": -3.97
     },
     {
       "lever": "p_intrinsically_complex = 0.2",
-      "closed_without_human_pct": 77.69,
-      "same_day_seat_pct": 54.4,
-      "delta_same_day": -11.09
+      "closed_without_human_pct": 77.75,
+      "same_day_seat_pct": 57.69,
+      "delta_same_day": -11.51
     }
   ],
   "breadth_vs_allocation": {
@@ -226,48 +226,48 @@
       {
         "cohort": "isolated member (share 0.001)",
         "share": 0.001,
-        "same_day_full_breadth": 84.59,
-        "same_day_one_alternative": 58.28,
-        "combined_lever_pts": 26.31
+        "same_day_full_breadth": 87.67,
+        "same_day_one_alternative": 66.86,
+        "combined_lever_pts": 20.81
       },
       {
         "cohort": "our real share 2%",
         "share": 0.02,
-        "same_day_full_breadth": 76.88,
-        "same_day_one_alternative": 43.37,
-        "combined_lever_pts": 33.51
+        "same_day_full_breadth": 80.72,
+        "same_day_one_alternative": 51.02,
+        "combined_lever_pts": 29.7
       },
       {
         "cohort": "our real share 6%",
         "share": 0.06,
-        "same_day_full_breadth": 58.2,
-        "same_day_one_alternative": 19.57,
-        "combined_lever_pts": 38.63
+        "same_day_full_breadth": 61.53,
+        "same_day_one_alternative": 23.41,
+        "combined_lever_pts": 38.12
       },
       {
         "cohort": "hypothetical share 25%",
         "share": 0.25,
-        "same_day_full_breadth": 29.54,
-        "same_day_one_alternative": 4.68,
-        "combined_lever_pts": 24.86
+        "same_day_full_breadth": 32.99,
+        "same_day_one_alternative": 5.61,
+        "combined_lever_pts": 27.38
       }
     ],
-    "breadth_pts_no_contention_possible": 26.31,
+    "breadth_pts_no_contention_possible": 20.81,
     "note": "At share 0.001 there is exactly ONE of our members per event, so no self-contention can exist. Whatever the 1-alternative cap still costs there is BREADTH - searching more than one flight. Allocation across our own members is the remainder, and only that remainder scales with our share."
   },
   "stability": {
     "reps": 12,
     "same_day_seat_pct": {
-      "mean": 65.67,
-      "stdev": 0.469,
-      "min": 64.49,
-      "max": 66.12
+      "mean": 69.43,
+      "stdev": 0.409,
+      "min": 68.94,
+      "max": 70.43
     },
     "closed_without_human_pct": {
-      "mean": 93.21,
-      "stdev": 0.145,
-      "min": 92.88,
-      "max": 93.43
+      "mean": 93.25,
+      "stdev": 0.119,
+      "min": 93.05,
+      "max": 93.41
     }
   }
 }

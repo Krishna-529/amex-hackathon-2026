@@ -141,14 +141,17 @@ injecting a synthetic WATCH event on divergence.
 
 | Outcome | Definition | Modelled | Proof |
 |---|---|---|---|
-| **A** | Same-day seat, hard constraint held | 52.61% | `sim-outcome-a` |
-| **B** | Same-day seat, arrives past slack | 12.87% | `sim-outcome-b` |
-| **C** | Next-day flight + hotel + duty of care | 27.64% | `sim-outcome-c` |
-| **D** | Escalated to a human | 6.88% | `sim-outcome-d` |
+| **A** | Same-day seat, hard constraint held | 57.08% | `sim-outcome-a` |
+| **B** | Same-day seat, arrives past slack | 12.49% | `sim-outcome-b` |
+| **C** | Next-day flight + hotel + duty of care | 23.65% | `sim-outcome-c` |
+| **D** | Escalated to a human | 6.77% | `sim-outcome-d` |
 
-Same-day (A+B) **65.48%** (`sim-same-day`), cutoff **12 h**. Isolated **81.22%** · systemic
-**38.15%**. `closed_without_human` (93.12%) is an **assumed escalation floor restated**, not a model
+Same-day (A+B) **69.57%** (`sim-same-day`), cutoff **12 h**. Isolated **84.04%** · systemic
+**44.41%**. `closed_without_human` (93.23%) is an **assumed escalation floor restated**, not a model
 finding — quote as tier `assumed`.
+
+*(Revised 2026-08-24: `p_prediction_lead` moved from a hand-picked 0.55 to a data-derived 0.70 —
+see `documentation/design/10-monte-carlo-revision-2026-08.md`.)*
 
 ## Latency budget (~11 s prepared path)
 

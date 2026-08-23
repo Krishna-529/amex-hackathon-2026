@@ -76,6 +76,7 @@ Decided in mentor meeting 2; see `documentation/project/mentor-meetings.md`.
 | What KPIs do we care about, and which can we actually compute today? | [`design/06-experience-kpis.md`](documentation/design/06-experience-kpis.md) |
 | How do those KPIs map onto Amex's own engagement/satisfaction/experience buckets? | [`design/06a-amex-kpi-mapping.md`](documentation/design/06a-amex-kpi-mapping.md) |
 | Where does every `sim`-tier number come from? | [`iropssim.py`](iropssim.py) → `iropssim-output.json`, fixed seed |
+| Why did the sim's headline numbers change on 2026-08-24? | [`design/10-monte-carlo-revision-2026-08.md`](documentation/design/10-monte-carlo-revision-2026-08.md) — `p_prediction_lead` moved from a guess (0.55) to a value derived from the real trained risk model's own decile lift table (0.70) |
 | What do the evidence tiers mean? | `documentation/agent-specs/current/*_v2.0.md`, §"Evidence tiers" |
 
 ### "How is it built?"

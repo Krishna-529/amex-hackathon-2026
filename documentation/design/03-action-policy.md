@@ -292,15 +292,22 @@ Every recovery resolves to exactly one, and we report the mix rather than a sing
 
 | Outcome | Definition | Modelled |
 |---|---|---|
-| **A** | Same-day seat, hard constraint held | 52.61% |
-| **B** | Same-day seat, arrives past the member's slack | 12.87% |
-| **C** | No same-day seat; next-day flight + duty of care | 27.64% |
-| **D** | Escalated to a human | 6.88% |
+| **A** | Same-day seat, hard constraint held | 57.08% |
+| **B** | Same-day seat, arrives past the member's slack | 12.49% |
+| **C** | No same-day seat; next-day flight + duty of care | 23.65% |
+| **D** | Escalated to a human | 6.77% |
 
-Same-day recovery (A+B) is **65.48%**, and it is the headline **because it discriminates** — it
-moves under every lever we care about. Closed-without-a-human (93.12%) is reported as a secondary
+Same-day recovery (A+B) is **69.57%**, and it is the headline **because it discriminates** — it
+moves under every lever we care about. Closed-without-a-human (93.23%) is reported as a secondary
 figure only, because it tracks the `p_intrinsically_complex` assumption almost 1:1 and is
 therefore an input restated rather than a finding.
+
+**Revised 2026-08-24**: `p_prediction_lead` moved from a hand-picked 0.55 to a data-derived 0.70,
+reconstructed from the real trained risk model's decile lift table
+(`zkd-risk-model/reports/model_metrics.json`) at the production alt-search gate's actual cutoff
+(`riskScore >= 75`, the top 25% of flights by risk). See
+[`10-monte-carlo-revision-2026-08.md`](10-monte-carlo-revision-2026-08.md) for the full derivation
+and before/after comparison across every reported metric, not just this headline pair.
 
 Source: `iropssim.py`, fixed seed, reproducible — `python3 iropssim.py | diff - iropssim-output.json`.
 
