@@ -141,7 +141,8 @@ thing a member actually experiences: little or no notice, and a multi-day scramb
 ## 3. What this means for the KPI set
 
 This document doesn't add a KPI — it argues for the ones `documentation/design/06-experience-kpis.md`
-already flags as the biggest gaps:
+(and its companion, [`06a-amex-kpi-mapping.md`](06a-amex-kpi-mapping.md), which maps the same 20
+KPIs onto Amex's engagement/satisfaction/experience vocabulary) already flag as the biggest gaps:
 
 - **A1 Detection lead time** (`ABSENT`). All four incidents above show why this cannot wait for a
   clean single-flight cancellation signal — IndiGo's was a rolling multi-day collapse, Southwest's

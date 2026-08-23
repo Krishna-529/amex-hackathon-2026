@@ -3,6 +3,11 @@
 **How this project is measured.** Granular operational measures that compose into whether a
 disrupted member had a good time or a bad one.
 
+See also: [`06a-amex-kpi-mapping.md`](06a-amex-kpi-mapping.md) maps these same 20 KPIs onto Amex's
+own engagement/satisfaction/experience vocabulary, and
+[`09-problem-scale-and-incidents.md`](09-problem-scale-and-incidents.md) is the real-world evidence
+for why the gaps below (particularly A1 and E4) matter at all.
+
 ---
 
 ## The objective, stated once

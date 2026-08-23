@@ -12,6 +12,15 @@
 
 ## Recent work
 
+- 2026-08-24 (ported `documentation/design/06a-amex-kpi-mapping.md` to `finale_finale` as a
+  follow-up to the `09` port below) — **This was the companion doc `09` originally referenced and
+  dropped on the first port** (it lived only on the same diverged `worktree-amex-kpi-mapping`
+  branch). Before copying it over, checked every KPI code and status it cites (`E1`–`E4`,
+  `A1`/`A4`, `B2`, `C1`–`C6`, `D1`/`D2`) against this branch's `06-experience-kpis.md` — **all 20
+  matched exactly**, so it was a clean copy with no status edits needed. Added cross-links both
+  ways (`06` → `06a`/`09`, `09` → `06a`) and indexed it in `documentation/README.md` and root
+  `CLAUDE.md`, same as `09`.
+
 - 2026-08-24 (added `documentation/design/09-problem-scale-and-incidents.md` to `finale_finale`,
   and updated it for the incident) — **This doc existed only on a diverged, unmerged worktree
   branch (`worktree-amex-kpi-mapping`, itself branched from a much older lineage — no `07`/`08`
