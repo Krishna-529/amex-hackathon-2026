@@ -12,6 +12,37 @@
 
 ## Recent work
 
+- 2026-08-23 (Supabase migration + login-not-persisting fix) — After the Postgres dump was
+  imported into a new Supabase project, login was 500ing in production because `DATABASE_URL`
+  had never been set (fell back to the local `localhost:5433` default). Fixed by pointing
+  `zkd-app/.env.local`'s `DATABASE_URL` at Supabase's **session pooler** (port 5432), not the
+  transaction pooler (6543): this app is a long-running server, not serverless, and
+  `server/domain/db.ts`'s migration/seed locking depends on session-scoped `pg_advisory_lock` via
+  `sql.reserve()`, which broke on the transaction pooler with a real Postgres warning (`you don't
+  own a lock of type ExclusiveLock`) because pgbouncer's transaction mode can swap the backend
+  connection under the same client socket.
+  - Second, separate bug surfaced once login itself worked: the browser accepted the 200 login
+    response but never actually landed on `/flights`, and navigating there directly bounced back
+    to `/login`. Root cause: `server/auth/session.ts` and `server/auth/opsSession.ts` both set the
+    session cookie's `secure` flag from `process.env.NODE_ENV === 'production'` — but `next start`
+    (what `npm start` runs) always forces `NODE_ENV=production` internally regardless of whether
+    the origin is actually HTTPS. Serving over `http://51.20.144.50:5176` (plain HTTP, no TLS)
+    meant every cookie was marked `Secure`, which browsers silently refuse to store on a
+    non-HTTPS origin — so login "worked" (200 + body) but no cookie was ever kept, and
+    `middleware.ts`'s cookie-presence check correctly redirected every next request back to
+    `/login`. Fixed by deriving `secure` from the actual request (`x-forwarded-proto` header, then
+    `req.nextUrl.protocol`) instead of `NODE_ENV`, in both `session.ts` and `opsSession.ts`, with
+    `req` threaded through `setSessionCookie`/`clearSessionCookie`/`setOpsSessionCookie`/
+    `clearOpsSessionCookie` and their four route callers. Verified with `next build && next start`
+    (reproducing the remote box's actual `NODE_ENV=production` behavior) locally: `Set-Cookie` no
+    longer carries `Secure` over plain HTTP, and a real Playwright browser session logs in and
+    stays on `/flights` across navigation. `tsc --noEmit` clean; `vitest` itself is broken in this
+    environment (missing `@rolldown/binding-wasm32-wasi` native binding, pre-existing, reproduces
+    identically on the unmodified checkout — not caused by this change).
+  - The remote deployment at `51.20.144.50:5176` was not directly reachable (no SSH/console
+    access from this session) to apply either fix there — both need to be pulled, rebuilt
+    (`npm run build`), and the process restarted on that box for the site itself to recover.
+
 - 2026-08-21 (full-codebase security & robustness audit) — **On the user's explicit request to
   find anything "not built up to the standards and scale of Amex," ran four parallel read-only
   research passes (security/access-control, data layer/state machine, API route surface,

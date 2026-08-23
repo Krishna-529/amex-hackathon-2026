@@ -40,6 +40,6 @@ export async function POST(req: NextRequest) {
   }
 
   const res = NextResponse.json({ id: passenger.id, displayName: passenger.displayName, consent: passenger.consent });
-  setSessionCookie(res, passenger.id);
+  setSessionCookie(res, passenger.id, req);
   return res;
 }

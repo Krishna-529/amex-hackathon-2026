@@ -32,15 +32,33 @@ const SECRET = process.env.SESSION_SECRET ?? 'zkd-dev-secret-not-for-production'
 
 export type Session = { pid: string; iat: number };
 
-/** Not `Secure` in dev: the Android app talks to http://192.168.x.x:5176 over
- *  plain LAN HTTP, and a Secure cookie would simply never be stored there. */
-export const COOKIE_OPTIONS = {
-  httpOnly: true,
-  sameSite: 'lax' as const,
-  path: '/',
-  maxAge: MAX_AGE_S,
-  secure: process.env.NODE_ENV === 'production',
-};
+/**
+ * Whether THIS request actually arrived over HTTPS — not "are we in
+ * production". `next start` always sets NODE_ENV=production internally
+ * regardless of how it's launched, so a NODE_ENV check made every session
+ * cookie `Secure` even when served over plain HTTP (e.g. a raw IP with no
+ * TLS): browsers silently refuse to store a `Secure` cookie set over HTTP,
+ * so login would 200 but no cookie was ever kept, and every route behind
+ * middleware.ts's cookie-presence check bounced back to /login. Checking
+ * `x-forwarded-proto` first also makes this correct behind a TLS-terminating
+ * proxy, where the hop to this process itself is plain HTTP.
+ */
+function isHttps(req: NextRequest): boolean {
+  return req.headers.get('x-forwarded-proto') === 'https' || req.nextUrl.protocol === 'https:';
+}
+
+/** Not `Secure` when the request itself isn't HTTPS: the Android app talks to
+ *  http://192.168.x.x:5176 over plain LAN HTTP, and a Secure cookie would
+ *  simply never be stored there. */
+function cookieOptions(req: NextRequest) {
+  return {
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: MAX_AGE_S,
+    secure: isHttps(req),
+  };
+}
 
 function b64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64url');
@@ -82,10 +100,10 @@ export function sessionFrom(req: NextRequest): Session | null {
   return verifySession(req.cookies.get(SESSION_COOKIE)?.value);
 }
 
-export function setSessionCookie(res: NextResponse, pid: string): void {
-  res.cookies.set(SESSION_COOKIE, signSession(pid), COOKIE_OPTIONS);
+export function setSessionCookie(res: NextResponse, pid: string, req: NextRequest): void {
+  res.cookies.set(SESSION_COOKIE, signSession(pid), cookieOptions(req));
 }
 
-export function clearSessionCookie(res: NextResponse): void {
-  res.cookies.set(SESSION_COOKIE, '', { ...COOKIE_OPTIONS, maxAge: 0 });
+export function clearSessionCookie(res: NextResponse, req: NextRequest): void {
+  res.cookies.set(SESSION_COOKIE, '', { ...cookieOptions(req), maxAge: 0 });
 }
