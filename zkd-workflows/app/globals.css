@@ -1,0 +1,173 @@
+:root {
+  --bg: #f2ede2;
+  --panel: #f7f3ea;
+  --ink: #2b2620;
+  --sub: #7a7266;
+  --rule: #ddd4c3;
+  --green: #3f7a52;
+  --green-bg: #e8f3ea;
+  --amber: #b8863a;
+  --amber-bg: #faf1df;
+  --maroon: #9c3b3b;
+  --maroon-bg: #f7e6e6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 48px 32px 96px;
+}
+
+.eyebrow {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sub);
+  border-top: 2px solid var(--ink);
+  padding-top: 8px;
+  margin-bottom: 12px;
+  display: inline-block;
+}
+
+h1 {
+  font-size: 32px;
+  margin: 0 0 12px;
+}
+
+.lede {
+  color: var(--sub);
+  max-width: 68ch;
+  line-height: 1.55;
+  margin: 0 0 24px;
+}
+
+.legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 40px;
+}
+
+.chip {
+  font-size: 13px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chip::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.chip.green {
+  color: var(--green);
+  background: var(--green-bg);
+}
+.chip.green::before {
+  background: var(--green);
+}
+.chip.amber {
+  color: var(--amber);
+  background: var(--amber-bg);
+}
+.chip.amber::before {
+  background: var(--amber);
+}
+.chip.maroon {
+  color: var(--maroon);
+  background: var(--maroon-bg);
+}
+.chip.maroon::before {
+  background: var(--maroon);
+}
+
+section.workflow {
+  margin-bottom: 64px;
+}
+
+.workflow-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 12px;
+  margin-bottom: 8px;
+}
+
+.workflow-num {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--maroon);
+}
+
+.workflow-header h2 {
+  font-size: 22px;
+  margin: 0;
+}
+
+.workflow-desc {
+  color: var(--sub);
+  max-width: 70ch;
+  line-height: 1.55;
+  margin: 8px 0 24px;
+}
+
+.diagram {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 24px;
+  overflow-x: auto;
+}
+
+.mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.footnote {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: var(--sub);
+  line-height: 1.55;
+}
+
+.footnote b {
+  color: var(--ink);
+}
+
+.source {
+  margin-top: 48px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--sub);
+  border-top: 1px solid var(--rule);
+  padding-top: 12px;
+}
