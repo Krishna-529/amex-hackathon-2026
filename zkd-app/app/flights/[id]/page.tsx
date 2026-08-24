@@ -10,11 +10,12 @@ import { BAND_LABEL, BAND_SAY, type Band } from '@/lib/thresholds';
 import { OUTCOME } from '@/lib/outcome';
 import { hhmm, mins, dayLabel, money } from '@/lib/time';
 import { roomsFor, vehiclesFor } from '@/lib/partyCost';
-import type { FlightDetail, FlightForecast, ReverifyResult, PreAuthResponse } from '@/lib/apiTypes';
+import type { FlightDetail, FlightForecast, ReverifyResult, PreAuthResponse, IntentResponse } from '@/lib/apiTypes';
 import type { PastFlight } from '@/server/domain/types';
-import ForecastAudit from '@/components/ForecastAudit';
+import { HistoryPanel, ExplanationPanel } from '@/components/ForecastAudit';
 import { FlightDetailSkeleton, RiskBodySkeleton } from '@/components/PageSkeletons';
 import { AnimatedScore } from '@/components/AnimatedScore';
+import { IntentChat } from '@/components/IntentChat';
 
 const RING = 2 * Math.PI * 92;
 
@@ -58,18 +59,6 @@ const BAND_ORDER: Band[] = ['watch', 'prepare', 'hold-gate', 'pre-authorise'];
 const atOrAbove = (b: Band | undefined, floor: Band) =>
   b !== undefined && BAND_ORDER.indexOf(b) >= BAND_ORDER.indexOf(floor);
 
-/** What POST /api/flights/[id]/intent hands back. The route applies nothing —
- *  this is a preview the member confirms or discards. */
-type IntentResult = {
-  understood: boolean;
-  message?: string;
-  restated?: string | null;
-  confidence?: 'high' | 'medium' | 'low';
-  diff?: { changes: string[]; clamped: string[]; unsupported: { asked: string; why: string }[] };
-  removed?: { id: string; code: string; rule: string }[];
-  options?: { id: string; code: string; dep: string; arr: string; partyFare: number; ok: boolean; why: string }[];
-};
-
 function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { schedule } = useWorld();
@@ -95,12 +84,12 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authDone, setAuthDone] = useState(false);
 
-  // Free-text intent. This is a PREVIEW: nothing it returns is applied to the
-  // member's profile or to any recovery until they confirm, which is what makes
-  // it safe to let a language model near the input at all.
-  const [text, setText] = useState('');
-  const [thinking, setThinking] = useState(false);
-  const [intent, setIntent] = useState<IntentResult | null>(null);
+  // Free-text intent, via the IntentChat component below. This is a PREVIEW:
+  // nothing it returns is applied to the member's profile or to any recovery
+  // until they confirm, which is what makes it safe to let a language model
+  // near the input at all — see components/IntentChat.tsx and
+  // server/preferences/intent.ts.
+  const [intent, setIntent] = useState<IntentResponse | null>(null);
 
   // The member as a detection source. Behind our own confirm modal (not the
   // browser's), because pressing it checks the flight against our airline data:
@@ -133,24 +122,16 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   // The session on this request IS the passenger, so no id travels in the URL.
   const { data: preAuth } = usePoll<PreAuthResponse>(past ? null : `/api/flights/${id}/preauth`, 8000);
 
-  const ask = () => {
-    if (!text.trim() || thinking) return;
-    setThinking(true);
-    fetch(`/api/flights/${id}/intent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    })
-      .then((r) => r.json())
-      .then((r: IntentResult) => {
-        setIntent(r);
-        // Move the selection to the new leader, but only when we understood
-        // them and something survived their own rules.
-        if (r.understood && r.options?.length) setAltId((r.options.find((o) => o.ok) ?? r.options[0]).id);
-      })
-      .catch(() => setIntent({ understood: false, message: 'We could not reach that service. Your preferences are unchanged.' }))
-      .finally(() => setThinking(false));
+  // Passed to IntentChat: it owns the conversation and the network call, this
+  // page only owns what a result DOES to the ranking, exactly as `ask()` used
+  // to before the chat replaced it.
+  const onIntentResult = (r: IntentResponse) => {
+    setIntent(r);
+    // Move the selection to the new leader, but only when we understood them
+    // and something survived their own rules.
+    if (r.understood && r.options?.length) setAltId((r.options.find((o) => o.ok) ?? r.options[0]).id);
   };
+  const onIntentReset = () => setIntent(null);
 
   const openReport = () => { setReportResult(null); setReportOpen(true); };
   const closeReport = () => { if (!reporting) setReportOpen(false); };
@@ -349,15 +330,36 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   const planning = atOrAbove(fc?.band, PLAN_AT);
 
   // The intent preview re-orders the list; without one we show what the scorer
-  // already decided. Either way the member is looking at a real ranking. Capped
-  // to the ranker's top 5 — a member choosing a replacement does not want to
-  // scroll a whole inventory, and anything past the fifth-best is noise.
-  const orderedAlts = (intent?.understood && intent.options?.length
+  // already decided. Either way the member is looking at a real ranking.
+  const rankedAlts = (intent?.understood && intent.options?.length
     ? (intent.options
         .map((o) => usableAlts.find((a) => a.id === o.id))
         .filter(Boolean) as typeof usableAlts)
     : usableAlts
-  ).slice(0, 5);
+  );
+
+  // Capped to 5 — a member choosing a replacement does not want to scroll a
+  // whole inventory. Within that 5, real coverage of a >6h-later arrival is
+  // guaranteed when one genuinely exists in the pool: the arrival-time
+  // scorer criterion means a badly-delayed option almost never survives into
+  // a pure top-5-by-score, which would make it easy to never actually see —
+  // and never see — the hotel/duty-of-care path this app also builds
+  // (server/domain/refund.ts's overnight entitlement, the hotel candidates
+  // below). Never more than 2 such slots, and never at the cost of every
+  // on-time option: this reserves room within the existing 5, it doesn't
+  // grow the list or invent an option that isn't already a real, ranked
+  // candidate for this flight.
+  const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+  const originalArrivesAt = arr.getTime();
+  const isMuchLater = (a: (typeof rankedAlts)[number]) =>
+    typeof a.arrivesAt === 'number' && a.arrivesAt - originalArrivesAt > SIX_HOURS_MS;
+
+  const onTime = rankedAlts.filter((a) => !isMuchLater(a));
+  const muchLater = rankedAlts.filter(isMuchLater);
+  const delayedSlots = Math.min(2, muchLater.length, 4); // leaves at least 1 on-time slot
+  const orderedAlts = muchLater.length === 0
+    ? rankedAlts.slice(0, 5)
+    : [...onTime.slice(0, 5 - delayedSlots), ...muchLater.slice(0, delayedSlots)];
 
   const alt = orderedAlts.find((a) => a.id === altId) ?? orderedAlts[0];
   const hotel = detail.candidates.hotels.find((h) => h.id === hotelId)
@@ -378,407 +380,470 @@ function FlightBody({ params }: { params: Promise<{ id: string }> }) {
   return (
     <div className="skeleton">
       {head}
-      <div className="split">
-        <div>
-          <div className="g gauge" style={{ marginBottom: 16 }}>
-            <div className="ringwrap">
-              <svg width="210" height="210" viewBox="0 0 210 210">
-                <defs>
-                  <linearGradient id="gr" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor={stops[0]} />
-                    <stop offset="100%" stopColor={stops[1]} />
-                  </linearGradient>
-                </defs>
-                {/* The track carries a class rather than a literal stroke: this page renders
-                    on the Amex LIGHT skin, where a white-alpha ring is invisible.
-                    globals.css already styles `.amex-page .gauge .track` — the class was
-                    simply never applied, so the ring has been missing on the skinned
-                    page all along. */}
-                <circle className="track" cx="105" cy="105" r="92" fill="none" strokeWidth="13" />
-                <circle
-                  cx="105" cy="105" r="92" fill="none" stroke="url(#gr)" strokeWidth="13"
-                  strokeLinecap="round"
-                  strokeDasharray={`${RING} ${RING}`}
-                  strokeDashoffset={RING * (1 - (headline ?? 0) / 100)}
-                  style={{ transition: 'stroke-dashoffset .7s cubic-bezier(.2,.8,.3,1)' }}
-                />
-              </svg>
-              <div className="val">
-                <div className={`n ${tone}`}><AnimatedScore value={headline} /></div>
-                <div className="c">
-                  risk score
-                  {fc && (
-                    <button
-                      type="button"
-                      onClick={onReverify}
-                      disabled={reverifyBusy}
-                      title="Reverify — force a fresh real score right now"
-                      aria-label="Reverify this prediction"
-                      style={{
-                        marginLeft: 6, border: 0, background: 'none', color: 'inherit', cursor: 'pointer',
-                        fontSize: 12, opacity: reverifyBusy ? 0.5 : 0.8, verticalAlign: -1,
-                        display: 'inline-block', animation: reverifyBusy ? 'spin 0.8s linear infinite' : 'none',
-                      }}
-                    >
-                      ↻
-                    </button>
-                  )}
-                </div>
-                {reverifyError && (
-                  <div style={{ fontSize: 10.5, color: 'var(--risk)', marginTop: 4 }}>{reverifyError}</div>
-                )}
-              </div>
-            </div>
-            {fc && <div className={`band ${tone}`}>{BAND_LABEL[fc.band]}</div>}
-            <div className="say">
-              {fc ? BAND_SAY[fc.band] : 'Checking this flight against the disruption forecast.'}
-            </div>
+
+      {/* ── the emergency exit, first, before anything else ─────────────────
+          Everything else on this page assumes time to read it. A member
+          standing at a gate that has already been cancelled does not have
+          that time and should not have to scroll past a risk score to find
+          this — so it is now the very first thing on the page, sticky while
+          scrolling, and named as the action it triggers rather than as a
+          status question ("Already cancelled?" told you what it checks, not
+          what tapping it does). */}
+      <div className={`urgent-strip${reportResult && !reportOpen && reportResult.status === 'cancelled' ? ' resolved' : ''}`}>
+        <div className="urgent-strip-body">
+          <span className="urgent-strip-ic" aria-hidden="true">
+            {reportResult && !reportOpen && reportResult.status === 'cancelled' ? '✓' : '⚠'}
+          </span>
+          <div className="urgent-strip-text">
+            <span className="urgent-strip-title">
+              {reportResult && !reportOpen && reportResult.status === 'cancelled'
+                ? 'Reported — we\u2019re already rebooking you'
+                : 'Flight already cancelled?'}
+            </span>
+            <span className="urgent-strip-sub">
+              {reportResult && !reportOpen
+                ? reportResult.message
+                : 'Skip the wait — tell us now and we start rebooking immediately, no charge without asking first.'}
+            </span>
           </div>
-
-          {fc && (
-            <div className="g panel" style={{ marginBottom: 16 }}>
-              <h3>Where this number comes from</h3>
-              <div className="kv">
-                <span className="k">Forecast source</span>
-                <span className="v ok">In-house model — live</span>
-              </div>
-              <div className="kv">
-                <span className="k">Model version</span>
-                <span className="v">{fc.modelVersion}</span>
-              </div>
-              <div className="kv">
-                <span className="k">Forecast confidence</span>
-                <span className="v">{Math.round(fc.confidence * 100)}%</span>
-              </div>
-              {fc.connectionRisk !== null && (
-                <div className="kv">
-                  <span className="k">Risk to your onward leg</span>
-                  <span className="v">{Math.round(fc.connectionRisk * 100)}%</span>
-                </div>
-              )}
-              <div className="kv">
-                <span className="k">Real calibrated probability</span>
-                <span className="v">{fc.pct}%</span>
-              </div>
-              <p className="why">
-                This is our own model, trained on real historical flight data — not a vendor call. It
-                is still advisory in the same sense it always was: it decides when we start preparing,
-                never whether we spend your money. See the audit panel below for exactly why it landed
-                on this number.
-                {fc.riskScore !== undefined && (
-                  <>
-                    {' '}The score in the ring above is a 0–100 ranking — where this flight sits against
-                    every flight we've scored — not a probability. The {fc.pct}% here is the real,
-                    calibrated chance of cancellation: genuine cancellations are rare, so that number
-                    stays small even for a flight worth watching.
-                  </>
-                )}
-              </p>
-            </div>
-          )}
-
-          {fc && (
-            <div className="g panel">
-              <h3>What it takes to act on this flight</h3>
-              <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
-                These thresholds are not fixed. They move with how many seats are left on this route,
-                how close departure is, and whether a late arrival breaks something that matters —
-                because the cost of waiting is not the same on every flight.
-              </p>
-              <div className="kv"><span className="k">Start preparing at</span><span className="v">{fc.thresholds.prepare}%</span></div>
-              <div className="kv"><span className="k">Keep a backup plan current at</span><span className="v">{fc.thresholds.holdGate}%</span></div>
-              <div className="kv"><span className="k">Come and ask you at</span><span className="v">{fc.thresholds.preAuthorise}%</span></div>
-              <div className="kv"><span className="k">Seats we can see on this route</span><span className="v">{fc.thresholds.inputs.seatsAvailable}</span></div>
-            </div>
-          )}
         </div>
+        {!(reportResult && !reportOpen) && (
+          <button className="urgent-strip-btn" onClick={openReport}>Report it now →</button>
+        )}
+      </div>
 
-        <div>
-          <div className="g panel" style={{ marginBottom: 16 }}>
-            <h3>Your booking</h3>
-            <div className="kv"><span className="k">Terminal</span><span className="v">{f.terminal}</span></div>
-            {f.booking && f.booking.partySize > 1 ? (
-              <>
-                <div className="kv"><span className="k">Travellers</span><span className="v">{f.booking.partySize}</span></div>
-                <div className="kv">
-                  <span className="k">Seats</span>
-                  <span className="v">{f.booking.travellers.map((t) => t.seat).join(', ')}</span>
-                </div>
-              </>
-            ) : (
-              <div className="kv"><span className="k">Seat</span><span className="v">{f.booking?.seat}</span></div>
-            )}
-            <div className="kv"><span className="k">Reference</span><span className="v">{f.booking?.pnr}</span></div>
-            <div className="kv">
-              <span className="k">You&apos;ve flown this route</span>
-              <span className="v">{rec.flown}× · {rec.cancelled} cancelled</span>
-            </div>
-          </div>
-
-          <div className="g panel">
-            <h3>If this one goes</h3>
-            <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
-              {/*
-                NOT "holding". Nothing is reserved and nothing can be: a
-                passenger cannot hold two tickets, and a carrier's auditors
-                cancel duplicates — sometimes cancelling the original. That is
-                why speculative holds were removed from the design entirely
-                (memory.md, 2026-08-17); the refresh loop keeps these options
-                current instead. server/notify/templates.ts has a test asserting
-                its copy never claims a hold, and this line was quietly saying
-                the opposite on the screen a member actually reads.
-              */}
-              {usableAlts.length === 0 ? (
-                /*
-                  Alternative search is gated on the risk band — a low-risk
-                  flight deliberately never spends a supplier call. Saying "we've
-                  lined up 0 alternatives" reads as a failure when it is the
-                  system working correctly, so say what is actually true: we are
-                  not searching yet, and here is what would make us.
-                */
-                <>
-                  We haven&apos;t needed to search yet. This flight isn&apos;t risky enough to
-                  spend a supplier call on — if that changes, we start lining up alternatives
-                  automatically, before anything is cancelled.
-                </>
-              ) : (
-                <>
-                  We&apos;ve lined up {usableAlts.length} alternative{usableAlts.length === 1 ? '' : 's'} that
-                  {f.booking && f.booking.partySize > 1 ? ` seat all ${f.booking.partySize} of you and` : ''} fit your
-                  policy and protect your onward connection — re-checked continuously, so they&apos;re
-                  still valid the moment we need them.
-                  {' '}
-                  {refundKnown ? (
-                    <>Original ticket refund: {money(refundTotal, refund?.currency)}.</>
-                  ) : (
-                    <>Original ticket refund: not known yet.</>
-                  )}
-                </>
-              )}
-            </p>
-            {/* One line per option. Below the plan band this is a read-only
-                preview — the member is being reassured, not asked. Above it the
-                rows become selectable and the plan below them appears. */}
-            {orderedAlts.map((a) => {
-              const rowDelta = a.partyFare + hotelCost + cabCost - refundTotal;
-              const picked = planning && a.id === alt?.id;
-              return (
+      {/* ── the risk score, now the first thing after the emergency exit ────
+          Moved up from the two-column detail section below: this is the
+          headline number the rest of the page explains, so it reads first,
+          not third. */}
+      <div className="g gauge hero-gauge" style={{ marginBottom: 16 }}>
+        <div className="ringwrap">
+          <svg width="210" height="210" viewBox="0 0 210 210">
+            <defs>
+              <linearGradient id="gr" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor={stops[0]} />
+                <stop offset="100%" stopColor={stops[1]} />
+              </linearGradient>
+            </defs>
+            <circle className="track" cx="105" cy="105" r="92" fill="none" strokeWidth="13" />
+            <circle
+              cx="105" cy="105" r="92" fill="none" stroke="url(#gr)" strokeWidth="13"
+              strokeLinecap="round"
+              strokeDasharray={`${RING} ${RING}`}
+              strokeDashoffset={RING * (1 - (headline ?? 0) / 100)}
+              style={{ transition: 'stroke-dashoffset .7s cubic-bezier(.2,.8,.3,1)' }}
+            />
+          </svg>
+          <div className="val">
+            <div className={`n ${tone}`}><AnimatedScore value={headline} /></div>
+            <div className="c">
+              risk score
+              {fc && (
                 <button
-                  key={a.id}
                   type="button"
-                  onClick={() => planning && setAltId(a.id)}
-                  disabled={!planning}
-                  className="kv"
+                  onClick={onReverify}
+                  disabled={reverifyBusy}
+                  title="Reverify — force a fresh real score right now"
+                  aria-label="Reverify this prediction"
                   style={{
-                    width: '100%', font: 'inherit', textAlign: 'left', border: 0,
-                    background: picked ? 'var(--amex-line2, rgba(47,127,240,.08))' : 'transparent',
-                    cursor: planning ? 'pointer' : 'default',
-                    borderRadius: 6, paddingLeft: 8, paddingRight: 8,
+                    marginLeft: 6, border: 0, background: 'none', color: 'inherit', cursor: 'pointer',
+                    fontSize: 12, opacity: reverifyBusy ? 0.5 : 0.8, verticalAlign: -1,
+                    display: 'inline-block', animation: reverifyBusy ? 'spin 0.8s linear infinite' : 'none',
                   }}
                 >
-                  <span className="k">
-                    {picked ? '\u2713 ' : ''}{a.code} · {a.dep}
-                  </span>
-                  <span className={`v ${refundKnown && rowDelta <= 0 ? 'ok' : ''}`}>
-                    {!refundKnown ? (
-                      <>{money(a.partyFare, a.currency)} · refund not known yet</>
-                    ) : (
-                      <>
-                        {money(a.partyFare, a.currency)} → {rowDelta > 0 ? money(rowDelta) : rowDelta < 0 ? `${money(-rowDelta)} back` : money(0)} after refund
-                      </>
-                    )}
-                  </span>
+                  ↻
                 </button>
-              );
-            })}
-          </div>
-
-          {/* ── Everything below appears only once the flight is actually at
-              risk. Under that band the page stays what it has always been: a
-              status read-out. ─────────────────────────────────────────────── */}
-          {planning && (
-            <>
-              <div className="g panel" style={{ marginTop: 16 }}>
-                <h3>Tell us what matters</h3>
-                <p className="why" style={{ marginTop: 0 }}>
-                  In your own words — a time you have to be there by, an airline you would rather
-                  not fly, how much of your own money you are willing to spend. We will re-order
-                  the options above and show you exactly what changed.
-                </p>
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  maxLength={600}
-                  rows={3}
-                  aria-label="What matters to you about this trip"
-                  placeholder="e.g. I have to be in Delhi before 9pm for my sister's wedding, and I'd rather not fly Air India"
-                  className="intent-box"
-                />
-                <div className="acts" style={{ marginTop: 10 }}>
-                  <button onClick={ask} disabled={thinking || !text.trim()}>
-                    {thinking ? 'Reading that…' : 'Use this'}
-                  </button>
-                  {intent && <button onClick={() => { setIntent(null); setText(''); }}>Undo</button>}
-                </div>
-
-                {intent && !intent.understood && (
-                  <p className="why" style={{ color: 'var(--risk)' }}>{intent.message}</p>
-                )}
-
-                {intent?.understood && (
-                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--amex-line2, rgba(255,255,255,.1))' }}>
-                    {intent.restated && <p style={{ margin: '0 0 10px', fontSize: 14 }}><b>{intent.restated}</b></p>}
-                    {!!intent.diff?.changes.length && (
-                      <>
-                        <div className="lbl">What we will do</div>
-                        <ul className="why" style={{ paddingLeft: 18 }}>
-                          {intent.diff.changes.map((c) => <li key={c}>{c}</li>)}
-                        </ul>
-                      </>
-                    )}
-                    {/* Anything we altered from what was proposed is stated, never
-                        silently corrected. */}
-                    {!!intent.diff?.clamped.length && (
-                      <>
-                        <div className="lbl">What we adjusted</div>
-                        <ul className="why" style={{ paddingLeft: 18 }}>
-                          {intent.diff.clamped.map((c) => <li key={c}>{c}</li>)}
-                        </ul>
-                      </>
-                    )}
-                    {!!intent.diff?.unsupported.length && (
-                      <>
-                        <div className="lbl">What we cannot do</div>
-                        <ul className="why" style={{ paddingLeft: 18, color: 'var(--risk)' }}>
-                          {intent.diff.unsupported.map((u) => <li key={u.asked}>{u.asked} — {u.why}</li>)}
-                        </ul>
-                      </>
-                    )}
-                    {/* "We found nothing" and "your own instruction excluded
-                        everything" are different answers, and the member is owed
-                        the second one. */}
-                    {!!intent.removed?.length && (
-                      <>
-                        <div className="lbl">Ruled out by what you told us</div>
-                        <ul className="why" style={{ paddingLeft: 18 }}>
-                          {intent.removed.map((r) => <li key={r.id}>{r.code} — {r.rule}</li>)}
-                        </ul>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="g panel" style={{ marginTop: 16 }}>
-                <h3>If it does cancel, here is the plan</h3>
-                {partySize > 1 && (
-                  <div className="kv">
-                    <span className="k">Party</span>
-                    <span className="v">{partySize} travellers · {rooms} room{rooms === 1 ? '' : 's'} · {vehicles} cab{vehicles === 1 ? '' : 's'}</span>
-                  </div>
-                )}
-                {alt && (
-                  <div className="kv">
-                    <span className="k">Flight</span>
-                    <span className="v">{alt.code} · arrives {alt.arr}</span>
-                  </div>
-                )}
-                {hotel && (
-                  <div className="kv">
-                    <span className="k">Room{rooms > 1 ? 's' : ''} tonight</span>
-                    <span className="v">{hotel.name} · {hotel.area}</span>
-                  </div>
-                )}
-                {cab && (
-                  <div className="kv">
-                    <span className="k">Transfers</span>
-                    <span className="v">{cab.kind}{vehicles > 1 ? ` × ${vehicles}` : ''}</span>
-                  </div>
-                )}
-
-                <div className="kv" style={{ marginTop: 6 }}>
-                  <span className="k">This plan costs</span>
-                  <span className={`v ${owed ? 'warn' : 'ok'}`}>{owed ? money(owed) : 'nothing'}</span>
-                </div>
-                <div className="kv">
-                  <span className="k">Comes back to your card</span>
-                  <span className={`v ${refundKnown && refundTotal > 0 ? 'ok' : ''}`}>
-                    {refundKnown ? (refundTotal > 0 ? money(refundTotal) : 'nothing') : 'not known yet'}
-                  </span>
-                </div>
-                <div className="kv">
-                  <span className="k"><b>You end up paying</b></span>
-                  <span className={`v ${delta > 0 ? 'warn' : 'ok'}`}>
-                    {!refundKnown ? `${money(owed)} before any refund`
-                      : delta > 0 ? money(delta)
-                        : delta < 0 ? `${money(-delta)} back to you`
-                          : 'nothing'}
-                  </span>
-                </div>
-
-                {!refundKnown && (
-                  <p className="why">
-                    We have no record of what you paid for this ticket, so we are not going to guess
-                    what comes back. The figure above is what the replacement costs before any refund.
-                  </p>
-                )}
-
-                <p className="why">
-                  This is a conditional instruction, not a booking. Nothing is charged unless this
-                  flight is actually cancelled, and if these exact options are gone by then we come
-                  back to you rather than substituting something you never saw.
-                </p>
-
-                {preAuth ? (
-                  <p className="why" style={{ color: 'var(--safe)' }}>
-                    You have already told us what to do. Choosing again above and confirming will
-                    replace that instruction.
-                  </p>
-                ) : null}
-
-                {authError && (
-                  <p className="why" style={{ color: 'var(--risk)' }}>{authError}</p>
-                )}
-
-                <button
-                  className="cta"
-                  onClick={authorise}
-                  disabled={authBusy || !alt?.id}
-                  style={{ width: '100%' }}
-                >
-                  {authBusy
-                    ? 'Saving…'
-                    : authDone
-                      ? 'Saved — we act the second it cancels'
-                      : 'Yes — do this if it cancels'}
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* The backup detection lane. Deliberately quiet and always available:
-              a member can be standing at a cancelled gate on a flight our model
-              still thinks is healthy. */}
-          <div className="g panel" style={{ marginTop: 16 }}>
-            <h3>Already cancelled?</h3>
-            <p className="why" style={{ marginTop: 0 }}>
-              If the airline has told you this flight is cancelled and we have not caught it yet,
-              tell us and we will start straight away rather than wait for the feed.
-            </p>
-            {reportResult && !reportOpen ? (
-              <p className="why" style={{ color: reportResult.status === 'cancelled' ? 'var(--safe)' : undefined }}>
-                {reportResult.message}
-              </p>
-            ) : (
-              <button onClick={openReport}>This flight was cancelled</button>
+              )}
+            </div>
+            {reverifyError && (
+              <div style={{ fontSize: 10.5, color: 'var(--risk)', marginTop: 4 }}>{reverifyError}</div>
             )}
           </div>
         </div>
+        {fc && <div className={`band ${tone}`}>{BAND_LABEL[fc.band]}</div>}
+        <div className="say">
+          {fc ? BAND_SAY[fc.band] : 'Checking this flight against the disruption forecast.'}
+        </div>
+      </div>
+
+      {/* ── THE thing this page exists for, first, full width ────────────
+          A member's most urgent question on this screen is "what happens if
+          this cancels", not "how risky is it" — the risk number two sections
+          down matters BECAUSE of what it triggers here, not for its own
+          sake. Renamed from "If this one goes": this is the plan already
+          sitting ready, not a hypothetical. */}
+      <div className="g panel hero-plan" style={{ marginBottom: 16 }}>
+        <h3><span className="hero-ic" aria-hidden="true">🛡️</span> Already lined up for you</h3>
+        <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
+          {usableAlts.length === 0 ? (
+            <>
+              We haven&apos;t needed to search yet. This flight isn&apos;t risky enough to
+              spend a supplier call on — if that changes, we start lining up alternatives
+              automatically, before anything is cancelled.
+            </>
+          ) : (
+            <>
+              We&apos;ve lined up {usableAlts.length} alternative{usableAlts.length === 1 ? '' : 's'} that
+              {f.booking && f.booking.partySize > 1 ? ` seat all ${f.booking.partySize} of you and` : ''} fit your
+              policy and protect your onward connection — re-checked continuously, so they&apos;re
+              still valid the moment we need them.
+              {' '}
+              {refundKnown ? (
+                <>Original ticket refund: {money(refundTotal, refund?.currency)}.</>
+              ) : (
+                <>Original ticket refund: not known yet.</>
+              )}
+            </>
+          )}
+        </p>
+        {orderedAlts.length > 0 && (() => {
+          const isPreviewOnly = (row: typeof orderedAlts[number]) => row.why?.startsWith('Generated inventory');
+          const bookable = orderedAlts.filter((a) => !isPreviewOnly(a));
+          const cheapestFare = bookable.length ? Math.min(...bookable.map((a) => a.partyFare)) : null;
+          let cheapestTagged = false;
+
+          return (
+            <div className="alt-list">
+              {orderedAlts.map((a, i) => {
+                const needsOvernight = isMuchLater(a);
+                const rowHotelCost = needsOvernight ? hotelCost : 0;
+                const rowCabCost = needsOvernight ? cabCost : 0;
+                const rowDelta = a.partyFare + rowHotelCost + rowCabCost - refundTotal;
+                const picked = planning && a.id === alt?.id;
+                const preview = isPreviewOnly(a);
+                let badge: 'Recommended' | 'Cheapest' | 'Preview only' | null = null;
+                if (preview) {
+                  badge = 'Preview only';
+                } else if (i === 0) {
+                  badge = 'Recommended';
+                } else if (cheapestFare !== null && a.partyFare === cheapestFare && !cheapestTagged) {
+                  badge = 'Cheapest';
+                  cheapestTagged = true;
+                }
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => planning && setAltId(a.id)}
+                    disabled={!planning}
+                    className={`alt-card${picked ? ' picked' : ''}${!planning ? ' readonly' : ''}`}
+                  >
+                    <div className="alt-card-top">
+                      <div className="alt-card-flight">
+                        <span className={`alt-check${picked ? ' on' : ''}`} aria-hidden="true">
+                          {picked ? '✓' : ''}
+                        </span>
+                        <span className="alt-code">{a.code}</span>
+                        <span className="alt-dep">departs {a.dep}</span>
+                      </div>
+                      {badge && (
+                        <span className={`alt-badge${badge === 'Cheapest' ? ' cheapest' : badge === 'Preview only' ? ' preview' : ''}`}>
+                          {badge === 'Recommended' && <span aria-hidden="true">★ </span>}
+                          {badge}
+                        </span>
+                      )}
+                    </div>
+                    {a.why && <p className="alt-why">{a.why}</p>}
+
+                    {needsOvernight && (hotel || cab) && (
+                      <div className="alt-overnight">
+                        <div className="alt-overnight-lbl">
+                          <span aria-hidden="true">🌙</span> Also means an overnight — here&apos;s the full plan
+                        </div>
+                        {hotel && (
+                          <div className="alt-overnight-row">
+                            <span className="alt-overnight-ic" aria-hidden="true">🏨</span>
+                            <span className="alt-overnight-name">{hotel.name}</span>
+                            <span className="alt-overnight-note">{hotel.area}</span>
+                          </div>
+                        )}
+                        {cab && (
+                          <div className="alt-overnight-row">
+                            <span className="alt-overnight-ic" aria-hidden="true">🚗</span>
+                            <span className="alt-overnight-name">{cab.kind} transfer</span>
+                            {rooms > 1 && vehicles > 1 && <span className="alt-overnight-note">× {vehicles}</span>}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="alt-card-price">
+                      {!refundKnown ? (
+                        <>
+                          <span className="alt-fare">{money(a.partyFare, a.currency)}</span>
+                          <span className="alt-refund-pending">refund not known yet</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="alt-fare">{money(a.partyFare, a.currency)}</span>
+                          {needsOvernight && (rowHotelCost > 0 || rowCabCost > 0) && (
+                            <span className="alt-refund-pending">+ {money(rowHotelCost + rowCabCost)} stay</span>
+                          )}
+                          <span className="alt-arrow" aria-hidden="true">→</span>
+                          <span className={`alt-delta ${rowDelta <= 0 ? 'ok' : 'warn'}`}>
+                            {rowDelta > 0 ? money(rowDelta) : rowDelta < 0 ? `${money(-rowDelta)} back` : money(0)}
+                          </span>
+                          <span className="alt-refund-pending">after refund</span>
+                        </>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        {planning && (
+          <div style={{ marginTop: 14 }}>
+            <IntentChat flightId={id} onResult={onIntentResult} onReset={onIntentReset} />
+          </div>
+        )}
+      </div>
+
+      {planning && (
+        <div className="g panel receipt" style={{ marginBottom: 16 }}>
+          <h3>If it does cancel, here is the plan</h3>
+          <div className="receipt-lines">
+            {partySize > 1 && (
+              <div className="receipt-line">
+                <span className="receipt-ic" aria-hidden="true">👥</span>
+                <span className="receipt-label">Party</span>
+                <span className="receipt-value">{partySize} travellers · {rooms} room{rooms === 1 ? '' : 's'} · {vehicles} cab{vehicles === 1 ? '' : 's'}</span>
+              </div>
+            )}
+            {alt && (
+              <div className="receipt-line">
+                <span className="receipt-ic" aria-hidden="true">✈️</span>
+                <span className="receipt-label">Flight</span>
+                <span className="receipt-value">{alt.code} · arrives {alt.arr}</span>
+                <span className="receipt-amount">{money(alt.partyFare, alt.currency)}</span>
+              </div>
+            )}
+            {hotel && (
+              <div className="receipt-line">
+                <span className="receipt-ic" aria-hidden="true">🏨</span>
+                <span className="receipt-label">Room{rooms > 1 ? 's' : ''} tonight</span>
+                <span className="receipt-value">{hotel.name} · {hotel.area}</span>
+                <span className="receipt-amount">{hotelCost ? money(hotelCost) : 'covered'}</span>
+              </div>
+            )}
+            {cab && (
+              <div className="receipt-line">
+                <span className="receipt-ic" aria-hidden="true">🚗</span>
+                <span className="receipt-label">Transfers</span>
+                <span className="receipt-value">{cab.kind}{vehicles > 1 ? ` × ${vehicles}` : ''}</span>
+                <span className="receipt-amount">{cabCost ? money(cabCost) : 'covered'}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="receipt-totals">
+            <div className="receipt-total-row">
+              <span>This plan costs</span>
+              <span className={owed ? 'warn' : 'ok'}>{owed ? money(owed) : 'nothing'}</span>
+            </div>
+            <div className="receipt-total-row">
+              <span>Comes back to your card</span>
+              <span className={refundKnown && refundTotal > 0 ? 'ok' : ''}>
+                {refundKnown ? (refundTotal > 0 ? money(refundTotal) : 'nothing') : 'not known yet'}
+              </span>
+            </div>
+            <div className="receipt-total-row grand">
+              <span>You end up paying</span>
+              <span className={delta > 0 ? 'warn' : 'ok'}>
+                {!refundKnown ? `${money(owed)} before any refund`
+                  : delta > 0 ? money(delta)
+                    : delta < 0 ? `${money(-delta)} back to you`
+                      : 'nothing'}
+              </span>
+            </div>
+          </div>
+
+          {!refundKnown && (
+            <p className="why">
+              We have no record of what you paid for this ticket, so we are not going to guess
+              what comes back. The figure above is what the replacement costs before any refund.
+            </p>
+          )}
+
+          <p className="why">
+            This is a conditional instruction, not a booking. Nothing is charged unless this
+            flight is actually cancelled, and if these exact options are gone by then we come
+            back to you rather than substituting something you never saw.
+          </p>
+
+          {preAuth ? (
+            <p className="why" style={{ color: 'var(--safe)' }}>
+              You have already told us what to do. Choosing again above and confirming will
+              replace that instruction.
+            </p>
+          ) : null}
+
+          {authError && (
+            <p className="why" style={{ color: 'var(--risk)' }}>{authError}</p>
+          )}
+
+          <button
+            className="cta"
+            onClick={authorise}
+            disabled={authBusy || !alt?.id}
+            style={{ width: '100%' }}
+          >
+            {authBusy
+              ? 'Saving…'
+              : authDone
+                ? 'Saved — we act the second it cancels'
+                : 'Yes — do this if it cancels'}
+          </button>
+        </div>
+      )}
+
+      {/* ── a single column, not two ─────────────────────────────────────────
+          This used to be a two-column split when it held four panels
+          (gauge, "where this number comes from", "what it takes to act",
+          "already cancelled"). The gauge moved to its own hero position
+          above and "already cancelled" became the urgent strip at the very
+          top, leaving only three panels of uneven height — a 2-column grid
+          with one column holding two stacked cards and the other holding
+          one meant the shorter column ran out of content first, leaving a
+          block of bare page background beside whatever the taller column
+          was still showing while scrolling past it. A single full-width
+          column reads top to bottom with no side ever running dry, and it
+          matches the full-width flow every other section on this page
+          already uses. */}
+      {fc && (
+        <div className="g panel" style={{ marginBottom: 16 }}>
+          <h3>Where this number comes from</h3>
+          <div className="kv">
+            <span className="k"><span className="k-ic" aria-hidden="true">📡</span> Forecast source</span>
+            <span className="v ok">In-house model — live</span>
+          </div>
+          <div className="kv">
+            <span className="k"><span className="k-ic" aria-hidden="true">🔖</span> Model version</span>
+            <span className="v">{fc.modelVersion}</span>
+          </div>
+          <div className="kv">
+            <span className="k"><span className="k-ic" aria-hidden="true">🎯</span> Forecast confidence</span>
+            <span className="v">{Math.round(fc.confidence * 100)}%</span>
+          </div>
+          <div className="conf-meter" title={`${Math.round(fc.confidence * 100)}% confidence`}>
+            <div className="conf-meter-fill" style={{ width: `${Math.round(fc.confidence * 100)}%` }} />
+          </div>
+          {fc.connectionRisk !== null && (
+            <div className="kv">
+              <span className="k"><span className="k-ic" aria-hidden="true">🔗</span> Risk to your onward leg</span>
+              <span className="v">{Math.round(fc.connectionRisk * 100)}%</span>
+            </div>
+          )}
+          <div className="kv">
+            <span className="k"><span className="k-ic" aria-hidden="true">📈</span> Real calibrated probability</span>
+            <span className="v">{fc.pct}%</span>
+          </div>
+          <p className="why">
+            This is our own model, trained on real historical flight data — not a vendor call. It
+            is still advisory in the same sense it always was: it decides when we start preparing,
+            never whether we spend your money. See the audit panel below for exactly why it landed
+            on this number.
+            {fc.riskScore !== undefined && (
+              <>
+                {' '}The score in the ring above is a 0–100 ranking — where this flight sits against
+                every flight we&apos;ve scored — not a probability. The {fc.pct}% here is the real,
+                calibrated chance of cancellation: genuine cancellations are rare, so that number
+                stays small even for a flight worth watching.
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
+      {fc && (
+        <div className="g panel" style={{ marginBottom: 16 }}>
+          <h3>What it takes to act on this flight</h3>
+          <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
+            These thresholds are not fixed. They move with how many seats are left on this route,
+            how close departure is, and whether a late arrival breaks something that matters —
+            because the cost of waiting is not the same on every flight.
+          </p>
+
+          <div className="thresh-bar" role="img" aria-label={`Current probability ${fc.pct}% against this flight's own thresholds`}>
+            <div className="thresh-zone watch" style={{ width: `${Math.min(100, fc.thresholds.prepare)}%` }} />
+            <div className="thresh-zone prepare" style={{ width: `${Math.max(0, Math.min(100, fc.thresholds.holdGate) - Math.min(100, fc.thresholds.prepare))}%` }} />
+            <div className="thresh-zone hold" style={{ width: `${Math.max(0, Math.min(100, fc.thresholds.preAuthorise) - Math.min(100, fc.thresholds.holdGate))}%` }} />
+            <div className="thresh-zone act" style={{ width: `${Math.max(0, 100 - Math.min(100, fc.thresholds.preAuthorise))}%` }} />
+            <div className="thresh-marker" style={{ left: `${Math.max(0, Math.min(100, fc.pct))}%` }} />
+          </div>
+          <div className="thresh-legend">
+            <span><i className="dot watch" /> watch</span>
+            <span><i className="dot prepare" /> prepare</span>
+            <span><i className="dot hold" /> hold-gate</span>
+            <span><i className="dot act" /> ask</span>
+          </div>
+
+          <div className="kv" style={{ marginTop: 10 }}><span className="k">Start preparing at</span><span className="v">{fc.thresholds.prepare}%</span></div>
+          <div className="kv"><span className="k">Keep a backup plan current at</span><span className="v">{fc.thresholds.holdGate}%</span></div>
+          <div className="kv"><span className="k">Come and ask you at</span><span className="v">{fc.thresholds.preAuthorise}%</span></div>
+          <div className="kv"><span className="k">Seats we can see on this route</span><span className="v">{fc.thresholds.inputs.seatsAvailable}</span></div>
+        </div>
+      )}
+
+      {/* Boarding pass and its own prediction history side by side — two cards
+          of comparable height, so neither column runs out of content while
+          the other keeps going (the failure mode a single lopsided pairing
+          hit earlier: see globals.css's .split comment history). */}
+      <div className="split">
+        <div className="g panel boarding-pass">
+          <div className="bp-main">
+            <div className="bp-row-top">
+              <span className="bp-code">{f.code}</span>
+              {f.booking && <span className="bp-class">{f.booking.cabin}</span>}
+            </div>
+            <div className="bp-route">
+              <span className="bp-city">{f.from}</span>
+              <span className="bp-plane" aria-hidden="true">✈</span>
+              <span className="bp-city">{f.to}</span>
+            </div>
+            <div className="bp-grid">
+              <div className="bp-cell">
+                <span className="bp-lbl">Terminal</span>
+                <span className="bp-val">{f.terminal}</span>
+              </div>
+              {f.booking && f.booking.partySize > 1 ? (
+                <>
+                  <div className="bp-cell">
+                    <span className="bp-lbl">Travellers</span>
+                    <span className="bp-val">{f.booking.partySize}</span>
+                  </div>
+                  <div className="bp-cell">
+                    <span className="bp-lbl">Seats</span>
+                    <span className="bp-val">{f.booking.travellers.map((t) => t.seat).join(', ')}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="bp-cell">
+                  <span className="bp-lbl">Seat</span>
+                  <span className="bp-val">{f.booking?.seat}</span>
+                </div>
+              )}
+              <div className="bp-cell">
+                <span className="bp-lbl">Reference</span>
+                <span className="bp-val mono">{f.booking?.pnr}</span>
+              </div>
+            </div>
+          </div>
+          <div className="bp-perf" aria-hidden="true" />
+          <div className="bp-stub">
+            <span className="bp-lbl">You&apos;ve flown this route</span>
+            <span className="bp-val">{rec.flown}× · {rec.cancelled} cancelled</span>
+          </div>
+        </div>
+
+        {fc && <HistoryPanel forecast={fc} history={detail.forecastHistory} depISO={f.depISO} />}
       </div>
 
       {fc && (
         <div style={{ marginTop: 16 }}>
-          <ForecastAudit forecast={fc} history={detail.forecastHistory} depISO={f.depISO} />
+          <ExplanationPanel forecast={fc} />
         </div>
       )}
 

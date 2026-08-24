@@ -57,13 +57,25 @@ const OPS_ACCESS_KEY = process.env.OPS_ACCESS_KEY;
 
 export type OpsSession = { iat: number };
 
-export const OPS_COOKIE_OPTIONS = {
-  httpOnly: true,
-  sameSite: 'lax' as const,
-  path: '/',
-  maxAge: MAX_AGE_S,
-  secure: process.env.NODE_ENV === 'production',
-};
+/**
+ * Whether THIS request actually arrived over HTTPS — see session.ts's
+ * identical helper for why NODE_ENV is the wrong signal here (next start
+ * always sets NODE_ENV=production regardless of whether the origin is
+ * actually TLS-terminated).
+ */
+function isHttps(req: NextRequest): boolean {
+  return req.headers.get('x-forwarded-proto') === 'https' || req.nextUrl.protocol === 'https:';
+}
+
+function opsCookieOptions(req: NextRequest) {
+  return {
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: MAX_AGE_S,
+    secure: isHttps(req),
+  };
+}
 
 function b64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64url');
@@ -114,10 +126,10 @@ export function opsSessionFrom(req: NextRequest): OpsSession | null {
   return verifyOpsSession(req.cookies.get(OPS_SESSION_COOKIE)?.value);
 }
 
-export function setOpsSessionCookie(res: NextResponse): void {
-  res.cookies.set(OPS_SESSION_COOKIE, signOpsSession(), OPS_COOKIE_OPTIONS);
+export function setOpsSessionCookie(res: NextResponse, req: NextRequest): void {
+  res.cookies.set(OPS_SESSION_COOKIE, signOpsSession(), opsCookieOptions(req));
 }
 
-export function clearOpsSessionCookie(res: NextResponse): void {
-  res.cookies.set(OPS_SESSION_COOKIE, '', { ...OPS_COOKIE_OPTIONS, maxAge: 0 });
+export function clearOpsSessionCookie(res: NextResponse, req: NextRequest): void {
+  res.cookies.set(OPS_SESSION_COOKIE, '', { ...opsCookieOptions(req), maxAge: 0 });
 }

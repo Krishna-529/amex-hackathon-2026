@@ -24,9 +24,7 @@ export default function AmexHeader() {
       <div className="amex-topbar">
         <Link href="/" className="amex-mark" aria-label="ZKD Concierge home">
           <span className="box">
-            <svg viewBox="0 0 100 100" width="18" height="18" aria-hidden focusable="false">
-              <polygon points="79.04,24.92 22.28,44.72 51.32,53.96 36.8,77.72" fill="#ffffff" />
-            </svg>
+            <img src="/brand/icon-192.png" width={30} height={30} alt="" aria-hidden />
           </span>
           <span className="wd">ZKD Concierge</span>
         </Link>

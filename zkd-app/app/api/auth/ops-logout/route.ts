@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { clearOpsSessionCookie } from '@/server/auth/opsSession';
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const res = NextResponse.json({ ok: true });
-  clearOpsSessionCookie(res);
+  clearOpsSessionCookie(res, req);
   return res;
 }

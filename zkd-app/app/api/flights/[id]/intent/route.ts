@@ -25,17 +25,40 @@ import { requireSession } from '@/server/auth/guard';
 import { parseJsonBody, isNonEmptyString } from '@/server/jsonBody';
 import { fetchProfile, BILLING_CURRENCY } from '@/server/myca';
 import { adapt, type AdaptedPreferences } from '@/server/preferences/adapt';
-import { readIntent, applyOverride, type IntentContext } from '@/server/preferences/intent';
+import { readIntent, applyOverride, cleanIntent, MAX_HISTORY_TURNS, type IntentContext } from '@/server/preferences/intent';
 import { altsForParty } from '@/server/domain/altsForParty';
 import { applyHardRules, rankAlts, type ScoreContext } from '@/server/pipeline/score';
 import { planForPreferences, preferredPlan } from '@/server/pipeline';
 import { logMemberIntent } from '@/server/decisionLedger';
 import type { Flight } from '@/server/domain/types';
 
-type IntentBody = { text: string };
+type HistoryTurn = { role: 'member' | 'assistant'; text: string };
+type IntentBody = { text: string; history?: unknown };
 
 function isIntentBody(v: unknown): v is IntentBody {
   return typeof v === 'object' && v !== null && isNonEmptyString((v as { text?: unknown }).text);
+}
+
+/**
+ * The chat sends its own turn history back on every message — this route
+ * stays stateless between requests (the conversation itself lives nowhere
+ * server-side), so the client is the only place it can live. That makes it
+ * untrusted input, same as the live message itself: cap the turn count and
+ * re-run every turn's text through the exact same cleaning the live message
+ * gets, rather than trusting that a shape the client sent back to us is the
+ * shape we originally sent it.
+ */
+function sanitizeHistory(raw: unknown): HistoryTurn[] {
+  if (!Array.isArray(raw)) return [];
+  const turns: HistoryTurn[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) continue;
+    const role = (item as { role?: unknown }).role;
+    const text = cleanIntent((item as { text?: unknown }).text);
+    if ((role === 'member' || role === 'assistant') && text) turns.push({ role, text });
+  }
+  // Most recent turns, not the oldest — see MAX_HISTORY_TURNS's own comment.
+  return turns.slice(-MAX_HISTORY_TURNS);
 }
 
 /** The member's plain MyCa-derived preferences (no override). Shared by the model
@@ -189,20 +212,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       code: a.code, dep: a.dep, arr: a.arr, cabin: a.cabin,
       fare: a.partyFare, currency: a.currency, seats: a.seats, ok: a.ok,
     })),
+    history: sanitizeHistory(parsed.body.history),
   };
 
-  const result = await readIntent(parsed.body.text, ctx);
+  const read = await readIntent(parsed.body.text, ctx);
 
   // Failure is "no change", explicitly. An unconfigured key, a timeout or an
-  // unparseable answer must leave the member exactly where they were — no
-  // session override written, no re-plan run.
-  if (!result) {
+  // unparseable answer must never leave the member with half an instruction
+  // applied — they keep exactly what they had. But *why* it failed matters:
+  // a real, observed Gemini overload (see server/gemini.ts's header) is not
+  // the member's fault and "try rephrasing" is actively bad advice for it —
+  // retried automatically already, this is what's left after that.
+  if (!read.ok) {
     return NextResponse.json({
       understood: false,
       message:
-        'We could not read that. Your existing preferences are unchanged — you can pick an option yourself below, or try rephrasing.',
+        read.reason === 'overloaded'
+          ? "Our assistant is briefly overloaded and couldn't respond — this isn't about how you phrased it. Your existing preferences are unchanged; wait a few seconds and try again, or pick an option yourself below."
+          : 'We could not read that. Your existing preferences are unchanged — you can pick an option yourself below, or try rephrasing.',
     });
   }
+  const result = read.intent;
 
   // Persist the override as per-flight session state, THEN re-plan. plan() reads
   // exactly this record, so the fresh search + compose + rank all honour it.
@@ -219,8 +249,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const freshFlight = (await store.getFlight(id)) ?? flight;
   const plan = preferredPlan(id, g.passenger.id);
 
+  // A deadline or a departure floor the member just stated is a hard rule, and
+  // `applyHardRules` reads both off the flight rather than the rules object.
+  // Applied to a COPY of the freshly re-planned flight, not the stale one: this
+  // presentation rank must reflect it even on the first turn `earliest_departure_iso`
+  // is stated, whether or not the real replan above already threaded it through —
+  // a preview that still showed an option the member just excluded would look
+  // broken regardless of what the pipeline would actually book.
+  const previewFlight = (result.override.hard_deadline_iso || result.override.earliest_departure_iso)
+    ? {
+        ...freshFlight,
+        ...(result.override.hard_deadline_iso
+          ? { hardDeadlineISO: result.override.hard_deadline_iso, hasHardConstraint: true }
+          : null),
+        ...(result.override.earliest_departure_iso
+          ? { earliestDepartISO: result.override.earliest_departure_iso }
+          : null),
+      }
+    : freshFlight;
+
   const { ranked, removed } = rankPortfolio(
-    freshFlight,
+    previewFlight,
     // The route's presentation rank layers the same override the pipeline used,
     // so the browsable list and the pipeline's chosen plan agree.
     applyOverride(base, result.override),

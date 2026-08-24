@@ -158,6 +158,37 @@ export type JourneyPrefsResponse = {
   notes: string[];
 } | null;
 
+/** One turn of the "tell us what matters" chat, as the client remembers and
+ *  replays it — the server (server/preferences/intent.ts) stays stateless, so
+ *  this history lives only in the browser tab for the length of one flight's
+ *  conversation. `assistant` text is whatever the member actually saw said
+ *  back to them (a restated instruction, a clarifying question, or the
+ *  "could not read that" fallback), not raw model output — see
+ *  components/IntentChat.tsx. */
+export type IntentHistoryTurn = { role: 'member' | 'assistant'; text: string };
+
+export type IntentRequest = { text: string; history: IntentHistoryTurn[] };
+
+/** What POST /api/flights/[id]/intent hands back. The route applies nothing —
+ *  this is a preview the member confirms or discards; nothing here is
+ *  written anywhere until /api/flights/[id]/preauth. */
+export type IntentResponse = {
+  understood: boolean;
+  message?: string;
+  restated?: string | null;
+  confidence?: 'high' | 'medium' | 'low';
+  diff?: {
+    changes: string[];
+    clamped: string[];
+    unsupported: { asked: string; why: string }[];
+    clarifyingQuestion: string | null;
+  };
+  removed?: { id: string; code: string; rule: string }[];
+  options?: {
+    id: string; code: string; dep: string; arr: string; partyFare: number; ok: boolean; why: string;
+  }[];
+};
+
 export type DisruptionOpsTask = {
   passengerId: string; passengerName: string; phase: RecoveryTaskPhase; secondsLeft: number;
   partySize: number; chosenAltCode: string | null; owedNow: number;

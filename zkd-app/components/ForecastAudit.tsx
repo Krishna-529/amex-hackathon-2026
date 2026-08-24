@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useId } from 'react';
 import type { FlightForecast, FlightForecastSnapshot } from '@/lib/apiTypes';
 import type { FeatureDataSource } from '@/server/engine/riskModel';
 
@@ -32,6 +32,18 @@ function fmtCountdown(depMs: number, atMs: number): string {
   return mins === 0 ? `${hrs}h before` : `${hrs}h ${mins}m before`;
 }
 
+const HISTORY_WINDOW_MS = 8 * 60 * 60 * 1000;
+
+/** Green while comfortably below the flight's own first threshold, amber once
+ *  it's crossed into "prepare" territory, red at or past "pre-authorise" —
+ *  the same three-way read as page.tsx's own threshold bar, applied per point
+ *  instead of to a single current value. */
+function colorFor(pct: number, thresholds: FlightForecast['thresholds']): string {
+  if (pct >= thresholds.preAuthorise) return 'var(--risk)';
+  if (pct >= thresholds.prepare) return 'var(--warn)';
+  return 'var(--safe)';
+}
+
 function HistoryChart({
   history,
   thresholds,
@@ -43,29 +55,48 @@ function HistoryChart({
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const depMs = useMemo(() => new Date(depISO).getTime(), [depISO]);
+  // React's useId() includes colons (":r0:"), which url(#id) does not parse
+  // reliably as a CSS/SVG reference — stripped down to plain alphanumerics.
+  const gradId = `hist-grad-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
 
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
-  // riskScore only exists on points recorded after it was added — skipped
-  // here, not zero-filled, same as any other missing model run.
-  const usable = useMemo(() => history.filter((h) => h.riskScore !== undefined), [history]);
+  // riskScore — the 0-100 percentile RANK of this flight against the live
+  // score distribution (server/engine/riskModel.ts) — is what this chart
+  // plots, matching FlightForecastSnapshot.riskScore's own doc. pct (the
+  // calibrated probability) still drives the gauge and every member-facing
+  // banner; the rank is what this audit surface tracks over time. One
+  // consequence, handled below: the prepare / pre-authorise reference bands
+  // are defined in pct and have no fixed position on a rank axis, so they are
+  // not drawn — per-point colour carries the band instead. Points recorded
+  // before riskScore existed carry no rank and are skipped as a gap, exactly
+  // as that field's doc notes.
+  const usable = useMemo(() => {
+    const withScore = history.filter((h) => typeof h.riskScore === 'number');
+    if (withScore.length === 0) return withScore;
+    const latest = withScore[withScore.length - 1].asOf;
+    const windowed = withScore.filter((h) => h.asOf >= latest - HISTORY_WINDOW_MS);
+    // A brand-new flight with one real point outside any sensible window is
+    // still worth showing that one point, rather than an empty chart.
+    return windowed.length > 0 ? windowed : withScore.slice(-1);
+  }, [history]);
 
-  // Real scores cluster tightly — a fixed 0-100 axis pins the line flat
-  // against the bottom and makes real movement invisible. Scale to what the
-  // data actually did, anchored at 0 (never zoomed into a sub-range that
-  // would exaggerate trivial noise into a dramatic-looking swing).
+  // A rank can sit anywhere in 0-100, but a low-risk flight clusters low and a
+  // fixed 0-100 axis would pin the line flat against the bottom and hide real
+  // movement. Scale to what the data actually did, anchored at 0 (never a
+  // sub-range that would exaggerate trivial noise into a dramatic-looking
+  // swing), padded, and capped at 100 — a rank cannot exceed it.
   const domain = useMemo(() => {
-    if (usable.length === 0) return { min: 0, max: 100 };
-    const values = usable.map((h) => h.riskScore!);
+    if (usable.length === 0) return { min: 0, max: 10 };
+    const values = usable.map((h) => h.riskScore as number);
     const rawMax = Math.max(...values);
-    const pad = Math.max(rawMax * 0.25, 2);
-    return { min: 0, max: Math.min(100, Math.ceil(rawMax + pad)) };
+    const pad = Math.max(rawMax * 0.25, 1);
+    return { min: 0, max: Math.min(100, Math.max(10, Math.ceil(rawMax + pad))) };
   }, [usable]);
 
-  const yOf = (score: number) =>
-    PAD.top + (1 - (score - domain.min) / (domain.max - domain.min)) * plotH;
-  const clampY = (y: number) => Math.min(PAD.top + plotH, Math.max(PAD.top, y));
+  const yOf = (v: number) =>
+    PAD.top + (1 - (v - domain.min) / (domain.max - domain.min)) * plotH;
 
   const points = useMemo(() => {
     if (usable.length === 0) return [];
@@ -74,13 +105,17 @@ function HistoryChart({
     const span = Math.max(1, t1 - t0);
     return usable.map((h) => ({
       x: PAD.left + ((h.asOf - t0) / span) * plotW,
-      y: yOf(h.riskScore!),
+      y: yOf(h.riskScore as number),
+      // Colour still encodes the real risk BAND (a pct-space classification),
+      // so severity reads off the line even though its height is now the rank.
+      color: colorFor(h.pct, thresholds),
       h,
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usable, plotW, plotH, domain]);
+  }, [usable, plotW, plotH, domain, thresholds]);
 
   const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  // Bare rank numbers, not percentages — the axis is a 0-100 rank now.
   const tickFmt = (v: number) => String(Math.round(v));
   const ticks = Array.from({ length: 5 }, (_, i) => domain.min + (i * (domain.max - domain.min)) / 4);
 
@@ -97,15 +132,24 @@ function HistoryChart({
 
   return (
     <div style={{ position: 'relative' }}>
-      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Cancellation-risk history">
-        {/* Band-reference zones — recessive, the same tones lib/thresholds.ts's GLOW uses.
-            Clamped to the plot: a threshold above the auto-scaled domain still
-            shows as "off the top of the chart" rather than an inverted rect. */}
-        <rect x={PAD.left} y={clampY(yOf(domain.max))} width={plotW} height={clampY(yOf(thresholds.preAuthorise)) - clampY(yOf(domain.max))} fill="rgba(217,97,90,.10)" />
-        <rect x={PAD.left} y={clampY(yOf(thresholds.preAuthorise))} width={plotW} height={clampY(yOf(thresholds.holdGate)) - clampY(yOf(thresholds.preAuthorise))} fill="rgba(217,97,90,.07)" />
-        <rect x={PAD.left} y={clampY(yOf(thresholds.holdGate))} width={plotW} height={clampY(yOf(thresholds.prepare)) - clampY(yOf(thresholds.holdGate))} fill="rgba(211,160,63,.07)" />
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Risk-score rank history over the last 8 hours">
+        <defs>
+          {/* One colour stop per real point, positioned at its own x — the line
+              itself shifts from green to amber to red exactly where the
+              probability did, the same "traffic on the route" read a maps app
+              gives a road, rather than one flat colour for the whole line. */}
+          <linearGradient id={gradId} gradientUnits="userSpaceOnUse" x1={PAD.left} y1="0" x2={W - PAD.right} y2="0">
+            {points.map((p, i) => (
+              <stop key={i} offset={points.length > 1 ? i / (points.length - 1) : 0} stopColor={p.color} />
+            ))}
+          </linearGradient>
+        </defs>
 
-        {/* Recessive grid — ticks span the real auto-scaled domain, not a fixed 0-100% */}
+        {/* No threshold reference bands here: prepare / pre-authorise are pct
+            thresholds and have no fixed height on this rank axis. Severity is
+            carried by each point's colour instead. */}
+
+        {/* Recessive grid — ticks span the real auto-scaled rank domain */}
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD.left} x2={W - PAD.right} y1={yOf(t)} y2={yOf(t)} stroke="rgba(255,255,255,.06)" strokeWidth={1} />
@@ -113,12 +157,12 @@ function HistoryChart({
           </g>
         ))}
 
-        <path d={path} fill="none" stroke="var(--iris)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        <path d={path} fill="none" stroke={`url(#${gradId})`} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
 
         {points.map((p, i) => (
           <circle
             key={i} cx={p.x} cy={p.y} r={hover === i ? 5 : 3}
-            fill={hover === i ? 'var(--iris)' : 'var(--bg)'} stroke="var(--iris)" strokeWidth={2}
+            fill={hover === i ? p.color : 'var(--bg)'} stroke={p.color} strokeWidth={2}
             onMouseEnter={() => setHover(i)}
             style={{ cursor: 'pointer' }}
           />
@@ -143,15 +187,15 @@ function HistoryChart({
             padding: '6px 10px', fontSize: 11.5, whiteSpace: 'nowrap', backdropFilter: 'var(--blur)',
           }}
         >
-          <div style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>
-            {hovered.h.riskScore}/100 · {hovered.h.band} <span style={{ color: 'var(--mist2)', fontWeight: 400 }}>({hovered.h.pct}% real)</span>
+          <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: hovered.color }}>
+            {hovered.h.riskScore}<span style={{ color: 'var(--mist2)', fontWeight: 400 }}>/100 rank · {hovered.h.band}</span>
           </div>
           <div style={{ color: 'var(--mist2)' }}>{fmtCountdown(depMs, hovered.h.asOf)}</div>
         </div>
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--mist2)', marginTop: 2 }}>
         <span>{fmtCountdown(depMs, usable[0].asOf)}</span>
-        <span>{usable.length} real score{usable.length === 1 ? '' : 's'}</span>
+        <span>{usable.length} real score{usable.length === 1 ? '' : 's'} · last 8h</span>
         <span>{fmtCountdown(depMs, usable[usable.length - 1].asOf)}</span>
       </div>
     </div>
@@ -247,6 +291,42 @@ const FEATURE_LABEL: Record<string, string> = {
   international: 'International route',
 };
 
+/**
+ * Split into two independent panels (rather than one bundled fragment) so a
+ * caller can place "Prediction history" beside something else — the
+ * booking's own boarding-pass card, in the current layout — instead of the
+ * two always falling in one full-width vertical stack together.
+ */
+export function HistoryPanel({ forecast, history, depISO }: {
+  forecast: FlightForecast;
+  history: FlightForecastSnapshot[];
+  depISO: string;
+}) {
+  return (
+    <div className="g panel">
+      <h3>Prediction history</h3>
+      <HistoryChart history={history} thresholds={forecast.thresholds} depISO={depISO} />
+    </div>
+  );
+}
+
+export function ExplanationPanel({ forecast }: { forecast: FlightForecast }) {
+  if (!forecast.explanation) return null;
+  return (
+    <div className="g panel">
+      <h3>Why this number — real reasons, not a script</h3>
+      <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
+        Every bar below is a real contribution the model itself computed for this exact prediction
+        (tree-SHAP) — not a canned explanation. Bars are sized by their share of the total swing away
+        from the population baseline. Faded bars with an italic note are backed by the population
+        average, not this specific carrier/route's own history — the model hasn't seen enough of its
+        real outcomes yet to know better, and says so rather than presenting a guess as fact.
+      </p>
+      <ContributionChart explanation={forecast.explanation} dataSource={forecast.dataSource} />
+    </div>
+  );
+}
+
 export default function ForecastAudit({ forecast, history, depISO }: {
   forecast: FlightForecast;
   history: FlightForecastSnapshot[];
@@ -254,24 +334,8 @@ export default function ForecastAudit({ forecast, history, depISO }: {
 }) {
   return (
     <>
-      <div className="g panel" style={{ marginBottom: 16 }}>
-        <h3>Prediction history</h3>
-        <HistoryChart history={history} thresholds={forecast.thresholds} depISO={depISO} />
-      </div>
-
-      {forecast.explanation && (
-        <div className="g panel">
-          <h3>Why this number — real reasons, not a script</h3>
-          <p style={{ margin: '0 0 14px', color: 'var(--mist)', fontSize: 13.5, lineHeight: 1.6 }}>
-            Every bar below is a real contribution the model itself computed for this exact prediction
-            (tree-SHAP) — not a canned explanation. Bars are sized by their share of the total swing away
-            from the population baseline. Faded bars with an italic note are backed by the population
-            average, not this specific carrier/route's own history — the model hasn't seen enough of its
-            real outcomes yet to know better, and says so rather than presenting a guess as fact.
-          </p>
-          <ContributionChart explanation={forecast.explanation} dataSource={forecast.dataSource} />
-        </div>
-      )}
+      <div style={{ marginBottom: 16 }}><HistoryPanel forecast={forecast} history={history} depISO={depISO} /></div>
+      <ExplanationPanel forecast={forecast} />
     </>
   );
 }

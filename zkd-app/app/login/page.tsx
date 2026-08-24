@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { DEMO_ACCOUNTS } from '@/lib/demoAccounts';
+import { setTabSession } from '@/lib/tabSession';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -19,12 +20,17 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
+      const json = (await res.json().catch(() => null)) as { error?: string; sessionToken?: string } | null;
       if (!res.ok) {
-        const json = (await res.json().catch(() => null)) as { error?: string } | null;
         setError(json?.error ?? 'Something went wrong signing you in.');
         setBusy(false);
         return;
       }
+      // Captured before navigating: this is what lets THIS tab keep acting as
+      // this passenger even if a different tab in the same browser later signs
+      // in as someone else and overwrites the shared cookie. See
+      // server/auth/session.ts's header and lib/tabSession.ts.
+      if (json?.sessionToken) setTabSession(json.sessionToken);
       // Hard navigation, not router.push: WorldProvider lives in the server
       // layout and needs to remount to pick up the new session cleanly.
       window.location.assign('/flights');

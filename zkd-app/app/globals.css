@@ -15,6 +15,7 @@
   --mist2:rgba(228,234,244,.38);
   --mist3:rgba(228,234,244,.28);          /* faint text */
   --hairline:rgba(228,234,244,.06);       /* faint divider */
+  --sk-dot:rgba(255,255,255,.14);         /* skeleton timeline bubble */
 
   --iris:#2f7ff0;          /* the single accent */
   --iris-soft:rgba(47,127,240,.13);
@@ -48,6 +49,7 @@
   --mist2:rgba(27,32,48,.46);
   --mist3:rgba(27,32,48,.34);
   --hairline:rgba(20,26,40,.08);
+  --sk-dot:#dfe3ea;                        /* soft grey bubble, a step off the white card */
   --iris-soft:rgba(1,111,208,.10);
   --lift:0 8px 24px -14px rgba(20,30,60,.28), inset 0 1px 0 rgba(255,255,255,.7);
 }
@@ -84,7 +86,7 @@ body{
   border-bottom:1px solid var(--edge)}
 .site-in{max-width:1160px;margin:0 auto;padding:15px 32px;display:flex;align-items:center;gap:14px}
 .logo{width:30px;height:30px;border-radius:10px;flex:none;display:flex}
-.logo svg{width:100%;height:100%;border-radius:10px}
+.logo svg,.logo img{width:100%;height:100%;border-radius:10px;object-fit:cover}
 .site .nm{font-family:var(--amex-serif);font-weight:400;font-size:18.5px;letter-spacing:.002em;
   color:var(--text)}
 .site .sp{flex:1}
@@ -406,6 +408,11 @@ footer p{margin:0;max-width:70ch}
 .ev.warm::after{color:#0b0f18}
 .ev.warm .n{color:var(--mist)}
 .tl:has(.ev.warm)::before{background:linear-gradient(180deg,var(--mist3),var(--hairline))}
+/* Skeleton timeline dots are placeholders, not real markers: a soft neutral
+   bubble in the --sk shimmer family, never the solid --mist2 blob (which read
+   as heavy dark dots on the light theme). Scoped to .skeleton so a real
+   .ev.done.warm marker keeps its iris fill and blue halo. */
+.skeleton .ev.warm::before{border-color:var(--sk-dot);background:var(--sk-dot);box-shadow:none}
 .tl{position:relative;padding-left:32px}
 .tl::before{content:'';position:absolute;left:9px;top:6px;bottom:16px;width:2px;
   background:linear-gradient(180deg,var(--iris),rgba(47,127,240,.12))}
@@ -666,7 +673,8 @@ body:has(.amex-page) .mesh,body:has(.amex-page) footer{display:none}
 .amex-topbar{display:flex;align-items:center;gap:26px;padding:14px 32px;max-width:1160px;margin:0 auto}
 .amex-mark{display:flex;align-items:center;gap:11px;flex:none;color:inherit;text-decoration:none}
 .amex-mark .box{width:34px;height:34px;border-radius:9px;background:linear-gradient(155deg,#2a8ae8,var(--amex-blue) 60%,var(--amex-blue-dark));
-  display:grid;place-items:center;flex:none;box-shadow:0 3px 10px -3px rgba(1,111,208,.5)}
+  display:grid;place-items:center;flex:none;box-shadow:0 3px 10px -3px rgba(1,111,208,.5);overflow:hidden}
+.amex-mark .box img{width:30px;height:30px;border-radius:5px;object-fit:cover}
 .amex-mark .wd{font-family:var(--amex-serif);font-weight:400;font-size:18px;color:var(--amex-ink);
   letter-spacing:.001em;white-space:nowrap}
 .amex-topbar nav{display:flex;gap:22px;flex:1}
@@ -1816,3 +1824,355 @@ body:has(.amex-page) { background: var(--amex-bg) }
 .amex-page .acts button:hover:not(:disabled){border-color:var(--amex-blue);color:var(--amex-blue)}
 .amex-page .cta{background:var(--amex-blue);color:#fff;border:0}
 .amex-page .cta:hover{filter:brightness(1.06)}
+
+/* ── alternative-flight cards ("If this one goes") ───────────────────────────
+   Replaces a plain .kv row list. Written entirely in the shared tokens
+   (--iris/--safe/--warn/--edge/--glass/--mist...) rather than one-off values,
+   because .amex-page already re-points every one of them (see that block
+   above) — this one set of rules is correct on both the dark default and the
+   Amex light skin with no separate .amex-page override needed for anything
+   except the two Amex-only surface tokens noted below. */
+.alt-list{display:flex;flex-direction:column;gap:8px}
+.alt-card{
+  display:block;width:100%;text-align:left;font:inherit;cursor:pointer;
+  background:var(--glass-2);border:1px solid var(--edge);border-radius:12px;
+  padding:12px 14px;transition:border-color .15s,background .15s,transform .1s,box-shadow .15s;
+  animation:altCardIn .32s cubic-bezier(.2,.8,.3,1) backwards;
+}
+/* Staggered by DOM order — each card in the list enters a beat after the one
+   before it, rather than every row popping in at once. Capped at 5 explicit
+   steps because orderedAlts itself is capped at 5 (see the page's own slice). */
+.alt-list .alt-card:nth-child(1){animation-delay:0ms}
+.alt-list .alt-card:nth-child(2){animation-delay:40ms}
+.alt-list .alt-card:nth-child(3){animation-delay:80ms}
+.alt-list .alt-card:nth-child(4){animation-delay:120ms}
+.alt-list .alt-card:nth-child(5){animation-delay:160ms}
+@keyframes altCardIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.alt-card:hover:not(:disabled){border-color:var(--edge-strong);box-shadow:0 3px 12px -6px rgba(0,0,0,.18)}
+.alt-card:active:not(:disabled){transform:scale(.997)}
+.alt-card.readonly{cursor:default}
+.alt-card.picked{border-color:var(--iris);background:color-mix(in srgb, var(--iris) 8%, var(--glass-2));box-shadow:0 3px 14px -7px color-mix(in srgb, var(--iris) 60%, transparent)}
+/* The recommended card gets a whisper of the accent along its top edge —
+   found via :has() on its own badge rather than a class, so the "which one
+   is recommended" rule lives in exactly one place (the JSX badge logic). */
+.alt-card:has(> .alt-card-top > .alt-badge:not(.cheapest):not(.preview)){
+  border-top:2px solid var(--iris);
+}
+.alt-card-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.alt-card-flight{display:flex;align-items:center;gap:8px;min-width:0}
+.alt-check{
+  flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;
+  border:1.5px solid var(--edge-strong);font-size:11px;color:#fff;transition:background .15s,border-color .15s;
+}
+.alt-check.on{background:var(--iris);border-color:var(--iris)}
+.alt-code{font-family:var(--mono);font-weight:600;font-size:13.5px;white-space:nowrap}
+.alt-dep{color:var(--mist2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.alt-badge{
+  flex:none;font-size:10.5px;font-weight:600;letter-spacing:.02em;padding:3px 9px;
+  border-radius:99px;background:color-mix(in srgb, var(--iris) 14%, transparent);color:var(--iris);
+  white-space:nowrap;
+}
+.alt-badge.cheapest{background:color-mix(in srgb, var(--safe) 16%, transparent);color:var(--safe)}
+/* Deliberately quiet, not alarming — a preview row isn't wrong or dangerous,
+   it's just not a seat anyone can actually book yet. See isPreviewOnly in
+   the page: this must never win Recommended or Cheapest, only say what it is. */
+.alt-badge.preview{background:var(--edge);color:var(--mist2)}
+.alt-why{margin:6px 0 0;font-size:12.5px;line-height:1.5;color:var(--mist)}
+/* The complete plan for an option that strands you overnight — a quiet,
+   distinctly-toned sub-panel (warm rather than the card's own neutral) so it
+   reads as "here's what this specific choice also involves", not as another
+   generic price line. Never appears on an on-time option, by construction —
+   see needsOvernight in the page. */
+.alt-overnight{
+  margin-top:8px;padding:8px 10px;border-radius:9px;
+  background:color-mix(in srgb, var(--warn) 10%, transparent);
+  border:1px solid color-mix(in srgb, var(--warn) 22%, transparent);
+}
+.alt-overnight-lbl{font-size:10.5px;font-weight:600;letter-spacing:.02em;color:var(--warn);margin-bottom:5px;display:flex;align-items:center;gap:5px}
+.alt-overnight-row{display:flex;align-items:baseline;gap:7px;font-size:12px;padding:2px 0}
+.alt-overnight-ic{flex:none;font-size:12px}
+.alt-overnight-name{font-weight:600;color:var(--text)}
+.alt-overnight-note{color:var(--mist2);font-size:11px}
+.alt-card-price{
+  display:flex;align-items:baseline;gap:7px;margin-top:9px;padding-top:9px;
+  border-top:1px solid var(--edge);flex-wrap:wrap;font-family:var(--mono);
+}
+.alt-fare{font-size:14px;font-weight:600}
+.alt-arrow{color:var(--mist2);font-size:12px}
+.alt-delta{font-size:14px;font-weight:700}
+.alt-delta.ok{color:var(--safe)}
+.alt-delta.warn{color:var(--warn)}
+.alt-refund-pending{color:var(--mist2);font-size:11.5px;font-family:var(--font-sans, inherit)}
+/* Two Amex-only surface tokens with no generic equivalent — everything else
+   above already inherited the right look from .amex-page's token remap. */
+.amex-page .alt-card{background:var(--amex-surf)}
+.amex-page .alt-card.picked{background:color-mix(in srgb, var(--amex-blue) 6%, var(--amex-surf))}
+@media (prefers-reduced-motion: reduce){
+  .alt-card{animation:none}
+}
+
+/* ── the "tell us what matters" chat ─────────────────────────────────────── */
+.intent-chat-trigger{
+  display:flex;align-items:center;gap:8px;width:100%;margin-top:12px;
+  font:inherit;font-size:13.5px;font-weight:500;color:var(--iris);
+  background:transparent;border:1px dashed var(--edge-strong);border-radius:12px;
+  padding:11px 14px;cursor:pointer;transition:background .15s,border-color .15s;
+}
+.intent-chat-trigger:hover{background:color-mix(in srgb, var(--iris) 6%, transparent);border-color:var(--iris)}
+.intent-chat-trigger .chev{margin-left:auto;opacity:.7}
+.intent-chat-trigger-resume{border-style:solid;background:color-mix(in srgb, var(--iris) 5%, transparent)}
+
+.intent-chat{
+  margin-top:12px;border:1px solid var(--edge);border-radius:14px;overflow:hidden;
+  background:var(--glass-2);animation:intentChatIn .18s cubic-bezier(.2,.8,.3,1);
+  box-shadow:0 8px 28px -16px rgba(0,0,0,.22);
+}
+@keyframes intentChatIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.intent-chat-head{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:11px 14px;border-bottom:1px solid var(--edge);
+}
+.intent-chat-title{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600}
+.intent-chat-head-acts{display:flex;align-items:center;gap:4px}
+.intent-chat-linkbtn{
+  font:inherit;font-size:12px;font-weight:500;color:var(--mist2);background:transparent;
+  border:0;cursor:pointer;padding:5px 8px;border-radius:8px;line-height:1;
+}
+.intent-chat-linkbtn:hover{background:var(--edge);color:var(--text)}
+.intent-chat-collapse{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0}
+.intent-chat-caret{
+  display:block;width:0;height:0;
+  border-left:4px solid transparent;border-right:4px solid transparent;
+  border-bottom:5px solid currentColor;
+}
+.intent-chat-hint{margin:0;padding:0 14px 14px;font-size:12.5px;line-height:1.55;color:var(--mist)}
+
+/* The assistant's identity mark — a small gradient badge rather than a plain
+   emoji, used consistently in the header and beside every reply so the
+   thread reads as a conversation with someone specific, not a form. */
+.intent-chat-avatar{
+  flex:none;width:22px;height:22px;border-radius:50%;display:inline-grid;place-items:center;
+  background:linear-gradient(135deg, var(--iris), color-mix(in srgb, var(--iris) 55%, #8b5cf6));
+  color:#fff;font-size:11px;line-height:1;box-shadow:0 1px 4px -1px color-mix(in srgb, var(--iris) 70%, transparent);
+}
+.intent-chat-title .intent-chat-avatar{width:20px;height:20px;font-size:10px}
+
+.intent-chat-thread{max-height:340px;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.intent-chat-row{display:flex;gap:8px}
+.intent-chat-row.member{justify-content:flex-end}
+.intent-chat-row.assistant{justify-content:flex-start}
+.intent-chat-row.assistant .intent-chat-avatar{margin-top:3px}
+.intent-chat-bubble{max-width:86%;border-radius:14px;padding:9px 13px;font-size:13px;line-height:1.55;animation:intentBubbleIn .22s cubic-bezier(.2,.8,.3,1) backwards}
+@keyframes intentBubbleIn{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+.intent-chat-bubble p{margin:0}
+.intent-chat-bubble p + p{margin-top:8px}
+/* Plain white on the raw --iris blue only hits ~3.9:1 contrast — under the
+   4.5:1 WCAG AA floor for 13px body text — so the member's own messages read
+   as washed-out/grey rather than legible. Darkening the background (mixed
+   from the same token, so it tracks --iris under every theme, including the
+   Amex skin's --amex-blue re-point) clears ~5.9:1 without introducing a new
+   colour. */
+.intent-chat-bubble.member{background:color-mix(in srgb, var(--iris) 78%, black 22%);color:#fff;border-bottom-right-radius:4px}
+.intent-chat-bubble.assistant{background:var(--edge-2, var(--edge));color:var(--text);border-bottom-left-radius:4px}
+.intent-chat-bubble.assistant.error{background:color-mix(in srgb, var(--risk) 12%, var(--edge-2, var(--edge)));color:var(--risk)}
+.intent-chat-typing{display:flex;gap:4px;padding:12px 13px}
+.intent-chat-typing span{width:6px;height:6px;border-radius:50%;background:var(--mist2);animation:intentTyping 1.1s infinite}
+.intent-chat-typing span:nth-child(2){animation-delay:.15s}
+.intent-chat-typing span:nth-child(3){animation-delay:.3s}
+@keyframes intentTyping{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-2px)}}
+
+.intent-chat-detail{margin-top:9px;padding-top:9px;border-top:1px solid rgba(0,0,0,.08)}
+.intent-chat-bubble.member .intent-chat-detail{border-top-color:rgba(255,255,255,.25)}
+.intent-chat-detail .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mist2);margin:8px 0 3px}
+.intent-chat-detail .lbl:first-child{margin-top:0}
+.intent-chat-detail ul{margin:0;padding-left:16px}
+.intent-chat-detail li{margin:2px 0}
+.intent-chat-detail ul.muted{color:var(--mist)}
+.intent-chat-detail ul.warn{color:var(--risk)}
+
+.intent-chat-composer{display:flex;gap:8px;align-items:flex-end;padding:12px 14px 14px}
+.intent-chat-composer .intent-box{flex:1}
+.intent-chat-send{
+  flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;
+  background:var(--iris);color:#fff;border:0;font-size:16px;cursor:pointer;
+  transition:filter .15s,transform .1s;
+}
+.intent-chat-send:hover:not(:disabled){filter:brightness(1.1)}
+.intent-chat-send:active:not(:disabled){transform:scale(.94)}
+.intent-chat-send:disabled{opacity:.4;cursor:default}
+.intent-chat-disclaimer{margin:0;padding:0 14px 12px;font-size:10.5px;line-height:1.4;color:var(--mist2);text-align:center}
+@media (prefers-reduced-motion: reduce){
+  .intent-chat-bubble{animation:none}
+}
+@media (prefers-reduced-motion: reduce){
+  .intent-chat,.intent-chat-typing span{animation:none}
+}
+
+/* ── the gauge's background ring ─────────────────────────────────────────
+   Was an unclassed circle with no stroke rule anywhere, dark or light — it
+   only ever rendered because the SVG stroke defaulted to visible black,
+   which happened to read fine on the dark theme's near-black background and
+   happened to vanish on the Amex light skin (only .amex-page had a .track
+   override, at the block above). One base rule here fixes both: the shared
+   token already re-points correctly under .amex-page, so this needs no
+   separate light-skin rule of its own. */
+.gauge .track{stroke:var(--edge)}
+
+/* ── "Already lined up for you" — the hero, first thing on the page ───────
+   Full-width and visually distinct (a soft accent wash, like .plan below,
+   but its own identity) so it reads as the answer to the page's actual
+   question rather than one card among equals. */
+.hero-plan{
+  background:linear-gradient(150deg, color-mix(in srgb, var(--iris) 9%, transparent), var(--glass));
+  border-color:color-mix(in srgb, var(--iris) 22%, var(--edge));
+}
+.hero-plan h3{display:flex;align-items:center;gap:9px;color:var(--iris)}
+.hero-ic{font-size:17px;line-height:1}
+.k-ic{margin-right:3px;font-size:12px;opacity:.85}
+
+/* A thin, tinted progress rail under "forecast confidence" — the same
+   visual language as .fac .track above, reused rather than reinvented. */
+.conf-meter{height:5px;border-radius:99px;background:var(--edge);overflow:hidden;margin:-2px 0 4px}
+.conf-meter-fill{display:block;height:100%;border-radius:99px;background:var(--iris)}
+
+/* ── the threshold number line ─────────────────────────────────────────────
+   Four adaptive bands drawn to real width (see the inline style widths,
+   derived straight from fc.thresholds), with a marker pinned at the
+   flight's own current probability — answers "where do I stand" at a
+   glance, instead of asking the reader to compare four separate numbers. */
+.thresh-bar{
+  position:relative;display:flex;height:10px;border-radius:99px;overflow:hidden;
+  margin:2px 0 10px;box-shadow:inset 0 0 0 1px var(--edge);
+}
+.thresh-zone{height:100%}
+.thresh-zone.watch{background:color-mix(in srgb, var(--safe) 35%, var(--glass-2))}
+.thresh-zone.prepare{background:color-mix(in srgb, var(--iris) 40%, var(--glass-2))}
+.thresh-zone.hold{background:color-mix(in srgb, var(--warn) 55%, var(--glass-2))}
+.thresh-zone.act{background:color-mix(in srgb, var(--risk) 60%, var(--glass-2))}
+.thresh-marker{
+  position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--text);
+  box-shadow:0 0 0 2px var(--glass);border-radius:99px;transform:translateX(-1px);
+}
+.thresh-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--mist2);margin-bottom:2px}
+.thresh-legend .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:1px}
+.thresh-legend .dot.watch{background:var(--safe)}
+.thresh-legend .dot.prepare{background:var(--iris)}
+.thresh-legend .dot.hold{background:var(--warn)}
+.thresh-legend .dot.act{background:var(--risk)}
+
+/* ── the cancellation cost, styled like a receipt ─────────────────────────
+   One line per real cost component (icon, label, detail, amount aligned to
+   a column via .receipt-line's grid) then a visually separated totals
+   block — the same shape a member already reads on a real receipt, instead
+   of another .kv list indistinguishable from the panels around it. */
+.receipt-lines{display:flex;flex-direction:column}
+.receipt-line{
+  display:grid;grid-template-columns:20px auto 1fr auto;align-items:baseline;gap:8px;
+  padding:9px 0;border-top:1px solid var(--glass-2);font-size:13.5px;
+}
+.receipt-line:first-child{border-top:0;padding-top:0}
+.receipt-ic{font-size:13px}
+.receipt-label{color:var(--mist);white-space:nowrap}
+.receipt-value{color:var(--text);text-align:right;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.receipt-amount{font-family:var(--mono);font-size:12.5px;flex:none}
+.receipt-totals{margin-top:10px;padding-top:12px;border-top:1px dashed var(--edge-2)}
+.receipt-total-row{display:flex;justify-content:space-between;gap:14px;padding:4px 0;font-size:13px;color:var(--mist)}
+.receipt-total-row span:last-child{font-family:var(--mono)}
+.receipt-total-row .ok{color:var(--safe)}
+.receipt-total-row .warn{color:var(--warn)}
+.receipt-total-row.grand{
+  margin-top:4px;padding-top:9px;border-top:1px solid var(--edge);
+  font-size:15px;font-weight:600;color:var(--text);
+}
+.receipt-total-row.grand span:last-child{font-size:17px}
+
+/* ── the booking, as a boarding pass ───────────────────────────────────────
+   A route line and a labelled grid (real ticket hierarchy) plus a torn-stub
+   second panel, divided by a dashed line with punched-out semicircle
+   notches — drawn with two pseudo-elements clipped against the panel's own
+   background colour, the standard "ticket" CSS technique, rather than an
+   image asset. */
+.boarding-pass{padding:0;overflow:hidden}
+.bp-main{padding:22px 24px 18px}
+.bp-row-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.bp-code{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--mist2)}
+.bp-class{
+  font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--iris);background:color-mix(in srgb, var(--iris) 12%, transparent);
+  padding:3px 9px;border-radius:99px;
+}
+.bp-route{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.bp-city{font-size:22px;font-weight:600;letter-spacing:-.02em}
+.bp-plane{color:var(--iris);font-size:15px;transform:rotate(90deg);flex:none}
+.bp-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 10px}
+.bp-cell{display:flex;flex-direction:column;gap:3px;min-width:0}
+.bp-lbl{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mist2)}
+.bp-val{font-size:13.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bp-val.mono{font-family:var(--mono);letter-spacing:.02em}
+.bp-perf{
+  position:relative;height:0;border-top:2px dashed var(--edge-2);
+}
+.bp-perf::before,.bp-perf::after{
+  content:'';position:absolute;top:50%;width:20px;height:20px;border-radius:50%;
+  background:var(--bg, #0b0f17);transform:translateY(-50%);
+}
+.bp-perf::before{left:-10px}
+.bp-perf::after{right:-10px}
+.amex-page .bp-perf::before,.amex-page .bp-perf::after{background:var(--amex-bg)}
+.bp-stub{
+  display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  padding:14px 24px;background:var(--glass-2);
+}
+.bp-stub .bp-val{font-size:12.5px;color:var(--mist);white-space:normal;text-align:right}
+
+/* ── the emergency exit ────────────────────────────────────────────────────
+   The single thing on this page that must never require scrolling or
+   reading to find: a member reporting a cancellation is not browsing, they
+   are already standing somewhere inconvenient wanting this handled. Sticky
+   (this page's own header, .amex-header, is not sticky, so there is nothing
+   for this to collide with) and in the alert palette already used for
+   .alert.danger elsewhere, rather than looking like just another panel. */
+.urgent-strip{
+  position:sticky;top:10px;z-index:20;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:14px 18px;margin-bottom:16px;border-radius:14px;
+  background:color-mix(in srgb, var(--risk) 11%, var(--glass));
+  border:1px solid color-mix(in srgb, var(--risk) 30%, var(--edge));
+  box-shadow:0 10px 28px -18px color-mix(in srgb, var(--risk) 45%, transparent);
+}
+.urgent-strip-body{display:flex;align-items:center;gap:12px;flex:1;min-width:220px}
+.urgent-strip-ic{
+  flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;
+  font-size:15px;background:color-mix(in srgb, var(--risk) 18%, transparent);color:var(--risk);
+}
+.urgent-strip-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.urgent-strip-title{font-size:14.5px;font-weight:700;color:var(--text)}
+.urgent-strip-sub{font-size:12.5px;color:var(--mist);line-height:1.4}
+.urgent-strip-btn{
+  flex:none;font:inherit;font-size:13.5px;font-weight:600;white-space:nowrap;
+  padding:10px 18px;border-radius:99px;border:0;cursor:pointer;
+  background:var(--risk);color:#fff;transition:filter .15s,transform .1s;
+}
+.urgent-strip-btn:hover{filter:brightness(1.08)}
+.urgent-strip-btn:active{transform:scale(.97)}
+/* Once reported and resolved, the alert tone would be actively misleading —
+   the emergency is handled, not ongoing — so it switches to the same
+   .safe-toned language the rest of the app uses for a good outcome. */
+.urgent-strip.resolved{
+  background:color-mix(in srgb, var(--safe) 11%, var(--glass));
+  border-color:color-mix(in srgb, var(--safe) 30%, var(--edge));
+  box-shadow:0 10px 28px -18px color-mix(in srgb, var(--safe) 40%, transparent);
+}
+.urgent-strip.resolved .urgent-strip-ic{background:color-mix(in srgb, var(--safe) 18%, transparent);color:var(--safe)}
+@media (max-width:640px){
+  .urgent-strip{position:static}
+}
+
+/* ── the risk score, promoted to the page's first main panel ──────────────
+   Same ring/band/say markup as before — only the surrounding wash changes,
+   picking up the same accent treatment as .hero-plan below it so the two
+   read as a matched opening pair rather than one styled panel followed by
+   a plain one. */
+.hero-gauge{
+  background:linear-gradient(150deg, color-mix(in srgb, var(--iris) 7%, transparent), var(--glass));
+}

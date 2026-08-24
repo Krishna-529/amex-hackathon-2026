@@ -16,10 +16,7 @@ const NAV = [
 function Mark() {
   return (
     <Link href="/flights" className="logo" aria-label="ZKD Concierge home">
-      <svg viewBox="0 0 100 100" width="30" height="30" aria-hidden focusable="false">
-        <rect width="100" height="100" rx="22" fill="#2f7ff0" />
-        <polygon points="79.04,24.92 22.28,44.72 51.32,53.96 36.8,77.72" fill="#ffffff" />
-      </svg>
+      <img src="/brand/icon-192.png" width={30} height={30} alt="" aria-hidden />
     </Link>
   );
 }

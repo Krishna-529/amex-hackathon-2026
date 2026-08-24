@@ -20,7 +20,11 @@ export async function POST(req: NextRequest) {
   if (!isSameOriginRequest(req)) {
     return NextResponse.json({ error: 'cross-site request rejected' }, { status: 403 });
   }
-  const limited = checkRateLimit(req, 'ops-demo-reset', { capacity: 5, refillPerMinute: 5 });
+  // Already behind requireOperator above, so this bounds cost/thrash from an
+  // authenticated operator, not an attacker. Raised 5→15/min on 2026-08-22 —
+  // rehearsing several scenario run-throughs back to back legitimately resets
+  // more than once every 12 seconds.
+  const limited = checkRateLimit(req, 'ops-demo-reset', { capacity: 15, refillPerMinute: 15 });
   if (!limited.allowed) {
     return NextResponse.json({ error: 'too many requests, try again shortly' }, { status: 429 });
   }
