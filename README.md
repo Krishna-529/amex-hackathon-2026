@@ -4,24 +4,25 @@ Team ZKD, IIT Madras. Autonomous travel-disruption concierge for Indian domestic
 predict or detect an IRROPS event, re-accommodate the member across flight + hotel + ground,
 claim duty of care from the carrier, and stop safely when it cannot.
 
-This is a **Round 1 → Round 2 hybrid repo**: the Round 1 evidence sites (architecture, Monte
-Carlo metrics, personas) sit alongside the Round 2 deliverable — a working Next.js prototype
-and an Android app, both wired to real sandbox APIs.
+This is the submission bundle: the two working apps, the self-trained risk model, the deck, the
+APK, and the full solution writeup. Earlier Round 1 evidence sites, session logs, and superseded
+design docs have been pruned — see git history if you need them.
 
 ## Start here
 
 | I want to… | Go to |
 |---|---|
-| Run the actual product | [`zkd-app/`](#zkd-app--the-round-2-product-start-here) below, or `cd zkd-app && npm install && npm run dev` |
-| See the submission package (videos, APK, docs) | [`SUBMISSION.md`](documentation/project/SUBMISSION.md) |
-| Read the design docs | [`documentation/`](documentation/README.md) |
-| Check which APIs are wired vs. stubbed | [`round2-api-requirements.xlsx`](assets/data/round2-api-requirements.xlsx) / `.csv` |
-| Read the current agent specs | `documentation/agent-specs/current/zkd_*_agent_v2.0.md` (see below — never edit `_v1.0.md`, provenance only) |
-| See the Round 1 evidence sites | `zkd-website/` (built) or `Code/` (source) — see [below](#round-1-evidence-sites) |
+| Read the full solution writeup, backed by real data | [`SOLUTION.md`](SOLUTION.md) |
+| See how the Monte Carlo sim numbers were derived | [`documentation/design/10-monte-carlo-revision-2026-08.md`](documentation/design/10-monte-carlo-revision-2026-08.md) |
+| Run the web app | `cd zkd-app && npm install && npm run dev` |
+| Run the Flutter app | `cd zkd-flutter && flutter pub get && flutter run` |
+| Try the pre-built Android build | [`assets/builds/ZKD-Concierge.apk`](assets/builds/ZKD-Concierge.apk) |
+| See the pitch deck | [`assets/deck/ZKD_Concierge_Codestreet_2026.pptx`](assets/deck/ZKD_Concierge_Codestreet_2026.pptx) |
+| Check the risk model's real training metrics | [`zkd-risk-model/reports/model_metrics.json`](zkd-risk-model/reports/model_metrics.json), [`zkd-risk-model/MODEL_CARD.md`](zkd-risk-model/MODEL_CARD.md) |
 
 ---
 
-## `zkd-app/` — the Round 2 product, start here
+## `zkd-app/` — the web product
 
 Next.js 16 / React 19 prototype. Predicts a cancellation, shows the risk gauge with a
 plain-language explanation, and walks the member through pre-authorisation and the live
@@ -38,124 +39,65 @@ npm run dev          # → http://localhost:5176
 simulation engine (`server/engine/simulation.ts`) runs the whole disruption lifecycle —
 detection, the decision window, rebooking — with real `setTimeout`/`setInterval` chains, so it
 resolves on schedule whether or not any device is watching. Every screen (web tab, phone) is a
-plain poller of that shared state (`GET /api/passengers/[id]/schedule`,
-`GET /api/disruptions/[flightId]`, …); nothing is computed or timed client-side any more. This
-only behaves correctly as one continuous `npm run dev` / `npm start` process — a serverless
-redeploy would drop the in-memory state and any scheduled timers mid-flight. The identity
-switcher in the header (`?as=<passengerId>`) is what makes "multiple members, multiple devices,
-one shared backend" demonstrable: open two tabs with different `?as=` values and watch them
-converge independently.
+plain poller of that shared state; nothing is computed or timed client-side. This only behaves
+correctly as one continuous `npm run dev` / `npm start` process — a serverless redeploy would
+drop the in-memory state and any scheduled timers mid-flight.
 
 Since a live demo can't wait for an actual airline to cancel a flight, `/ops` (not linked from
 the nav — direct URL only) is an operator console that adds flights and triggers a disruption on
-one. Its trigger button calls the exact same `detectDisruption()` entry point a real production
-live-status poller would call — only the caller differs, never the detection logic.
+one, through the same `detectDisruption()` entry point a real production live-status poller
+would call.
 
 Routes: `/flights` · `/flights/[id]` · `/prepare/[id]` · `/recovery/[id]` · `/profile` ·
 `/settings` · `/history` · `/how-it-works` · `/ops` (operator console, direct URL only)
 
-**Live API integrations** (added this round — see `assets/data/round2-api-requirements.xlsx` for the full
-credential tracker): real weather (NOAA / Open-Meteo) and aircraft-position data (OpenSky) feed
-the risk gauge; a live flight-status check (AviationStack) is shown informationally; two live
-flight-search sandboxes and a live hotel-search sandbox back the rebooking options; a live LLM
-call (Gemini) generates the plain-language risk and recommendation explanations. Every call is
-server-side only (`zkd-app/app/api/*`), fires on-demand (never polled), and fails silently back
-to the existing mock data if a provider is down — no vendor name is ever shown in the UI.
-**Payment stays fully mocked** — no live payment integration exists.
-
-To actually use the live integrations, copy `zkd-app/.env.example` to `zkd-app/.env.local` and
-fill in the keys documented there (`assets/data/round2-api-requirements.xlsx` has signup links and free-tier
-details for each). Without it, the app runs entirely on its built-in mock data.
+When a flight is cancelled and the recovery completes, the newly booked flight now appears as a
+real entry in the member's Upcoming list, tagged "Booked on behalf of {original flight code}".
 
 **Cancellation detection runs on three lanes** — a push webhook, a budget-capped poller, and the
-member telling us. The webhook receiver is live and testable locally with `curl`, but registers
-no subscriptions until `WEBHOOK_PUBLIC_URL` points at a publicly reachable HTTPS origin; `/ops`
-shows which lane is currently live. That last part is the point: a webhook feed that has stopped
-delivering looks exactly like a week with no cancellations, so silence is treated as a fault
-rather than as good news.
+member telling us. Payment stays fully mocked — no live payment integration exists.
 
-## `zkd-android/` — the mobile app
+## `zkd-flutter/` — the mobile app
 
-Expo / React Native subset of the web app: Flights, Flight detail, Recovery, Profile. No
-pre-authorisation flow and no consent-settings screen — those exist only in the web build.
+Flutter client: Flights, Flight detail, Recovery, Profile.
 
 ```bash
-cd zkd-android
-npm install
-npx expo run:android
+cd zkd-flutter
+flutter pub get
+flutter run
 ```
 
-Or install the pre-built release APK directly — see [`SUBMISSION.md`](documentation/project/SUBMISSION.md).
+Disruption notifications fire both while the app is open (a live 4-second poll) and while it's
+backgrounded or fully closed (a WorkManager periodic background task, ~15-minute floor on
+Android — see `lib/background_task.dart`). This is a throttled poll, not real push; a full FCM
+integration remains a further step.
 
-## `amex-travel-disruption-concierge/` — saga/rollback policy prototype
+## `zkd-risk-model/` — the cancellation-risk model
 
-A separate, earlier proof-of-concept for the compensation/rollback pattern specifically:
-Temporal workflows + OPA policy gating + mock suppliers, demonstrating a saga that unwinds
-LIFO when a supplier call fails mid-booking. Not part of the Round 2 submission bundle — see
-its own `README.md` for setup (`brew install temporal opa`, `npm run demo:fail`).
+The real, self-trained model behind every risk score: an XGBoost classifier trained on
+7,893,669 real historical flights (US DOT/BTS + Brazil ANAC), ROC-AUC 0.804. See
+`zkd-risk-model/README.md`, `zkd-risk-model/MODEL_CARD.md`, and
+`zkd-risk-model/reports/model_metrics.json` for the full training/evaluation detail — the exact
+numbers `SOLUTION.md` quotes.
 
 ---
 
-## Round 1 evidence sites
-
-Three static sites — System Design, Success Metrics, Personas — each figure tagged with a
-provenance badge (VERIFIED / CALC·SIM / ASSUMED·BUDGET) linking to its derivation.
-
-| Path | What it is |
-|---|---|
-| `Code/` | Editable source for the three sites (`apps/design`, `apps/metrics`, `apps/personas`) — run `npm install && npm run dev` here for local editing. |
-| `zkd-sites/` | The same source, configured for GitHub Pages deploy (own `.github/workflows/pages.yml`, own `deploy.config.js`). Push changes to **both** `Code/` and `zkd-sites/` if you edit the sites — they are kept in sync by hand, not by a build step. |
-| `zkd-website/` | Production build of all three sites + `serve.js`, a zero-dependency static host. Run `node "zkd-website/serve.js"` → ports 5173 / 5174 / 5175. |
-| `zkd-launcher/` | Windows launcher (`Start ZKD Sites.cmd`) and `.url` shortcuts to the hosted versions — not source, just shortcuts. |
-
-The servers in `zkd-website/` bind `0.0.0.0` so a phone on the same Wi-Fi can reach them. That
-is intentional for a demo on your own network — **do not run them on conference or public
-Wi-Fi.**
-
-## Round 1 supporting artifacts
-
-| Path | What it is |
-|---|---|
-| `documentation/agent-specs/current/zkd_*_agent_v2.0.md` | **Current.** Four agent specs — Supervisor/Negotiator, Flight Reshop, Hotel Re-accommodation, Ground Transfer. Each is Part A (a prompt that writes the design-doc section) + Part B (the runtime LangGraph system prompt). |
-| `documentation/agent-specs/legacy/zkd_*_agent_v1.0.md` | **Superseded.** Kept for provenance only; each carries a banner saying so. |
-| `documentation/architecture/validation-plan.md` | The 13-finding review of the Round 1 deck. Partially superseded — see its banner. |
-| `iropssim.py` → `iropssim-output.json` | 250,000-case Monte Carlo behind every `sim`-tier number. Fixed seed; `python3 iropssim.py` reproduces the JSON byte-for-byte. |
-| `Amex-workflows.pdf`, `amex-goat-components-2-3.html` | Round 1 supporting artifacts. |
-
-## The canon block is byte-identical across four files — keep it that way
-
-`## A2. FROZEN ARCHITECTURAL FACTS` is asserted identical in all four `*_v2.0.md` files. It is,
-today. Verify after any edit:
-
-```sh
-python3 - <<'PY'
-import hashlib, pathlib
-for f in pathlib.Path('.').glob('documentation/agent-specs/current/*_v2.0.md'):
-    t = f.read_text(encoding='utf-8')
-    b = t[t.index('## A2. FROZEN'):t.index('## A3.')]
-    print(hashlib.sha256(b.encode()).hexdigest()[:16], len(b), f.name)
-PY
-```
-
-All four hashes must match. Never hand-edit one copy — apply one scripted change-set to all four.
-
-## Reproducing the numbers
+## Reproducing the Monte Carlo numbers
 
 ```sh
 python3 iropssim.py | diff - iropssim-output.json    # must be empty
 ```
 
-Read `breadth_vs_allocation` in the output before quoting the recovery levers: the headline
-"portfolio" figure is **two** mechanisms, and the larger one is simply searching more than one
-alternative flight. `closed_without_human_pct` is the `p_intrinsically_complex` assumption restated,
-not a model finding — the sensitivity table now shows this directly.
+`iropssim.py` is the fixed-seed simulation behind every `sim`-tier number in `SOLUTION.md` and
+the deck. See `documentation/design/10-monte-carlo-revision-2026-08.md` for how its
+`p_prediction_lead` parameter was derived from the risk model's own decile lift table, rather
+than assumed.
 
 ## Known limitations, stated plainly
 
-See [`SUBMISSION.md`](documentation/project/SUBMISSION.md#known-limitations-stated-plainly) for the full list. In
-short: the cancellation-risk model (`zkd-risk-model/`) is real and self-trained — see
-[`documentation/design/05-cancellation-risk-model.md`](documentation/design/05-cancellation-risk-model.md) —
-but has no Indian/international historical training data yet and cold-starts those routes to the
-population base rate; payment is mocked, the Android app is a four-screen subset, and DGCA
-duty-of-care thresholds still carry the Round 1 `deck` evidence tier pending a primary-source
-re-check.
+The cancellation-risk model is real and self-trained, but has no Indian/international historical
+training data yet and cold-starts those routes to the population base rate (see
+`SOLUTION.md`'s Prediction & Risk Model section). Payment is mocked throughout. The Flutter app's
+background notifications are a poll, not real push — see `zkd-flutter/lib/background_task.dart`'s
+own comments for the exact reliability caveats (OS-throttled interval, no guarantee under
+aggressive OEM battery optimization).

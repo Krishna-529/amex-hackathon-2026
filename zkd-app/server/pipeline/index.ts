@@ -46,7 +46,7 @@ import { composeConnections, needsOvernight, needsRentalCar } from './compose';
 import { runSaga } from './saga';
 import { narrate } from './narrate';
 import { MAX_REPLANS, MAX_MEMBER_REPLANS, type PipelineRun } from './types';
-import type { DisruptionResolution, Flight, RecoveryTask } from '../domain/types';
+import type { Alt, Booking, DisruptionResolution, Flight, RecoveryTask } from '../domain/types';
 
 export { snapshot, ensureRun, transition } from './journal';
 export type { PipelineSnapshot } from './journal';
@@ -505,6 +505,64 @@ async function strandTask(task: RecoveryTask, note: string): Promise<void> {
   await store.setRecoveryTask(fresh);
 }
 
+/** Six-char uppercase alphanumeric, matching the shape every seeded PNR in
+ *  this codebase already uses (see server/domain/seed.ts) — not a real
+ *  supplier-issued locator, same honesty level as the saga's own `intent:`
+ *  refs, but distinct from the original ticket's PNR since it is a different
+ *  physical ticket. */
+function generatePnr(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let pnr = '';
+  for (let i = 0; i < 6; i += 1) pnr += chars[Math.floor(Math.random() * chars.length)];
+  return pnr;
+}
+
+/**
+ * Turns the saga's chosen `alt` into a real, persisted Flight + Booking once
+ * the recovery has actually CONFIRMED — so the member's Upcoming list shows
+ * the new flight rather than only ever showing the cancelled original. See
+ * design's rebooking-linkage note: one-directional link (new -> old) only.
+ *
+ * No transaction wrapping: a partial write here (Flight created, Booking
+ * insert fails) just leaves an inert orphan Flight that appears in nobody's
+ * schedule (getScheduleForPassenger joins Booking -> Flight), not silent
+ * corruption — unlike createItinerary's multi-row case, there's nothing here
+ * that a crash mid-write could leave inconsistently linked.
+ */
+export async function createReplacementBooking(flight: Flight, booking: Booking, alt: Alt): Promise<void> {
+  const durationMin =
+    alt.departsAt != null && alt.arrivesAt != null
+      ? Math.round((alt.arrivesAt - alt.departsAt) / 60000)
+      : flight.durationMin;
+
+  const newFlight: Flight = {
+    id: `fl${alt.id}`,
+    code: alt.code,
+    from: flight.from,
+    to: flight.to,
+    depISO: alt.departsAt != null ? new Date(alt.departsAt).toISOString() : flight.depISO,
+    durationMin,
+    connectionSlackMinutes: null,
+    hasHardConstraint: flight.hasHardConstraint,
+    hardDeadlineISO: flight.hardDeadlineISO,
+    cancelledInData: false,
+    replacesFlightId: flight.id,
+    replacesFlightCode: flight.code,
+    candidates: { alts: [], hotels: [], cabs: [], cabLegs: [] },
+  };
+  await store.createFlight(newFlight);
+
+  await store.createBooking({
+    flightId: newFlight.id,
+    passengerId: booking.passengerId,
+    seat: booking.seat,
+    pnr: generatePnr(),
+    cabin: alt.cabin,
+    travellerIds: booking.travellerIds,
+    seats: booking.seats,
+  });
+}
+
 /**
  * Runs the saga. The only irreversible thing in this module.
  *
@@ -580,6 +638,7 @@ export async function execute(task: RecoveryTask, resolution: DisruptionResoluti
   if (outcome.state === 'CONFIRMED') {
     fresh.phase = 'booked';
     if (outcome.note) fresh.note = outcome.note;
+    await createReplacementBooking(flight, booking, alt);
   } else {
     fresh.phase = 'handed';
     fresh.note = outcome.note;

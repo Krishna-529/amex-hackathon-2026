@@ -86,6 +86,8 @@ export type FlightSummary = {
   /** tickets, not PNRs — a single booking can cover a party */
   passengerCount: number;
   disruptionPhase: 'none' | 'DECIDING' | 'READY';
+  /** set only on a flight created to replace a cancelled one — the original flight's code */
+  replacesFlightCode?: string;
   /** present only for the signed-in viewer's own booking on this flight */
   booking?: {
     id: string; seat: string; pnr: string; cabin: string; partySize: number;

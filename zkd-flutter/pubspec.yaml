@@ -43,6 +43,12 @@ dependencies:
   intl: ^0.20.2
   flutter_local_notifications: ^20.1.0
 
+  # Runs the schedule poll + notification check from a background isolate so a
+  # disruption notification still fires with the app backgrounded or fully
+  # closed — see lib/background_task.dart and design/08-flutter-notifications.md.
+  workmanager: ^0.9.0+3
+  shared_preferences: ^2.3.3
+
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8

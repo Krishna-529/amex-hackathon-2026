@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../api/client.dart';
 import '../api/models.dart';
+import '../background_task.dart';
 import '../notify.dart';
 import '../util/time.dart';
 
@@ -47,6 +48,7 @@ class World extends ChangeNotifier {
       displayName = me.displayName;
       status = AuthStatus.authenticated;
       _startSchedulePoll();
+      registerBackgroundPoll();
     } else {
       passengerId = null;
       displayName = null;
@@ -56,6 +58,7 @@ class World extends ChangeNotifier {
       _registeredFor = null;
       _scheduleTimer?.cancel();
       _scheduleTimer = null;
+      cancelBackgroundPoll();
     }
     notifyListeners();
   }

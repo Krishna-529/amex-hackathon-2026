@@ -77,3 +77,13 @@ zkd-app/blob-report/
 # the dev server, breaking it on checkout.
 node_modules/
 **/node_modules
+
+# --- Claude Code working notes (per-session dev-workflow docs, not submission
+# content) — kept locally for continued AI-assisted development, untracked so
+# they don't ship in the submission bundle. ---
+/AGENTS.md
+/CLAUDE.md
+/context.md
+/memory.md
+zkd-app/AGENTS.md
+zkd-app/CLAUDE.md

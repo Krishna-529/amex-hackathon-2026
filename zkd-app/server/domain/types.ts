@@ -251,6 +251,18 @@ export type Flight = {
    * which is a recovery already in flight. Cleared by Reset demo (re-seed).
    */
   cancelledInData?: boolean;
+  /**
+   * Set only on a flight created to replace one that was cancelled — the
+   * successful outcome of `server/pipeline/index.ts`'s `execute()`. Both the
+   * id and the denormalized code are stored because the whole Flight is one
+   * JSON column (same rationale as hardDeadlineISO below): storing the code
+   * avoids a second getFlight lookup on every schedule render, and survives
+   * the original row being pruned by demo-reset. One-directional only —
+   * nothing reads "was I replaced" from the original flight's own side, so
+   * no back-reference is added there.
+   */
+  replacesFlightId?: string;
+  replacesFlightCode?: string;
   /** minutes of slack before the onward leg is missed; null when there is none */
   connectionSlackMinutes: number | null;
   /** a late arrival breaks something that matters — an onward leg, a commitment */

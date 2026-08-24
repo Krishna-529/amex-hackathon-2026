@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:workmanager/workmanager.dart';
 
+import 'background_task.dart';
 import 'notify.dart';
 import 'screens/flight_detail.dart';
 import 'screens/flights.dart';
@@ -13,6 +15,10 @@ import 'theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await setupNotifications();
+  // One-time registration of the background isolate's entry point. Actually
+  // scheduling/cancelling the periodic task happens per-session in World, so
+  // a signed-out phone doesn't keep polling a stale cookie.
+  await Workmanager().initialize(callbackDispatcher);
   final world = World();
   // Restores the session from the persisted cookie jar before the first frame
   // decides which route set to show, so a signed-in member does not flash the

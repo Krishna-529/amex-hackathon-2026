@@ -160,6 +160,11 @@ export default function FlightsPage() {
                             Cancelled
                           </span>
                         )}
+                        {f.replacesFlightCode && (
+                          <span className="tag" title={`Rebooked to replace ${f.replacesFlightCode}`}>
+                            Booked on behalf of {f.replacesFlightCode}
+                          </span>
+                        )}
                         {acting && (
                           <span className="tag acting-tag" title={`Risk score ${Math.round(f.forecast!.riskScore!)}/100 — at or above ${ACT_AT_RISK_SCORE}, where we start searching alternatives`}>
                             {Math.round(f.forecast!.riskScore!)}/100 · searching alternatives

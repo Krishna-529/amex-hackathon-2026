@@ -48,6 +48,7 @@ export async function toFlightSummary(
     // Tickets, not PNRs — a single booking can cover a party of six.
     passengerCount: bookings.reduce((n, b) => n + store.partySize(b), 0),
     disruptionPhase: event?.phase ?? 'none',
+    replacesFlightCode: flight.replacesFlightCode,
   };
   if (passengerId) {
     const b = bookings.find((x) => x.passengerId === passengerId);
